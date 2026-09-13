@@ -1,0 +1,35 @@
+# Пример конфигурации агента SuriFleet.
+# Путь: --config или env SURIFLEET_CONFIG.
+# Переопределение через env: SURIFLEET_AGENT_SERVER_ADDR и т.п.
+
+agent:
+  # Адрес Hub-узла сервера (исходящее подключение, mTLS)
+  server_addr: "localhost:8443"
+
+  # mTLS-материал — появляется после enrollment (join token → CSR → сертификат)
+  cert_file: "./data/agent.crt"
+  key_file: "./data/agent.key"
+  ca_file: "./data/ca.crt"
+
+  # Рабочий каталог агента (буферы, журнал обработанных task_id)
+  data_dir: "./data"
+  # Файл лога; пусто → <data_dir>/agent.log
+  log_file: ""
+
+  # Ротация локального лога (lumberjack)
+  log_max_size_mb: 100
+  log_max_backups: 5
+  log_max_age_days: 30
+
+  # Переподключение: exponential backoff backoff_min → ×2 → backoff_max,
+  # полный jitter (защита от reconnect-штормов)
+  backoff_min: "1s"
+  backoff_max: "60s"
+
+  # Интервалы по умолчанию (сервер может переопределить в HelloAck)
+  heartbeat_interval: "30s"
+  state_report_interval: "5m"
+  metrics_interval: "1m"
+
+  # debug | info | warn | error (сервер может менять на лету)
+  log_level: info

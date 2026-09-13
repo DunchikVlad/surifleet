@@ -7,6 +7,17 @@
 
 ### Added
 
+- Чанк 5 (2026-09-13): каркас Go-монорепозитория — `go.mod`
+  (`github.com/surifleet/surifleet`, go 1.22; grpc 1.69.4, protobuf 1.36.5,
+  chi 5.2.1, lumberjack 2.2.1, client_golang 1.20.5, yaml 3.0.1);
+  сгенерированный код из proto в `internal/gen/agent/v1` (коммитится,
+  скрипт `scripts/gen-proto.sh`); `internal/config` (YAML + env-override
+  SURIFLEET_*, Validate); `cmd/server` (флаги --config/--role=api|hub|all,
+  slog JSON, /api/v1/health + /api/v1/version, /metrics promhttp,
+  graceful shutdown); `cmd/agent` (connectLoop с backoff 1s→60s + full
+  jitter, lumberjack-ротация логов в файл + stdout); примеры конфигов
+  `deploy/config/server.example.yaml` и `agent.example.yaml`.
+  go build/vet/gofmt чисто. (server, agent, infra)
 - Чанк 4 (2026-09-13): OpenAPI 3.0.3 спецификация REST API —
   `api/openapi/openapi.yaml` (85 путей, 126 операций, 114 схем): auth+SSO,
   флот и онбординг, правила/фиды/IOC, шаблоны/ruleset/волновой деплой,

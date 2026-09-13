@@ -1,0 +1,31 @@
+# Пример конфигурации сервера SuriFleet.
+# Путь: --config или env SURIFLEET_CONFIG.
+# Переопределение любого параметра через env: SURIFLEET_SERVER_HTTP_ADDR,
+# SURIFLEET_SERVER_S3_ENDPOINT и т.п. (вложенность — через _).
+
+server:
+  # Роль процесса: api | hub | all (один бинарь, роли масштабируются отдельно)
+  role: all
+
+  # REST API (chi) — роль api|all
+  http_addr: ":8080"
+  # gRPC Hub для стримов агентов (mTLS) — роль hub|all
+  grpc_addr: ":8443"
+  # Отдельный listener Prometheus-метрик (все роли)
+  metrics_addr: ":9090"
+
+  postgres_dsn: "postgres://surifleet:surifleet@localhost:5432/surifleet?sslmode=disable"
+  redis_addr: "localhost:6379"
+  nats_url: "nats://localhost:4222"
+  clickhouse_dsn: "clickhouse://localhost:9000/surifleet"
+
+  s3:
+    endpoint: "localhost:9000"
+    bucket: "surifleet-rulesets"
+    use_ssl: false
+    # Ключи ТОЛЬКО через env (в репозиторий не кладём):
+    #   SURIFLEET_SERVER_S3_ACCESS_KEY=minioadmin
+    #   SURIFLEET_SERVER_S3_SECRET_KEY=minioadmin
+
+  # debug | info | warn | error
+  log_level: info

@@ -5,17 +5,18 @@
 
 ## Текущая фаза
 
-**Фаза 1 — Архитектура и контракты** (п. 11 ТЗ, шаги 1–3) — **ЗАВЕРШЕНА**.
-Далее фаза 2 — MVP (п. 11 шаг 4): сервер (Go) + агент (Go) + UI.
+**Фаза 2 — MVP** (п. 11 ТЗ, шаг 4): сервер (Go) + агент (Go) + UI.
+Фаза 1 (архитектура, модель данных, proto, OpenAPI) завершена.
 
 ## Следующий шаг (конкретно)
 
-Чанк 5: каркас Go-монорепозитория — `go.mod` (модуль
-`github.com/surifleet/surifleet`), генерация Go-кода из proto (protoc-gen-go,
-protoc-gen-go-grpc в `.tools/`), `cmd/server/main.go` (роли --role=api|hub|all,
-загрузка конфига, slog, /metrics), `cmd/agent/main.go` (заготовка цикла
-переподключения с backoff+jitter), `internal/config`, `internal/gen`.
-Критерий готовности: `go build ./...` и `go vet ./...` чистые. Затем коммит.
+Чанк 6: сервер — подключение к PostgreSQL (pgx) + запуск миграций
+(golang-migrate) при старте (`--migrate` флаг или автоматически), репозиторий
+первых сущностей (organizations, clusters, hosts), REST-хендлеры CRUD флота
+по openapi.yaml с keyset-пагинацией, middleware скелета авторизации
+(пока заглушка-identity для dev). Критерий: `go build ./...` чисто,
+хендлеры покрыты unit-тестами на уровне валидации (без живой БД — мок
+репозитория). Затем коммит.
 
 ## Сделано
 
@@ -25,7 +26,8 @@ protoc-gen-go-grpc в `.tools/`), `cmd/server/main.go` (роли --role=api|hub|
 | 1 | `docs/architecture.md`: компонентная диаграмма, протокол агент↔сервер (конверт, жизненный цикл, типы сообщений), масштабирование 10k (Hub-узлы, Redis-реестр, NATS fan-out), волновой деплой, desired/actual state, деградация, безопасность | 2066cfd |
 | 2 | `docs/data-model.md` (ER mermaid, 27 таблиц) + миграция `db/migrations/000001_init.up/down.sql`: все сущности п. 11.2 ТЗ, партиционирование audit_log/deploy_events/agent_state_history по месяцам, append-only триггеры audit_log, индексы под матрицу «правила × хосты» и keyset-пагинацию | abd33ee |
 | 3 | `api/proto/agent/v1/agent.proto` + `enrollment.proto` + `docs/protocol.md`: bidi-стрим Channel, конверты с oneof (8 типов агент→сервер, 5 сервер→агент), 7 типов задач, Enrollment по join token + CSR; компиляция проверена protoc 36.1 | 773b382 |
-| 4 | `api/openapi/openapi.yaml` (85 путей, 126 операций, 114 схем; keyset-пагинация, единый Error, bearerAuth+apiKeyAuth, права в description каждой операции) + `docs/api.md` (конвенции); валидация redocly lint — 0 errors | (этот коммит) |
+| 4 | `api/openapi/openapi.yaml` (85 путей, 126 операций, 114 схем; keyset-пагинация, единый Error, bearerAuth+apiKeyAuth, права в description каждой операции) + `docs/api.md` (конвенции); валидация redocly lint — 0 errors | 01eb922 |
+| 5 | Go-каркас: `go.mod` (go 1.22; grpc 1.69.4, protobuf 1.36.5, chi 5.2.1, lumberjack 2.2.1, client_golang 1.20.5), codegen из proto в `internal/gen` (коммитим, скрипт `scripts/gen-proto.sh`), `internal/config` (YAML+env SURIFLEET_*, Validate), `cmd/server` (роли --role, /api/v1/health + /version, /metrics promhttp, graceful shutdown), `cmd/agent` (connectLoop backoff 1s→60s + full jitter, lumberjack-ротация логов), примеры конфигов `deploy/config/*.example.yaml`. go build/vet/gofmt чисто; /health проверен curl-ом | (этот коммит) |
 
 ## Ключевые архитектурные решения
 
@@ -67,15 +69,30 @@ protoc-gen-go-grpc в `.tools/`), `cmd/server/main.go` (роли --role=api|hub|
 
 ## Как поднять окружение
 
-Пока нечего поднимать — фаза документов. Go-тулчейн:
-
 ```bash
 export PATH="$PWD/.tools/go/bin:$PATH"
-go version
+# ВАЖНО на этой машине: temp/cache внутри workspace (см. проблему Defender ниже)
+export GOTMPDIR="$PWD/.tools/tmp" GOCACHE="$PWD/.tools/gocache"
+go build ./...
+# Запуск сервера (нужен живой PG — пока нет; health/version работают без БД):
+go run ./cmd/server --config deploy/config/server.example.yaml
+curl http://localhost:8080/api/v1/health
+# Перегенерация proto:
+./scripts/gen-proto.sh
 ```
 
 ## Известные проблемы / отложенное
 
+- **Windows Defender блокирует линковку server.exe** (ложное срабатывание на
+  граф зависимостей grpc/prometheus: «file contains a virus» при записи
+  a.out.exe). agent.exe и hello-world собираются нормально; `go build ./...`
+  и `go vet ./...` проходят (компиляция пакетов в кэш не блокируется).
+  Ранняя проверка /health прошла до обновления сигнатур. Решение для
+  продолжения разработки: добавить исключение Defender на папку
+  `C:\Users\Professional\Documents\suricata` (требуются права администратора):
+  `Add-MpPreference -ExclusionPath "C:\Users\Professional\Documents\suricata"`
+  — ждём подтверждения пользователя, самостоятельно настройки безопасности
+  не меняем.
 - Миграция 000001 НЕ прогнана через реальный PostgreSQL (на машине нет ни
   сервера, ни Docker) — проверка ручная + механическая. Первым делом при
   появлении окружения: `migrate up` + `migrate down` на тестовой БД.
