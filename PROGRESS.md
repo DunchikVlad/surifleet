@@ -9,16 +9,19 @@
 
 ## Следующий шаг (конкретно)
 
-Чанк 1: написать `docs/architecture.md` — диаграмма компонентов (mermaid),
-схема протокола агент↔сервер (gRPC bidi stream: hello/heartbeat/report/task/ack),
-схема масштабирования на 10k агентов (концентраторы стримов, Redis-реестр,
-маршрутизация задач через NATS). Затем коммит.
+Чанк 2: модель данных — `docs/data-model.md` (ER-диаграмма mermaid + описание
+таблиц) и первая миграция `db/migrations/0001_init.up.sql` / `.down.sql`:
+organizations, clusters, hosts, instances, users, roles, rules, rule_revisions,
+feeds, deploy_templates, ruleset_versions, desired_state, actual_state,
+deployments, agents, incidents, sso_providers, audit_log (партиционирование
+по времени для audit_log/deploy_events/agent_state_history). Затем коммит.
 
 ## Сделано
 
 | Чанк | Содержание | Коммит |
 |---|---|---|
-| 0 | git-репозиторий, структура каталогов, .gitignore, README, живые документы; локальный Go 1.27.1 в `.tools/` | (первый коммит) |
+| 0 | git-репозиторий, структура каталогов, .gitignore, README, живые документы; локальный Go 1.27.1 в `.tools/` | 817cef6 |
+| 1 | `docs/architecture.md`: компонентная диаграмма, протокол агент↔сервер (конверт, жизненный цикл, типы сообщений), масштабирование 10k (Hub-узлы, Redis-реестр, NATS fan-out), волновой деплой, desired/actual state, деградация, безопасность | (этот коммит) |
 
 ## Ключевые архитектурные решения
 
@@ -30,6 +33,17 @@
   MinIO (S3) — content-addressed блобы ruleset'ов.
 - Агент сам устанавливает исходящее соединение (работа за NAT), heartbeat —
   лёгкие сообщения внутри стрима каждые 30 с.
+- Один бинарь сервера, роли процесса `--role=api|hub|all`: API stateless,
+  Hub держит стримы; в docker-compose — `--role=all`.
+- Аффинити агент→Hub не требуется; реестр стримов в Redis
+  (`stream:{agent_id}` → hub_id, TTL 120 с), задачи через NATS subject
+  `tasks.{hub_id}`.
+- Ruleset — content-addressed блоб в S3 (SHA-256), агент кэширует по хэшу,
+  дедупликация между кластерами.
+- Статусы соответствия инстанса: in_sync / pending / partial / drift / stale;
+  расчёт инкрементальный по событиям, сводка из `instance_compliance`.
+- mTLS: встроенный CA в MVP, CN сертификата = agent_id, срок 90 дней,
+  авторотация за 30 дней; enrollment по одноразовому join token + CSR.
 
 ## Как поднять окружение
 
