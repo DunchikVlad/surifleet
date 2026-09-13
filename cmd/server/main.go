@@ -8,7 +8,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -19,10 +18,11 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/go-chi/chi/v5"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	"github.com/surifleet/surifleet/internal/config"
+	"github.com/surifleet/surifleet/internal/httpapi"
+	"github.com/surifleet/surifleet/internal/store"
 )
 
 // Версия и коммит сборки (переопределяются через -ldflags -X).
@@ -33,8 +33,9 @@ var (
 
 func main() {
 	var (
-		configPath = flag.String("config", os.Getenv("SURIFLEET_CONFIG"), "путь к YAML-конфигурации")
-		roleFlag   = flag.String("role", "", "роль процесса: api|hub|all (по умолчанию — из конфига)")
+		configPath  = flag.String("config", os.Getenv("SURIFLEET_CONFIG"), "путь к YAML-конфигурации")
+		roleFlag    = flag.String("role", "", "роль процесса: api|hub|all (по умолчанию — из конфига)")
+		migrateOnly = flag.Bool("migrate-only", false, "только применить миграции PostgreSQL и выйти")
 	)
 	flag.Parse()
 
@@ -62,15 +63,35 @@ func main() {
 		"http_addr", cfg.HTTPAddr, "grpc_addr", cfg.GRPCAddr, "metrics_addr", cfg.MetricsAddr,
 	)
 
-	app := &App{cfg: cfg, log: log}
-
+	// PostgreSQL: пул соединений + автоматические миграции при старте.
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	db, err := store.Connect(ctx, cfg.PostgresDSN)
+	if err != nil {
+		fatal(err)
+	}
+	defer db.Close()
+
+	migVersion, noChange, err := store.Migrate(db.Pool)
+	if err != nil {
+		fatal(fmt.Errorf("миграции: %w", err))
+	}
+	if noChange {
+		log.Info("миграции: изменений нет", "version", migVersion)
+	} else {
+		log.Info("миграции применены", "version", migVersion)
+	}
+	if *migrateOnly {
+		log.Info("режим --migrate-only: завершение")
+		return
+	}
+
+	app := &App{cfg: cfg, log: log, db: db}
+
 	errCh := make(chan error, 2)
 
-	// HTTP API (роль api|all). Реальные зависимости (PostgreSQL, Redis, NATS,
-	// S3) подключаются в следующих чанках — здесь только служебные endpoint'ы.
+	// HTTP API (роль api|all).
 	if cfg.Role == "api" || cfg.Role == "all" {
 		srv := &http.Server{
 			Addr:              cfg.HTTPAddr,
@@ -88,7 +109,7 @@ func main() {
 		log.Info("роль hub: HTTP API отключён")
 	}
 
-	// TODO(chunk 6+): gRPC Hub-стримы агентов (роль hub|all) на cfg.GRPCAddr.
+	// TODO(chunk 8+): gRPC Hub-стримы агентов (роль hub|all) на cfg.GRPCAddr.
 
 	// Метрики Prometheus — отдельный listener для всех ролей.
 	if cfg.MetricsAddr != "" {
@@ -117,39 +138,22 @@ func main() {
 	}
 }
 
-// App — корневой объект сервера: конфигурация, логер и (в следующих чанках)
-// подключения к PostgreSQL/Redis/NATS/S3.
+// App — корневой объект сервера: конфигурация, логер и подключение к БД.
 type App struct {
 	cfg *config.ServerConfig
 	log *slog.Logger
+	db  *store.Store
 }
 
-// routes собирает HTTP-маршруты API v1.
+// routes собирает HTTP-маршруты API v1 (реализация — internal/httpapi).
 func (a *App) routes() http.Handler {
-	r := chi.NewRouter()
-	r.Route("/api/v1", func(r chi.Router) {
-		r.Get("/health", a.handleHealth)
-		r.Get("/version", a.handleVersion)
+	return httpapi.NewRouter(httpapi.Deps{
+		Log:     a.log,
+		Version: version,
+		Commit:  commit,
+		Store:   a.db,
+		PingDB:  a.db.Pool.Ping,
 	})
-	return r
-}
-
-// handleHealth — GET /api/v1/health: живость процесса.
-// Состояние зависимостей появится после их подключения (следующие чанки).
-func (a *App) handleHealth(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{"status": "ok"})
-}
-
-// handleVersion — GET /api/v1/version: версия и коммит сборки.
-func (a *App) handleVersion(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{"version": version, "commit": commit})
-}
-
-// writeJSON пишет JSON-ответ.
-func writeJSON(w http.ResponseWriter, status int, v any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(v)
 }
 
 // shutdownHTTP мягко останавливает HTTP-сервер с таймаутом.

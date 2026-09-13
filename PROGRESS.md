@@ -10,18 +10,18 @@
 
 ## Следующий шаг (конкретно)
 
-Чанк 7: сервер — подключение к PostgreSQL (pgx) + запуск миграций
-(golang-migrate) при старте, репозиторий первых сущностей (organizations,
-clusters, hosts), REST-хендлеры CRUD флота по openapi.yaml с keyset-
-пагинацией, скелет auth-middleware (dev-identity заглушка). Кросс-компиляция
-GOOS=linux, запуск на .28 против живого стека. Критерий: `go build ./...`
-чисто, CRUD работает curl-ом с Windows на .28. Затем коммит.
+Чанк 8: gRPC Hub + агент end-to-end — Enrollment RPC (join token → CSR →
+сертификат; встроенный CA сервера), mTLS на стриме Channel, обработка
+Hello/Heartbeat на Hub, presence в Redis, регистрация агента/хоста в БД,
+цикл переподключения агента с реальным подключением. Установка Suricata
+на 192.168.31.67 — отдельным чанком 9.
 
 ## Сделано (продолжение)
 
 | Чанк | Содержание | Коммит |
 |---|---|---|
-| 6 | Тестовое окружение: Docker 29.1.3 + Compose v2.40.3 на .28; `deploy/docker-compose.yml` (postgres:16-alpine, redis:7-alpine, nats:2.10-alpine -js, clickhouse:24.8-alpine, minio с quay.io + init-бакет surifleet-rulesets); стек healthy (~325 МиБ RAM); миграция 000001 прогнана up/down/up на живом PG (43 отношения: 28 таблиц + 15 партиций); append-only триггер audit_log проверен (UPDATE → ошибка); все сервисы доступны с Windows | (этот коммит) |
+| 6 | Тестовое окружение: Docker 29.1.3 + Compose v2.40.3 на .28; `deploy/docker-compose.yml` (postgres:16-alpine, redis:7-alpine, nats:2.10-alpine -js, clickhouse:24.8-alpine, minio с quay.io + init-бакет surifleet-rulesets); стек healthy (~325 МиБ RAM); миграция 000001 прогнана up/down/up на живом PG (43 отношения: 28 таблиц + 15 партиций); append-only триггер audit_log проверен (UPDATE → ошибка); все сервисы доступны с Windows | 2940139 |
+| 7 | Сервер: `internal/store` (pgx/v5 пул, миграции golang-migrate из embed.FS при старте + --migrate-only, репозитории organizations/clusters/hosts с keyset-пагинацией, маппинг 23505→409/23503→400) + `internal/httpapi` (chi /api/v1 CRUD флота, формат Error по openapi, limit/cursor, middleware request-id/recover/access-log/DevAuth-заглушка X-Dev-User); pgx 5.7.2, migrate 4.18.2, uuid 1.6.0; build/vet/test зелёные (go test прошёл под Windows); живой CRUD проверен curl-ом с Windows на .28 (201/409/400/404/204, next_cursor, health с checks.postgres). Dev-стенд запущен на .28 (PID в ~/surifleet/server.pid, API http://192.168.31.28:8080/api/v1), в БД тестовые org acme/кластер DC-1/хост sensor-01-dc1 | (этот коммит) |
 
 ## Тестовая среда (добавлена в ТЗ п. 13)
 

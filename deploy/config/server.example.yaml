@@ -14,13 +14,17 @@ server:
   # Отдельный listener Prometheus-метрик (все роли)
   metrics_addr: ":9090"
 
-  postgres_dsn: "postgres://surifleet:surifleet@localhost:5432/surifleet?sslmode=disable"
-  redis_addr: "localhost:6379"
-  nats_url: "nats://localhost:4222"
-  clickhouse_dsn: "clickhouse://localhost:9000/surifleet"
+  # Тестовый контур 192.168.31.28 (docker-стек из deploy/docker-compose.yml).
+  # Для сервера, запущенного на самом .28, можно заменить хост на localhost.
+  postgres_dsn: "postgres://surifleet:surifleet_dev@192.168.31.28:5432/surifleet?sslmode=disable"
+  redis_addr: "192.168.31.28:6379"
+  nats_url: "nats://192.168.31.28:4222"
+  # Внимание: нативный порт ClickHouse на .28 опубликован как 9900
+  # (9000 занят MinIO API) — см. deploy/docker-compose.yml.
+  clickhouse_dsn: "clickhouse://192.168.31.28:9900/surifleet"
 
   s3:
-    endpoint: "localhost:9000"
+    endpoint: "192.168.31.28:9000"
     bucket: "surifleet-rulesets"
     use_ssl: false
     # Ключи ТОЛЬКО через env (в репозиторий не кладём):

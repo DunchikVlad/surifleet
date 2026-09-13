@@ -7,6 +7,17 @@
 
 ### Added
 
+- Чанк 7 (2026-09-14): сервер — `internal/store` (pgx/v5 пул, миграции
+  golang-migrate из embed.FS при старте, флаг --migrate-only, репозитории
+  organizations/clusters/hosts с keyset-пагинацией base64-курсором,
+  маппинг ошибок PG 23505→409 conflict / 23503→400) и `internal/httpapi`
+  (chi-роутер /api/v1: CRUD организаций/кластеров/хостов по openapi.yaml,
+  единый формат Error, limit/cursor-пагинация, middleware request-id/
+  recover/access-log/DevAuth-заглушка X-Dev-User с TODO на OIDC).
+  Зависимости: pgx 5.7.2, golang-migrate 4.18.2, google/uuid 1.6.0.
+  build/vet/gofmt/test зелёные; живой CRUD проверен curl-ом с Windows на
+  .28 (201/409/400/404/204, next_cursor, /health с checks.postgres).
+  Dev-стенд запущен на .28. (server, db, api)
 - Чанк 6 (2026-09-14): тестовое окружение на 192.168.31.28 — Docker 29.1.3 +
   Compose v2.40.3 (apt, пользователь test в группе docker);
   `deploy/docker-compose.yml` + `deploy/.env.example`: postgres:16-alpine,
