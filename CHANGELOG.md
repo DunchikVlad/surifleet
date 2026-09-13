@@ -7,6 +7,11 @@
 
 ### Added
 
+- ТЗ дополнено разделом 13 «Тестовая среда»: 192.168.31.28 — серверный
+  контур, 192.168.31.67 — сенсор (Suricata + агент); SSH test/test (+sudo);
+  оба хоста Ubuntu 26.04.1 LTS x86_64. Доступность проверена (ping, SSH,
+  параметры ВМ зафиксированы в PROGRESS.md). SSH-хелпер `.tools/ssh.py`
+  (paramiko). (docs, infra)
 - Чанк 5 (2026-09-13): каркас Go-монорепозитория — `go.mod`
   (`github.com/surifleet/surifleet`, go 1.22; grpc 1.69.4, protobuf 1.36.5,
   chi 5.2.1, lumberjack 2.2.1, client_golang 1.20.5, yaml 3.0.1);
