@@ -1,0 +1,33 @@
+# Локальный тулчейн (не коммитим)
+.tools/
+
+# Go
+/bin/
+/dist/
+*.exe
+*.test
+*.out
+coverage.*
+
+# Node / фронтенд
+node_modules/
+web/dist/
+web/node_modules/
+
+# Локальные данные и секреты
+*.local
+.env
+.env.*
+!.env.example
+data/
+tmp/
+*.log
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+Thumbs.db
+.DS_Store
