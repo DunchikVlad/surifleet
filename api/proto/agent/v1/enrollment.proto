@@ -1,0 +1,54 @@
+// ============================================================================
+// SuriFleet — первичная регистрация агента (enrollment), протокол v1.
+//
+// Отдельный от основного канала unary-RPC по обычному TLS (без клиентского
+// сертификата — его ещё нет): агент предъявляет одноразовый join token,
+// привязанный к кластеру, генерирует ключи, отправляет CSR и получает
+// подписанный сертификат (CN = agent_id, срок 90 дней, авторотация через
+// основной стрим за 30 дней до истечения).
+//
+// Правила эволюции — те же, что в agent.proto: только добавление полей,
+// номера не менять, удаляемое — через reserved.
+// ============================================================================
+syntax = "proto3";
+
+package agent.v1;
+
+option go_package = "github.com/surifleet/surifleet/internal/gen/agent/v1;agentv1";
+
+import "agent/v1/agent.proto";
+
+// Enrollment — сервис первичной регистрации агентов.
+service Enrollment {
+  // Enroll — обмен join token + CSR на сертификат агента и начальный конфиг.
+  // Идемпотентен по join token: повтор с тем же токеном до его погашения
+  // возвращает тот же agent_id (на случай потери ответа сетью).
+  rpc Enroll(EnrollRequest) returns (EnrollResponse);
+}
+
+// EnrollRequest — запрос на регистрацию.
+message EnrollRequest {
+  string join_token = 1;  // одноразовый токен с TTL, привязан к кластеру
+  bytes csr = 2;          // PEM-кодированный PKCS#10 CSR (CN игнорируется, сервер ставит agent_id)
+  HostMeta host = 3;      // метаинформация хоста для карточки хоста
+  // 4–9 зарезервировано.
+}
+
+// HostMeta — метаинформация о хосте при регистрации.
+message HostMeta {
+  string hostname = 1;
+  string os = 2;                     // linux/amd64-дистрибутив, например "ubuntu-22.04"
+  string arch = 3;                   // amd64 | arm64
+  repeated string ip_addresses = 4;  // адреса интерфейсов хоста
+  string agent_version = 5;          // версия устанавливаемого агента
+}
+
+// EnrollResponse — результат регистрации.
+message EnrollResponse {
+  string agent_id = 1;               // UUID агента; CN выданного сертификата
+  bytes certificate = 2;             // PEM, подписанный сертификат агента (срок 90 дней)
+  bytes ca_chain = 3;                // PEM, цепочка CA сервера для проверки Hub
+  repeated string hub_endpoints = 4; // адреса Hub-узлов (host:port) для основного стрима
+  AgentConfig config = 5;            // начальная конфигурация агента
+  // 6–9 зарезервировано.
+}

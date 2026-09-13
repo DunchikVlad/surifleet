@@ -1,0 +1,424 @@
+// ============================================================================
+// SuriFleet — контракт агент↔сервер, протокол v1.
+//
+// Канал: один двунаправленный стрим Channel поверх HTTP/2, TLS обязателен
+// (mTLS: индивидуальный сертификат агента, CN = agent_id). Агент — инициатор
+// исходящего соединения (работает за NAT).
+//
+// Правила эволюции файла (см. docs/protocol.md):
+//   - только добавление новых полей/сообщений с новыми номерами;
+//   - номера полей после публикации НЕ менять и НЕ переиспользовать;
+//   - удаляемые поля помечать `reserved <номер>;` + `reserved "<имя>";`;
+//   - диапазоны номеров, помеченные комментарием «зарезервировано», — под
+//     будущие типы той же категории.
+// ============================================================================
+syntax = "proto3";
+
+package agent.v1;
+
+option go_package = "github.com/surifleet/surifleet/internal/gen/agent/v1;agentv1";
+
+import "google/protobuf/duration.proto";
+import "google/protobuf/timestamp.proto";
+
+// ---------------------------------------------------------------------------
+// Сервис и конверты
+// ---------------------------------------------------------------------------
+
+// AgentChannel — единственный RPC канала агент↔сервер.
+service AgentChannel {
+  // Двунаправленный стрим: агент открывает, первым сообщением шлёт Hello,
+  // далее обмен сообщениями в обе стороны до разрыва.
+  rpc Channel(stream AgentMessage) returns (stream ServerMessage);
+}
+
+// AgentMessage — конверт всех сообщений агент → сервер.
+message AgentMessage {
+  string msg_id = 1;                        // UUID сообщения (для ack/идемпотентности)
+  int64 seq = 2;                            // монотонный номер в рамках сессии (replay-защита)
+  google.protobuf.Timestamp sent_at = 3;    // время отправителя (детект рассинхронизации часов)
+  // Номера 4–9 не используются (зазор под общие поля конверта).
+
+  oneof payload {
+    Hello hello = 10;
+    Heartbeat heartbeat = 11;
+    StateReport state_report = 12;
+    RuleLoadReport rule_load_report = 13;
+    MetricsBatch metrics_batch = 14;
+    LogBatch log_batch = 15;
+    TaskResult task_result = 16;
+    DiscoveryReport discovery_report = 17;
+    // 18–99 зарезервировано под будущие сообщения агента.
+  }
+}
+
+// ServerMessage — конверт всех сообщений сервер → агент.
+message ServerMessage {
+  string msg_id = 1;                        // UUID сообщения
+  int64 seq = 2;                            // монотонный номер в рамках сессии (свой счётчик сервера)
+  google.protobuf.Timestamp sent_at = 3;    // время отправителя
+  // Номера 4–9 не используются (зазор под общие поля конверта).
+
+  oneof payload {
+    HelloAck hello_ack = 10;
+    Task task = 11;
+    TaskCancel task_cancel = 12;
+    LogLevelChange log_level_change = 13;
+    ConfigPush config_push = 14;
+    // 15–99 зарезервировано под будущие сообщения сервера.
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Агент → сервер: жизненный цикл соединения
+// ---------------------------------------------------------------------------
+
+// Hello — первое сообщение стрима: идентификация агента и хоста.
+message Hello {
+  string agent_id = 1;                 // UUID агента (= CN mTLS-сертификата)
+  string agent_version = 2;            // версия агента (semver)
+  int32 protocol_version = 3;          // версия протокола; в этой ревизии = 1
+  string boot_id = 4;                  // уникальный ID загрузки ОС (/proc/sys/kernel/random/boot_id)
+  string hostname = 5;                 // имя хоста (для диагностики)
+  repeated InstanceInfo instances = 6; // инстансы Suricata под управлением агента
+  repeated string capabilities = 7;    // переданные сервером capability (monitoring, rules, ...)
+}
+
+// InstanceInfo — описание инстанса Suricata на хосте.
+message InstanceInfo {
+  string instance_id = 1;                 // UUID инстанса (выдан сервером при онбординге)
+  string name = 2;
+  string suricata_version = 3;
+  string config_path = 4;                 // путь к suricata.yaml
+  string rules_dir = 5;
+  string log_dir = 6;
+  repeated string capture_interfaces = 7;
+  string systemd_unit = 8;
+}
+
+// HelloAck — ответ сервера на Hello: параметры сессии и конфигурация агента.
+message HelloAck {
+  string session_id = 1;                    // UUID сессии; seq обоих направлений считается в её рамках
+  string server_version = 2;                // версия сервера (матрица совместимости агент↔сервер)
+  int32 heartbeat_interval_seconds = 3;     // период heartbeat, по умолчанию 30
+  int32 state_report_interval_seconds = 4;  // период StateReport, по умолчанию 300
+  int32 metrics_interval_seconds = 5;       // период MetricsBatch, по умолчанию 60
+  string log_level = 6;                     // debug | info | warn | error
+  AgentConfig config = 7;                   // полная конфигурация агента (ротация логов и т.п.)
+}
+
+// AgentConfig — настройки самого агента, управляемые с сервера централизованно.
+// Используется в HelloAck, ConfigPush и EnrollResponse (enrollment.proto).
+// Нулевые значения интервалов в ConfigPush означают «не менять текущее».
+message AgentConfig {
+  string log_level = 1;                     // debug | info | warn | error
+  int32 log_max_size_mb = 2;                // ротация локального лога: макс. размер файла, МБ
+  int32 log_max_backups = 3;                // ротация: макс. число архивных файлов
+  google.protobuf.Duration log_max_age = 4; // ротация: макс. возраст архивного файла
+  int32 heartbeat_interval_seconds = 5;     // 0 — не менять
+  int32 state_report_interval_seconds = 6;  // 0 — не менять
+  int32 metrics_interval_seconds = 7;       // 0 — не менять
+}
+
+// ---------------------------------------------------------------------------
+// Агент → сервер: периодические отчёты
+// ---------------------------------------------------------------------------
+
+// Heartbeat — лёгкое сообщение каждые heartbeat_interval_seconds.
+message Heartbeat {
+  string agent_id = 1;
+  int64 uptime_seconds = 2;                 // аптайм агента (не ОС)
+  string agent_version = 3;
+  string suricata_version = 4;              // сводная версия (основного инстанса)
+  ResourceSummary resources = 5;            // сводка ресурсов хоста
+  int64 clock_offset_ms = 6;                // оценка смещения часов агента относительно сервера
+  repeated InstanceServiceStatus instances = 7; // статус сервиса каждого инстанса
+}
+
+// ResourceSummary — сводка ресурсов хоста.
+message ResourceSummary {
+  double cpu_percent = 1;        // загрузка CPU, %
+  int64 mem_bytes = 2;           // занятая память, байт
+  double disk_used_percent = 3;  // заполненность диска с логами, %
+}
+
+// InstanceServiceStatus — состояние systemd-сервиса инстанса Suricata.
+message InstanceServiceStatus {
+  string instance_id = 1;
+  string state = 2;  // active | inactive | failed | reloading (по systemctl)
+  int32 pid = 3;     // 0 — процесс не найден
+}
+
+// StateReport — полный actual state инстанса (после деплоя и периодически).
+// Основа ответа на вопрос «какие правила реально загружены прямо сейчас».
+message StateReport {
+  string instance_id = 1;
+  string ruleset_hash = 2;               // sha256 ruleset-файла на диске
+  repeated LoadedRule loaded_rules = 3;  // загруженные движком правила; пусто при full = false
+  repeated FailedRule failed_rules = 4;  // не загрузившиеся правила (всегда полный список)
+  ReloadResult last_reload = 5;          // результат последнего reload/restart
+  google.protobuf.Timestamp reported_at = 6; // «данные актуальны на» (момент снятия снапшота)
+  bool full = 7;                         // true — loaded_rules полный; false — не изменился с прошлого отчёта (только хэш)
+}
+
+// LoadedRule — правило, успешно загруженное движком Suricata.
+message LoadedRule {
+  int64 sid = 1;
+  int32 rev = 2;
+}
+
+// FailedRule — правило, отклонённое движком, с текстом ошибки парсера.
+message FailedRule {
+  int64 sid = 1;
+  int32 rev = 2;
+  string error_text = 3;
+}
+
+// ReloadResult — итог последней операции reload/restart движка.
+message ReloadResult {
+  ServiceAction action = 1;               // SERVICE_ACTION_RELOAD или SERVICE_ACTION_RESTART
+  bool success = 2;
+  string message = 3;                     // вывод/ошибка при неуспехе
+  google.protobuf.Timestamp finished_at = 4;
+}
+
+// RuleLoadReport — верификация загрузки правил сразу после reload/restart
+// (отдельно от периодического StateReport: оперативный сигнал оркестратору).
+message RuleLoadReport {
+  string instance_id = 1;
+  string ruleset_hash = 2;               // хэш применённого ruleset
+  int32 loaded_count = 3;                // сколько правил загрузил движок
+  repeated FailedRule failed_rules = 4;  // какие не загрузились и почему
+  google.protobuf.Timestamp verified_at = 5;
+}
+
+// MetricsBatch — батч метрик Suricata и хоста (→ ClickHouse).
+message MetricsBatch {
+  repeated MetricPoint points = 1;
+}
+
+// MetricPoint — одна точка метрики.
+message MetricPoint {
+  google.protobuf.Timestamp ts = 1;
+  string instance_id = 2;        // пусто — метрика хоста целиком
+  string name = 3;               // например suricata.kernel_drops, host.cpu_percent
+  double value = 4;
+  map<string, string> labels = 5;
+}
+
+// LogBatch — батч операционных логов агента (at-least-once).
+message LogBatch {
+  repeated LogEntry entries = 1;
+}
+
+// LogEntry — одна запись лога агента.
+message LogEntry {
+  int64 seq = 1;                    // монотонный номер на агенте; дедупликация на сервере по (agent_id, seq)
+  google.protobuf.Timestamp ts = 2;
+  string level = 3;                 // debug | info | warn | error
+  string msg = 4;
+  map<string, string> attrs = 5;    // структурные атрибуты (slog)
+}
+
+// DiscoveryReport — результат автодетекта Suricata при онбординге
+// (показывается пользователю для подтверждения).
+message DiscoveryReport {
+  repeated DiscoveredInstance instances = 1; // найденные инстансы
+  SuricataBinary binary = 2;                 // найденный бинарь suricata
+}
+
+// DiscoveredInstance — обнаруженный инстанс Suricata.
+message DiscoveredInstance {
+  string name = 1;
+  string config_path = 2;                // путь к suricata.yaml
+  string rules_dir = 3;
+  string log_dir = 4;
+  repeated string capture_interfaces = 5;
+  string suricata_version = 6;
+  string build_flags = 7;                // флаги сборки (из suricata --build-info)
+  string systemd_unit = 8;
+}
+
+// SuricataBinary — обнаруженный исполняемый файл Suricata.
+message SuricataBinary {
+  string path = 1;
+  string version = 2;
+  bool built_from_source = 3;  // эвристика: не из пакета deb/rpm
+  string build_info = 4;       // полный вывод --build-info
+}
+
+// ---------------------------------------------------------------------------
+// Агент → сервер: результат задачи
+// ---------------------------------------------------------------------------
+
+// TaskResult — результат выполнения задачи (at-least-once, дедупликация
+// сервером по task_id). Деплой успешен только по факту загрузки правил движком.
+message TaskResult {
+  string task_id = 1;
+  TaskStatus status = 2;
+  string error = 3;               // текст ошибки при failed
+
+  oneof details {
+    DeployRulesResult deploy_rules = 10;
+    DeployConfigResult deploy_config = 11;
+    ServiceActionResult service_action = 12;
+    RollbackResult rollback = 13;
+    BundleResult bundle = 14;
+    AgentUpdateResult agent_update = 15;
+    // 16–49 зарезервировано под результаты будущих типов задач.
+  }
+
+  StateReport state_after = 20;  // снапшот actual state после изменения (если задача меняла состояние)
+}
+
+// TaskStatus — итог выполнения задачи.
+enum TaskStatus {
+  TASK_STATUS_UNSPECIFIED = 0;
+  TASK_STATUS_SUCCESS = 1;
+  TASK_STATUS_FAILED = 2;
+  TASK_STATUS_CANCELLED = 3;
+}
+
+// DeployRulesResult — итог деплоя правил.
+message DeployRulesResult {
+  string ruleset_hash = 1;  // фактически применённый хэш
+  int32 loaded_count = 2;
+  int32 failed_count = 3;
+}
+
+// DeployConfigResult — итог деплоя конфигурации.
+message DeployConfigResult {
+  string config_version = 1;
+  bool validation_passed = 2;    // результат `suricata -T` на агенте
+  string validation_output = 3;  // вывод валидатора (для диагностики)
+}
+
+// ServiceActionResult — итог действия над сервисом.
+message ServiceActionResult {
+  string instance_id = 1;
+  string service_state = 2;  // состояние сервиса после действия (по systemctl)
+}
+
+// RollbackResult — итог отката.
+message RollbackResult {
+  string active_version = 1;  // версия (ruleset/config), ставшая активной после отката
+}
+
+// BundleResult — итог сбора диагностического бандла.
+message BundleResult {
+  string signed_url = 1;  // URL загруженного бандла в S3
+  int64 size_bytes = 2;
+}
+
+// AgentUpdateResult — итог самообновления агента.
+message AgentUpdateResult {
+  string previous_version = 1;
+  string current_version = 2;  // совпадает с заказанной при успехе
+}
+
+// ---------------------------------------------------------------------------
+// Сервер → агент: задачи и управление
+// ---------------------------------------------------------------------------
+
+// Task — задача агенту. Идемпотентна по task_id: агент хранит журнал
+// обработанных task_id и не выполняет повторную доставку дважды.
+message Task {
+  string task_id = 1;                     // UUID задачи
+  google.protobuf.Timestamp deadline = 2; // после срока задача не выполняется, результат — cancelled
+
+  oneof type {
+    DeployRulesTask deploy_rules = 10;
+    DeployConfigTask deploy_config = 11;
+    ServiceActionTask service_action = 12;
+    RollbackTask rollback = 13;
+    CollectBundleTask collect_bundle = 14;
+    AgentUpdateTask agent_update = 15;
+    SetCapabilitiesTask set_capabilities = 16;
+    // 17–49 зарезервировано под будущие типы задач.
+  }
+}
+
+// DeployRulesTask — доставка и применение ruleset на инстансе.
+// Идемпотентен по ruleset_hash: если хэш на диске совпадает, агент только
+// делает reload и отчитывается.
+message DeployRulesTask {
+  string instance_id = 1;
+  string ruleset_version = 2;  // человекочитаемая версия (ruleset_versions.version)
+  string ruleset_hash = 3;     // sha256 content-addressed блоба в S3
+  string signed_url = 4;       // подписанный URL скачивания блоба
+}
+
+// DeployConfigTask — доставка конфигурации suricata.yaml на инстанс.
+message DeployConfigTask {
+  string instance_id = 1;
+  string config_version = 2;
+
+  oneof source {
+    string signed_url = 3;  // скачать из S3
+    string inline_yaml = 4; // небольшие конфиги — прямо в задаче
+  }
+
+  bool validate_only = 5;  // true — только прогнать `suricata -T`, не применять
+}
+
+// ServiceAction — действие над systemd-сервисом инстанса.
+enum ServiceAction {
+  SERVICE_ACTION_UNSPECIFIED = 0;
+  SERVICE_ACTION_RELOAD = 1;
+  SERVICE_ACTION_RESTART = 2;
+  SERVICE_ACTION_STOP = 3;
+  SERVICE_ACTION_START = 4;
+}
+
+// ServiceActionTask — reload/restart/stop/start сервиса инстанса.
+message ServiceActionTask {
+  string instance_id = 1;
+  ServiceAction action = 2;
+}
+
+// RollbackTask — откат на предыдущую рабочую версию правил или конфигурации.
+message RollbackTask {
+  string instance_id = 1;
+
+  oneof target {
+    string ruleset_version = 2;  // откат правил на указанную версию
+    string config_version = 3;   // откат конфигурации на указанную версию
+  }
+}
+
+// CollectBundleTask — сбор диагностического бандла одной кнопкой.
+message CollectBundleTask {
+  bool include_agent_logs = 1;
+  bool include_suricata_logs = 2;
+  bool include_configs = 3;
+  bool include_system_info = 4;
+  string upload_url = 5;  // подписанный URL, куда агент загружает архив
+}
+
+// AgentUpdateTask — самообновление агента волной.
+message AgentUpdateTask {
+  string version = 1;     // целевая версия
+  string signed_url = 2;  // URL нового бинаря
+  string sha256 = 3;      // обязательная проверка целостности перед заменой
+}
+
+// SetCapabilitiesTask — поэтапная передача контроля: целевой набор capability.
+message SetCapabilitiesTask {
+  repeated string capabilities = 1;  // полный целевой набор (monitoring, rules, log_rotation, service_mgmt, packages, config)
+}
+
+// TaskCancel — отмена ранее выданной задачи.
+message TaskCancel {
+  string task_id = 1;
+  string reason = 2;
+}
+
+// LogLevelChange — смена уровня логирования агента на лету, без рестарта.
+message LogLevelChange {
+  string level = 1;  // debug | info | warn | error
+}
+
+// ConfigPush — обновление настроек самого агента (интервалы, ротация логов).
+message ConfigPush {
+  AgentConfig config = 1;  // нулевые поля — не менять
+}

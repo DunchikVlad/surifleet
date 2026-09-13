@@ -7,6 +7,13 @@
 
 ### Added
 
+- Чанк 3 (2026-09-13): gRPC-контракт агент↔сервер —
+  `api/proto/agent/v1/agent.proto` (сервис AgentChannel с bidi-стримом
+  Channel, конверты AgentMessage/ServerMessage с oneof: 8 типов сообщений
+  агента, 5 сервера, 7 типов задач, детали TaskResult), `enrollment.proto`
+  (unary Enroll по join token + CSR), `docs/protocol.md` (семантика
+  seq/session_id, идемпотентность, версионирование, правила эволюции).
+  Компиляция проверена protoc 36.1. (proto, docs)
 - Чанк 2 (2026-09-13): модель данных — `docs/data-model.md` (ER-диаграмма
   mermaid, 27 таблиц, разделы по партиционированию/индексам/retention) и
   миграция `db/migrations/000001_init.up.sql` / `000001_init.down.sql`:

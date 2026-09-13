@@ -9,11 +9,14 @@
 
 ## Следующий шаг (конкретно)
 
-Чанк 3: proto-контракт агент↔сервер — `api/proto/agent/v1/agent.proto` по
-разделу 4 `docs/architecture.md` (Envelope oneof, Hello/Heartbeat/StateReport/
-RuleLoadReport/LogBatch/MetricsBatch/TaskResult/DiscoveryReport + серверные
-HelloAck/Task/TaskCancel/LogLevelChange/ConfigPush, сервис Channel bidi stream
-+ Enrollment RPC). Затем коммит.
+Чанк 4: OpenAPI-спецификация REST API — `api/openapi/openapi.yaml`: auth
+(OIDC flow, локальный логин, refresh, logout), организации/кластеры/хосты/
+инстансы, правила (CRUD, импорт, массовые операции, экспорт), фиды, IOC,
+шаблоны деплоя, ruleset-версии, деплои (создание, pause/resume, откат),
+desired/actual state и статусы соответствия, агенты (статусы, действия,
+логи, бандл), инциденты, пользователи/роли/SSO-провайдеры, аудит-лог,
+API-токены. Keyset-пагинация, единый формат ошибки. Валидация спецификации
+(npx @redocly/cli lint или swagger-parser). Затем коммит.
 
 ## Сделано
 
@@ -21,7 +24,8 @@ HelloAck/Task/TaskCancel/LogLevelChange/ConfigPush, сервис Channel bidi st
 |---|---|---|
 | 0 | git-репозиторий, структура каталогов, .gitignore, README, живые документы; локальный Go 1.27.1 в `.tools/` | 817cef6 |
 | 1 | `docs/architecture.md`: компонентная диаграмма, протокол агент↔сервер (конверт, жизненный цикл, типы сообщений), масштабирование 10k (Hub-узлы, Redis-реестр, NATS fan-out), волновой деплой, desired/actual state, деградация, безопасность | 2066cfd |
-| 2 | `docs/data-model.md` (ER mermaid, 27 таблиц) + миграция `db/migrations/000001_init.up/down.sql`: все сущности п. 11.2 ТЗ, партиционирование audit_log/deploy_events/agent_state_history по месяцам, append-only триггеры audit_log, индексы под матрицу «правила × хосты» и keyset-пагинацию | (этот коммит) |
+| 2 | `docs/data-model.md` (ER mermaid, 27 таблиц) + миграция `db/migrations/000001_init.up/down.sql`: все сущности п. 11.2 ТЗ, партиционирование audit_log/deploy_events/agent_state_history по месяцам, append-only триггеры audit_log, индексы под матрицу «правила × хосты» и keyset-пагинацию | abd33ee |
+| 3 | `api/proto/agent/v1/agent.proto` + `enrollment.proto` + `docs/protocol.md`: bidi-стрим Channel, конверты с oneof (8 типов агент→сервер, 5 сервер→агент), 7 типов задач, Enrollment по join token + CSR; компиляция проверена protoc 36.1 | (этот коммит) |
 
 ## Ключевые архитектурные решения
 
@@ -50,6 +54,11 @@ HelloAck/Task/TaskCancel/LogLevelChange/ConfigPush, сервис Channel bidi st
   instance_id (link-таблица «инстанс × правило» отвергнута — 500M строк);
   дедупликация инцидентов — частичный UNIQUE по fingerprint среди нерешённых;
   enum-подобные поля — text + CHECK, без CREATE TYPE.
+- Протокол v1: StateReport.full=false шлёт только хэш ruleset без списка 50k
+  правил (экономия трафика); failed_rules — всегда; ротация сертификата на
+  MVP — перевыпуск через повторный Enroll; эволюция proto — только добавление
+  полей, резервирование номеров.
+- Тулчейн в `.tools/` (вне git): Go 1.27.1, protoc 36.1.
 
 ## Как поднять окружение
 
