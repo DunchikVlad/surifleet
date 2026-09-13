@@ -7,6 +7,14 @@
 
 ### Added
 
+- Чанк 4 (2026-09-13): OpenAPI 3.0.3 спецификация REST API —
+  `api/openapi/openapi.yaml` (85 путей, 126 операций, 114 схем): auth+SSO,
+  флот и онбординг, правила/фиды/IOC, шаблоны/ruleset/волновой деплой,
+  сводка соответствия флота и матрица «правила × инстансы», агенты/логи/
+  инциденты, конфиг-профили, пользователи/роли/SSO/API-токены/аудит.
+  Keyset-пагинация, единый формат ошибки, bearerAuth + apiKeyAuth.
+  `docs/api.md` — конвенции (пагинация, идемпотентность, эволюция).
+  Валидация redocly lint: 0 errors. (api, docs)
 - Чанк 3 (2026-09-13): gRPC-контракт агент↔сервер —
   `api/proto/agent/v1/agent.proto` (сервис AgentChannel с bidi-стримом
   Channel, конверты AgentMessage/ServerMessage с oneof: 8 типов сообщений

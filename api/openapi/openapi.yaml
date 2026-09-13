@@ -1,0 +1,3318 @@
+# ============================================================================
+# SuriFleet REST API — OpenAPI 3.0.3
+# Все пути под префиксом /api/v1 (см. servers). Конвенции — docs/api.md.
+# Аутентификация: JWT access token (bearerAuth) или API-токен (X-API-Key).
+# Пагинация везде keyset: limit + cursor → {items, next_cursor}.
+# Права указаны в description каждой операции («Требуется право: ...»).
+# ============================================================================
+openapi: 3.0.3
+
+info:
+  title: SuriFleet API
+  version: 0.1.0
+  description: |
+    REST API системы централизованного управления флотом Suricata IDS/IPS.
+    Модель флота: организация → кластер → хост → инстанс Suricata (1..N на хост).
+    Даты — RFC3339 (date-time). Идентификаторы — UUID.
+    Идемпотентность мутирующих POST (деплои, сборка ruleset) — заголовок Idempotency-Key.
+  contact:
+    name: SuriFleet
+  license:
+    name: Proprietary
+
+servers:
+  - url: /api/v1
+    description: Единый префикс API (health/version — тоже здесь, без аутентификации)
+
+tags:
+  - {name: system, description: Служебные endpoint'ы}
+  - {name: auth, description: "Аутентификация, сессии, SSO"}
+  - {name: organizations, description: Организации (тенанты)}
+  - {name: clusters, description: Кластеры}
+  - {name: hosts, description: Хосты и онбординг}
+  - {name: instances, description: Инстансы Suricata}
+  - {name: rules, description: Мастер-репозиторий правил}
+  - {name: feeds, description: Фиды правил и IOC}
+  - {name: iocs, description: Индикаторы компрометации}
+  - {name: deploy_templates, description: Шаблоны таргетинга деплоя}
+  - {name: rulesets, description: Версии ruleset}
+  - {name: deployments, description: Волновой деплой}
+  - {name: fleet, description: Состояние флота и соответствие (требование А)}
+  - {name: agents, description: "Агенты, логи, обновления (требование Б)"}
+  - {name: incidents, description: Инциденты}
+  - {name: config_profiles, description: Профили конфигурации suricata.yaml}
+  - {name: users, description: Пользователи}
+  - {name: roles, description: Роли и разрешения}
+  - {name: sso_providers, description: SSO-провайдеры (OIDC/SAML/LDAP)}
+  - {name: api_tokens, description: API-токены автоматизации}
+  - {name: audit, description: Аудит-лог}
+  - {name: tasks, description: Статус асинхронных задач агентам}
+
+security:
+  - bearerAuth: []
+  - apiKeyAuth: []
+
+paths:
+
+  # --------------------------------------------------------------------------
+  # Служебные
+  # --------------------------------------------------------------------------
+
+  /health:
+    get:
+      operationId: get_health
+      tags: [system]
+      summary: Состояние сервиса и зависимостей
+      security: []
+      responses:
+        '200':
+          description: Сервис жив; components — состояние зависимостей
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Health'}
+        default: {$ref: '#/components/responses/Error'}
+
+  /version:
+    get:
+      operationId: get_version
+      tags: [system]
+      summary: Версия сервера
+      security: []
+      responses:
+        '200':
+          description: Версия и сборка
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Version'}
+        default: {$ref: '#/components/responses/Error'}
+
+  # --------------------------------------------------------------------------
+  # Аутентификация и сессии
+  # --------------------------------------------------------------------------
+
+  /auth/login:
+    post:
+      operationId: login
+      tags: [auth]
+      summary: Локальный вход (email + пароль, в т.ч. break-glass)
+      description: Только для локальных пользователей; SSO-пользователи входят через /auth/sso. Входы break-glass аудируются отдельно.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/LoginRequest'}
+      responses:
+        '200':
+          description: Успешный вход
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/AuthTokens'}
+        default: {$ref: '#/components/responses/Error'}
+
+  /auth/refresh:
+    post:
+      operationId: refresh_tokens
+      tags: [auth]
+      summary: Обновить пару токенов по refresh-токену
+      description: Refresh-токен ротируется; для SSO-пользователей здесь же проверяется активность в IdP.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/RefreshRequest'}
+      responses:
+        '200':
+          description: Новая пара токенов
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/AuthTokens'}
+        default: {$ref: '#/components/responses/Error'}
+
+  /auth/logout:
+    post:
+      operationId: logout
+      tags: [auth]
+      summary: Завершить сессию (отозвать refresh-токен)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/RefreshRequest'}
+      responses:
+        '204': {description: Сессия завершена}
+        default: {$ref: '#/components/responses/Error'}
+
+  /auth/sso/providers:
+    get:
+      operationId: list_sso_providers_public
+      tags: [auth]
+      summary: Публичный список включённых SSO-провайдеров (для страницы логина)
+      security: []
+      responses:
+        '200':
+          description: Список провайдеров
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items: {type: array, items: {$ref: '#/components/schemas/SsoProviderPublic'}}
+        default: {$ref: '#/components/responses/Error'}
+
+  /auth/sso/{provider_id}/start:
+    get:
+      operationId: start_sso_login
+      tags: [auth]
+      summary: Начать вход через SSO (redirect в IdP)
+      description: OIDC Authorization Code + PKCE. Возвращает 302 на authorization endpoint провайдера.
+      security: []
+      parameters:
+        - {name: provider_id, in: path, required: true, schema: {type: string, format: uuid}}
+        - {name: redirect_uri, in: query, description: Куда вернуть пользователя в UI после логина, schema: {type: string}}
+      responses:
+        '302':
+          description: Перенаправление в IdP
+          headers:
+            Location: {schema: {type: string}}
+        default: {$ref: '#/components/responses/Error'}
+
+  /auth/sso/{provider_id}/callback:
+    get:
+      operationId: sso_callback_get
+      tags: [auth]
+      summary: Callback от IdP (GET, code + state)
+      description: Обмен code на токены, JIT-провижининг, маппинг групп в роли. Возвращает 302 в UI с токенами во fragment.
+      security: []
+      parameters:
+        - {name: provider_id, in: path, required: true, schema: {type: string, format: uuid}}
+        - {name: code, in: query, schema: {type: string}}
+        - {name: state, in: query, schema: {type: string}}
+      responses:
+        '302':
+          description: Перенаправление в UI
+          headers:
+            Location: {schema: {type: string}}
+        default: {$ref: '#/components/responses/Error'}
+    post:
+      operationId: sso_callback_post
+      tags: [auth]
+      summary: Callback от IdP (POST, form_post / SAML)
+      description: Альтернативный способ доставки ответа IdP (form_post для OIDC, POST-Binding для SAML). Возвращает пару токенов JSON.
+      security: []
+      parameters:
+        - {name: provider_id, in: path, required: true, schema: {type: string, format: uuid}}
+      requestBody:
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                code: {type: string}
+                state: {type: string}
+                SAMLResponse: {type: string}
+                RelayState: {type: string}
+      responses:
+        '200':
+          description: Пара токенов
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/AuthTokens'}
+        default: {$ref: '#/components/responses/Error'}
+
+  /auth/me:
+    get:
+      operationId: get_current_user
+      tags: [auth]
+      summary: Текущий пользователь, его роли и итоговые разрешения
+      responses:
+        '200':
+          description: Профиль и разрешения
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/CurrentUser'}
+        default: {$ref: '#/components/responses/Error'}
+
+  # --------------------------------------------------------------------------
+  # Флот: организации, кластеры, хосты, инстансы
+  # --------------------------------------------------------------------------
+
+  /organizations:
+    get:
+      operationId: list_organizations
+      tags: [organizations]
+      summary: Список организаций
+      description: "Требуется право: organizations.read"
+      parameters:
+        - {$ref: '#/components/parameters/Limit'}
+        - {$ref: '#/components/parameters/Cursor'}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/OrganizationPage'}
+        default: {$ref: '#/components/responses/Error'}
+    post:
+      operationId: create_organization
+      tags: [organizations]
+      summary: Создать организацию
+      description: "Требуется право: organizations.write"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/OrganizationInput'}
+      responses:
+        '201':
+          description: Создано
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Organization'}
+        default: {$ref: '#/components/responses/Error'}
+
+  /organizations/{id}:
+    parameters:
+      - {$ref: '#/components/parameters/PathId'}
+    get:
+      operationId: get_organization
+      tags: [organizations]
+      summary: Карточка организации
+      description: "Требуется право: organizations.read"
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Organization'}
+        default: {$ref: '#/components/responses/Error'}
+    patch:
+      operationId: update_organization
+      tags: [organizations]
+      summary: Изменить организацию
+      description: "Требуется право: organizations.write"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/OrganizationUpdateInput'}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Organization'}
+        default: {$ref: '#/components/responses/Error'}
+    delete:
+      operationId: delete_organization
+      tags: [organizations]
+      summary: Удалить организацию (каскадно всё содержимое)
+      description: "Требуется право: organizations.write"
+      responses:
+        '204': {description: Удалено}
+        default: {$ref: '#/components/responses/Error'}
+
+  /clusters:
+    get:
+      operationId: list_clusters
+      tags: [clusters]
+      summary: Список кластеров
+      description: "Требуется право: clusters.read"
+      parameters:
+        - {$ref: '#/components/parameters/Limit'}
+        - {$ref: '#/components/parameters/Cursor'}
+        - {name: organization_id, in: query, schema: {type: string, format: uuid}}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ClusterPage'}
+        default: {$ref: '#/components/responses/Error'}
+    post:
+      operationId: create_cluster
+      tags: [clusters]
+      summary: Создать кластер
+      description: "Требуется право: clusters.write"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ClusterInput'}
+      responses:
+        '201':
+          description: Создано
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Cluster'}
+        default: {$ref: '#/components/responses/Error'}
+
+  /clusters/{id}:
+    parameters:
+      - {$ref: '#/components/parameters/PathId'}
+    get:
+      operationId: get_cluster
+      tags: [clusters]
+      summary: Карточка кластера
+      description: "Требуется право: clusters.read"
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Cluster'}
+        default: {$ref: '#/components/responses/Error'}
+    patch:
+      operationId: update_cluster
+      tags: [clusters]
+      summary: Изменить кластер
+      description: "Требуется право: clusters.write"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ClusterUpdateInput'}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Cluster'}
+        default: {$ref: '#/components/responses/Error'}
+    delete:
+      operationId: delete_cluster
+      tags: [clusters]
+      summary: Удалить кластер
+      description: "Требуется право: clusters.write"
+      responses:
+        '204': {description: Удалено}
+        default: {$ref: '#/components/responses/Error'}
+
+  /clusters/{id}/join_tokens:
+    post:
+      operationId: create_join_token
+      tags: [hosts]
+      summary: Создать одноразовый join token для онбординга агентов кластера
+      description: "Требуется право: hosts.write. Токен показывается один раз в ответе; TTL ограничен."
+      parameters:
+        - {$ref: '#/components/parameters/PathId'}
+      requestBody:
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/JoinTokenInput'}
+      responses:
+        '201':
+          description: Токен создан (показан один раз)
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/JoinToken'}
+        default: {$ref: '#/components/responses/Error'}
+
+  /hosts:
+    get:
+      operationId: list_hosts
+      tags: [hosts]
+      summary: Список хостов
+      description: "Требуется право: hosts.read"
+      parameters:
+        - {$ref: '#/components/parameters/Limit'}
+        - {$ref: '#/components/parameters/Cursor'}
+        - {name: cluster_id, in: query, schema: {type: string, format: uuid}}
+        - {name: q, in: query, description: Поиск по hostname/IP, schema: {type: string}}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/HostPage'}
+        default: {$ref: '#/components/responses/Error'}
+    post:
+      operationId: create_host
+      tags: [hosts]
+      summary: Зарегистрировать хост вручную (обычно хост создаётся enrollment'ом)
+      description: "Требуется право: hosts.write"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/HostInput'}
+      responses:
+        '201':
+          description: Создано
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Host'}
+        default: {$ref: '#/components/responses/Error'}
+
+  /hosts/{id}:
+    parameters:
+      - {$ref: '#/components/parameters/PathId'}
+    get:
+      operationId: get_host
+      tags: [hosts]
+      summary: Карточка хоста (с агентом и инстансами)
+      description: "Требуется право: hosts.read"
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/HostDetail'}
+        default: {$ref: '#/components/responses/Error'}
+    patch:
+      operationId: update_host
+      tags: [hosts]
+      summary: Изменить хост (hostname, labels)
+      description: "Требуется право: hosts.write"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/HostUpdateInput'}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Host'}
+        default: {$ref: '#/components/responses/Error'}
+    delete:
+      operationId: delete_host
+      tags: [hosts]
+      summary: Удалить хост (агент отвязывается, инстансы удаляются)
+      description: "Требуется право: hosts.write"
+      responses:
+        '204': {description: Удалено}
+        default: {$ref: '#/components/responses/Error'}
+
+  /hosts/{id}/capabilities:
+    parameters:
+      - {$ref: '#/components/parameters/PathId'}
+    get:
+      operationId: get_host_capabilities
+      tags: [hosts]
+      summary: Capability хоста (6 штук) с учётом наследования от кластера
+      description: "Требуется право: hosts.read. Источник значения: default | cluster | host."
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/CapabilitiesView'}
+        default: {$ref: '#/components/responses/Error'}
+    put:
+      operationId: put_host_capabilities
+      tags: [hosts]
+      summary: Установить capability хоста (поэтапная передача контроля)
+      description: "Требуется право: hosts.write. Передаётся полный целевой набор; изменение фиксируется в аудите, перед деструктивными действиями агент делает бэкап."
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/CapabilitiesInput'}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/CapabilitiesView'}
+        default: {$ref: '#/components/responses/Error'}
+
+  /hosts/{id}/discovery:
+    parameters:
+      - {$ref: '#/components/parameters/PathId'}
+    get:
+      operationId: get_host_discovery
+      tags: [hosts]
+      summary: Последний DiscoveryReport агента (найденные инстансы и бинарь Suricata)
+      description: "Требуется право: hosts.read"
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/DiscoveryReport'}
+        default: {$ref: '#/components/responses/Error'}
+
+  /hosts/{id}/confirm_discovery:
+    post:
+      operationId: confirm_host_discovery
+      tags: [hosts]
+      summary: Подтвердить найденные инстансы — создать их под управлением сервера
+      description: "Требуется право: hosts.write. Принимает подмножество найденных инстансов; создаёт instances и начальное состояние."
+      parameters:
+        - {$ref: '#/components/parameters/PathId'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ConfirmDiscoveryInput'}
+      responses:
+        '201':
+          description: Инстансы созданы
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items: {type: array, items: {$ref: '#/components/schemas/Instance'}}
+        default: {$ref: '#/components/responses/Error'}
+
+  /instances:
+    get:
+      operationId: list_instances
+      tags: [instances]
+      summary: Список инстансов
+      description: "Требуется право: hosts.read"
+      parameters:
+        - {$ref: '#/components/parameters/Limit'}
+        - {$ref: '#/components/parameters/Cursor'}
+        - {name: host_id, in: query, schema: {type: string, format: uuid}}
+        - {name: cluster_id, in: query, schema: {type: string, format: uuid}}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/InstancePage'}
+        default: {$ref: '#/components/responses/Error'}
+    post:
+      operationId: create_instance
+      tags: [instances]
+      summary: Добавить инстанс вручную
+      description: "Требуется право: hosts.write"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/InstanceInput'}
+      responses:
+        '201':
+          description: Создано
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Instance'}
+        default: {$ref: '#/components/responses/Error'}
+
+  /instances/{id}:
+    parameters:
+      - {$ref: '#/components/parameters/PathId'}
+    get:
+      operationId: get_instance
+      tags: [instances]
+      summary: Карточка инстанса
+      description: "Требуется право: hosts.read"
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Instance'}
+        default: {$ref: '#/components/responses/Error'}
+    patch:
+      operationId: update_instance
+      tags: [instances]
+      summary: Изменить инстанс (пути, интерфейсы, systemd unit)
+      description: "Требуется право: hosts.write"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/InstanceUpdateInput'}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Instance'}
+        default: {$ref: '#/components/responses/Error'}
+    delete:
+      operationId: delete_instance
+      tags: [instances]
+      summary: Удалить инстанс из-под управления
+      description: "Требуется право: hosts.write"
+      responses:
+        '204': {description: Удалено}
+        default: {$ref: '#/components/responses/Error'}
+
+  # --------------------------------------------------------------------------
+  # Правила
+  # --------------------------------------------------------------------------
+
+  /rules:
+    get:
+      operationId: list_rules
+      tags: [rules]
+      summary: Список правил мастер-репозитория
+      description: "Требуется право: rules.read. Фильтры комбинируются (AND)."
+      parameters:
+        - {$ref: '#/components/parameters/Limit'}
+        - {$ref: '#/components/parameters/Cursor'}
+        - {name: status, in: query, schema: {type: string, enum: [enabled, disabled, expired, under_review, deleted]}}
+        - {name: category, in: query, schema: {type: string}}
+        - {name: tag, in: query, schema: {type: string}}
+        - {name: source, in: query, description: 'Источник: file | feed', schema: {type: string, enum: [file, feed]}}
+        - {name: sid, in: query, schema: {type: integer, format: int64}}
+        - {name: q, in: query, description: Поиск по msg, schema: {type: string}}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/RulePage'}
+        default: {$ref: '#/components/responses/Error'}
+    post:
+      operationId: create_rule
+      tags: [rules]
+      summary: Создать правило вручную
+      description: "Требуется право: rules.write. Сырой текст парсится и валидируется; создаётся первая ревизия."
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/RuleInput'}
+      responses:
+        '201':
+          description: Создано
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Rule'}
+        default: {$ref: '#/components/responses/Error'}
+
+  /rules/{id}:
+    parameters:
+      - {$ref: '#/components/parameters/PathId'}
+    get:
+      operationId: get_rule
+      tags: [rules]
+      summary: Карточка правила
+      description: "Требуется право: rules.read"
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Rule'}
+        default: {$ref: '#/components/responses/Error'}
+    patch:
+      operationId: update_rule
+      tags: [rules]
+      summary: "Изменить правило (тюнинг аналитика: status, priority, threshold, теги)"
+      description: "Требуется право: rules.write. Тюнинг сохраняется между ревизиями фида."
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/RuleUpdateInput'}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Rule'}
+        default: {$ref: '#/components/responses/Error'}
+    delete:
+      operationId: delete_rule
+      tags: [rules]
+      summary: Удалить правило (перевод в статус deleted)
+      description: "Требуется право: rules.write"
+      responses:
+        '204': {description: Удалено}
+        default: {$ref: '#/components/responses/Error'}
+
+  /rules/import:
+    post:
+      operationId: import_rules
+      tags: [rules]
+      summary: Импорт правил из файла или текста
+      description: "Требуется право: rules.write. Парсинг и валидация при импорте; существующие sid обновляются новой ревизией, тюнинг аналитика сохраняется."
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file: {type: string, format: binary, description: Файл .rules}
+                category: {type: string}
+          application/json:
+            schema:
+              type: object
+              required: [text]
+              properties:
+                text: {type: string, description: Содержимое .rules}
+                category: {type: string}
+      responses:
+        '200':
+          description: Статистика импорта
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ImportResult'}
+        default: {$ref: '#/components/responses/Error'}
+
+  /rules/bulk:
+    post:
+      operationId: bulk_rules
+      tags: [rules]
+      summary: Массовая операция над правилами
+      description: "Требуется право: rules.write. Цель — список ids или фильтр; действия: enable | disable | delete | set_priority | add_tag | remove_tag."
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/BulkRequest'}
+      responses:
+        '200':
+          description: Число затронутых правил
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/BulkResult'}
+        default: {$ref: '#/components/responses/Error'}
+
+  /rules/export:
+    post:
+      operationId: export_rules
+      tags: [rules]
+      summary: Экспорт правил (text | stix | dataset)
+      description: "Требуется право: rules.read. Формат: text — .rules, stix — STIX 2.1 bundle, dataset — Suricata Dataset."
+      parameters:
+        - {name: format, in: query, required: true, schema: {type: string, enum: [text, stix, dataset]}}
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                ids: {type: array, items: {type: string, format: uuid}}
+                filter: {$ref: '#/components/schemas/RuleFilter'}
+      responses:
+        '200':
+          description: Файл экспорта
+          content:
+            text/plain: {}
+            application/json: {}
+        default: {$ref: '#/components/responses/Error'}
+
+  /rules/{id}/revisions:
+    parameters:
+      - {$ref: '#/components/parameters/PathId'}
+    get:
+      operationId: list_rule_revisions
+      tags: [rules]
+      summary: Ревизии правила (sid + revision + raw + хэш)
+      description: "Требуется право: rules.read"
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/RuleRevisionPage'}
+        default: {$ref: '#/components/responses/Error'}
+
+  /rules/{id}/history:
+    parameters:
+      - {$ref: '#/components/parameters/PathId'}
+    get:
+      operationId: get_rule_history
+      tags: [rules]
+      summary: История изменений правила (тюнинг, статусы, импорты)
+      description: "Требуется право: rules.read"
+      parameters:
+        - {$ref: '#/components/parameters/Limit'}
+        - {$ref: '#/components/parameters/Cursor'}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/RuleHistoryPage'}
+        default: {$ref: '#/components/responses/Error'}
+
+  # --------------------------------------------------------------------------
+  # Фиды
+  # --------------------------------------------------------------------------
+
+  /feeds:
+    get:
+      operationId: list_feeds
+      tags: [feeds]
+      summary: Список фидов
+      description: "Требуется право: feeds.read"
+      parameters:
+        - {$ref: '#/components/parameters/Limit'}
+        - {$ref: '#/components/parameters/Cursor'}
+        - {name: type, in: query, schema: {type: string, enum: [et_open, et_pro, taxii, stix, misp, generic]}}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/FeedPage'}
+        default: {$ref: '#/components/responses/Error'}
+    post:
+      operationId: create_feed
+      tags: [feeds]
+      summary: Подключить фид
+      description: "Требуется право: feeds.write. Креды (credentials) — write-only, хранятся шифрованно."
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/FeedInput'}
+      responses:
+        '201':
+          description: Создано
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Feed'}
+        default: {$ref: '#/components/responses/Error'}
+
+  /feeds/{id}:
+    parameters:
+      - {$ref: '#/components/parameters/PathId'}
+    get:
+      operationId: get_feed
+      tags: [feeds]
+      summary: Карточка фида
+      description: "Требуется право: feeds.read"
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Feed'}
+        default: {$ref: '#/components/responses/Error'}
+    patch:
+      operationId: update_feed
+      tags: [feeds]
+      summary: Изменить фид
+      description: "Требуется право: feeds.write"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/FeedUpdateInput'}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Feed'}
+        default: {$ref: '#/components/responses/Error'}
+    delete:
+      operationId: delete_feed
+      tags: [feeds]
+      summary: Отключить и удалить фид
+      description: "Требуется право: feeds.write. Импортированные правила остаются (source=feed, feed_id → NULL)."
+      responses:
+        '204': {description: Удалено}
+        default: {$ref: '#/components/responses/Error'}
+
+  /feeds/{id}/sync:
+    post:
+      operationId: sync_feed
+      tags: [feeds]
+      summary: Запустить синхронизацию фида вне расписания
+      description: "Требуется право: feeds.write"
+      parameters:
+        - {$ref: '#/components/parameters/PathId'}
+      responses:
+        '202':
+          description: Синхронизация запущена
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/FeedRun'}
+        default: {$ref: '#/components/responses/Error'}
+
+  /feeds/{id}/runs:
+    parameters:
+      - {$ref: '#/components/parameters/PathId'}
+    get:
+      operationId: list_feed_runs
+      tags: [feeds]
+      summary: История запусков синхронизации
+      description: "Требуется право: feeds.read"
+      parameters:
+        - {$ref: '#/components/parameters/Limit'}
+        - {$ref: '#/components/parameters/Cursor'}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/FeedRunPage'}
+        default: {$ref: '#/components/responses/Error'}
+
+  # --------------------------------------------------------------------------
+  # IOC
+  # --------------------------------------------------------------------------
+
+  /iocs:
+    get:
+      operationId: list_iocs
+      tags: [iocs]
+      summary: Список IOC
+      description: "Требуется право: iocs.read"
+      parameters:
+        - {$ref: '#/components/parameters/Limit'}
+        - {$ref: '#/components/parameters/Cursor'}
+        - {name: type, in: query, schema: {type: string, enum: [ip, domain, url, md5, sha1, sha256, email]}}
+        - {name: status, in: query, schema: {type: string, enum: [active, under_review, expired, revoked]}}
+        - {name: source, in: query, description: Источник (имя фида или ручной), schema: {type: string}}
+        - {name: q, in: query, description: Поиск по значению, schema: {type: string}}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/IocPage'}
+        default: {$ref: '#/components/responses/Error'}
+    post:
+      operationId: create_ioc
+      tags: [iocs]
+      summary: Создать IOC вручную
+      description: "Требуется право: iocs.write"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/IocInput'}
+      responses:
+        '201':
+          description: Создано
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Ioc'}
+        default: {$ref: '#/components/responses/Error'}
+
+  /iocs/{id}:
+    parameters:
+      - {$ref: '#/components/parameters/PathId'}
+    get:
+      operationId: get_ioc
+      tags: [iocs]
+      summary: Карточка IOC
+      description: "Требуется право: iocs.read"
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Ioc'}
+        default: {$ref: '#/components/responses/Error'}
+    patch:
+      operationId: update_ioc
+      tags: [iocs]
+      summary: Изменить IOC (скоринг, статус, срок жизни)
+      description: "Требуется право: iocs.write"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/IocUpdateInput'}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Ioc'}
+        default: {$ref: '#/components/responses/Error'}
+    delete:
+      operationId: delete_ioc
+      tags: [iocs]
+      summary: Удалить IOC
+      description: "Требуется право: iocs.write"
+      responses:
+        '204': {description: Удалено}
+        default: {$ref: '#/components/responses/Error'}
+
+  /iocs/{id}/deploy:
+    post:
+      operationId: deploy_ioc
+      tags: [iocs]
+      summary: Задеплоить IOC (автогенерация правила и включение в ruleset)
+      description: "Требуется право: iocs.deploy"
+      parameters:
+        - {$ref: '#/components/parameters/PathId'}
+      responses:
+        '202':
+          description: Деплой поставлен в очередь
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/TaskInfo'}
+        default: {$ref: '#/components/responses/Error'}
+
+  /iocs/import:
+    post:
+      operationId: import_iocs
+      tags: [iocs]
+      summary: Импорт IOC списком (JSON или CSV-текст)
+      description: "Требуется право: iocs.write"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [items]
+              properties:
+                source: {type: string}
+                items:
+                  type: array
+                  items: {$ref: '#/components/schemas/IocInput'}
+          text/csv:
+            schema: {type: string, description: 'CSV: type,value,score,expires_at'}
+      responses:
+        '200':
+          description: Статистика импорта
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ImportResult'}
+        default: {$ref: '#/components/responses/Error'}
+
+  # --------------------------------------------------------------------------
+  # Деплой и состояние (ключевое требование А)
+  # --------------------------------------------------------------------------
+
+  /deploy_templates:
+    get:
+      operationId: list_deploy_templates
+      tags: [deploy_templates]
+      summary: Список шаблонов деплоя
+      description: "Требуется право: deployments.read"
+      parameters:
+        - {$ref: '#/components/parameters/Limit'}
+        - {$ref: '#/components/parameters/Cursor'}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/DeployTemplatePage'}
+        default: {$ref: '#/components/responses/Error'}
+    post:
+      operationId: create_deploy_template
+      tags: [deploy_templates]
+      summary: Создать шаблон деплоя
+      description: "Требуется право: deployments.write"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/DeployTemplateInput'}
+      responses:
+        '201':
+          description: Создано
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/DeployTemplate'}
+        default: {$ref: '#/components/responses/Error'}
+
+  /deploy_templates/{id}:
+    parameters:
+      - {$ref: '#/components/parameters/PathId'}
+    get:
+      operationId: get_deploy_template
+      tags: [deploy_templates]
+      summary: Карточка шаблона
+      description: "Требуется право: deployments.read"
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/DeployTemplate'}
+        default: {$ref: '#/components/responses/Error'}
+    patch:
+      operationId: update_deploy_template
+      tags: [deploy_templates]
+      summary: Изменить шаблон
+      description: "Требуется право: deployments.write"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/DeployTemplateInput'}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/DeployTemplate'}
+        default: {$ref: '#/components/responses/Error'}
+    delete:
+      operationId: delete_deploy_template
+      tags: [deploy_templates]
+      summary: Удалить шаблон
+      description: "Требуется право: deployments.write"
+      responses:
+        '204': {description: Удалено}
+        default: {$ref: '#/components/responses/Error'}
+
+  /rulesets:
+    get:
+      operationId: list_rulesets
+      tags: [rulesets]
+      summary: Список версий ruleset
+      description: "Требуется право: deployments.read"
+      parameters:
+        - {$ref: '#/components/parameters/Limit'}
+        - {$ref: '#/components/parameters/Cursor'}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/RulesetPage'}
+        default: {$ref: '#/components/responses/Error'}
+    post:
+      operationId: build_ruleset
+      tags: [rulesets]
+      summary: Собрать версию ruleset из выбранных правил (блоб → S3)
+      description: "Требуется право: deployments.write. Идемпотентно по заголовку Idempotency-Key; одинаковый состав даёт тот же sha256 (content-addressed)."
+      parameters:
+        - {$ref: '#/components/parameters/IdempotencyKey'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/RulesetBuildInput'}
+      responses:
+        '201':
+          description: Версия собрана
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/RulesetVersion'}
+        default: {$ref: '#/components/responses/Error'}
+
+  /rulesets/{id}:
+    parameters:
+      - {$ref: '#/components/parameters/PathId'}
+    get:
+      operationId: get_ruleset
+      tags: [rulesets]
+      summary: Карточка версии ruleset (состав, манифест)
+      description: "Требуется право: deployments.read"
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/RulesetVersionDetail'}
+        default: {$ref: '#/components/responses/Error'}
+
+  /deployments:
+    get:
+      operationId: list_deployments
+      tags: [deployments]
+      summary: Список деплоев
+      description: "Требуется право: deployments.read"
+      parameters:
+        - {$ref: '#/components/parameters/Limit'}
+        - {$ref: '#/components/parameters/Cursor'}
+        - {name: status, in: query, schema: {type: string, enum: [pending, running, paused, completed, failed, cancelled]}}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/DeploymentPage'}
+        default: {$ref: '#/components/responses/Error'}
+    post:
+      operationId: create_deployment
+      tags: [deployments]
+      summary: Создать волновой деплой ruleset
+      description: "Требуется право: deployments.create. Идемпотентно по заголовку Idempotency-Key. Канарейка — первая волна; провал волны → auto-pause + инцидент."
+      parameters:
+        - {$ref: '#/components/parameters/IdempotencyKey'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/DeploymentInput'}
+      responses:
+        '201':
+          description: Деплой создан
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Deployment'}
+        default: {$ref: '#/components/responses/Error'}
+
+  /deployments/{id}:
+    parameters:
+      - {$ref: '#/components/parameters/PathId'}
+    get:
+      operationId: get_deployment
+      tags: [deployments]
+      summary: Карточка деплоя с прогрессом по волнам
+      description: "Требуется право: deployments.read"
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Deployment'}
+        default: {$ref: '#/components/responses/Error'}
+
+  /deployments/{id}/pause:
+    post:
+      operationId: pause_deployment
+      tags: [deployments]
+      summary: Приостановить деплой после текущей волны
+      description: "Требуется право: deployments.control"
+      parameters:
+        - {$ref: '#/components/parameters/PathId'}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Deployment'}
+        default: {$ref: '#/components/responses/Error'}
+
+  /deployments/{id}/resume:
+    post:
+      operationId: resume_deployment
+      tags: [deployments]
+      summary: Продолжить приостановленный деплой
+      description: "Требуется право: deployments.control"
+      parameters:
+        - {$ref: '#/components/parameters/PathId'}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Deployment'}
+        default: {$ref: '#/components/responses/Error'}
+
+  /deployments/{id}/cancel:
+    post:
+      operationId: cancel_deployment
+      tags: [deployments]
+      summary: Отменить деплой (невыданные задачи отменяются)
+      description: "Требуется право: deployments.control"
+      parameters:
+        - {$ref: '#/components/parameters/PathId'}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Deployment'}
+        default: {$ref: '#/components/responses/Error'}
+
+  /deployments/{id}/rollback:
+    post:
+      operationId: rollback_deployment
+      tags: [deployments]
+      summary: "Откат: создать обратный деплой на предыдущую рабочую версию"
+      description: "Требуется право: deployments.control. Возвращает новый деплой-откат на затронутые инстансы."
+      parameters:
+        - {$ref: '#/components/parameters/PathId'}
+        - {$ref: '#/components/parameters/IdempotencyKey'}
+      responses:
+        '201':
+          description: Создан деплой-откат
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Deployment'}
+        default: {$ref: '#/components/responses/Error'}
+
+  /deployments/{id}/tasks:
+    parameters:
+      - {$ref: '#/components/parameters/PathId'}
+    get:
+      operationId: list_deployment_tasks
+      tags: [deployments]
+      summary: Задачи деплоя по инстансам
+      description: "Требуется право: deployments.read"
+      parameters:
+        - {$ref: '#/components/parameters/Limit'}
+        - {$ref: '#/components/parameters/Cursor'}
+        - {name: status, in: query, schema: {type: string, enum: [pending, sent, running, succeeded, failed, cancelled, skipped]}}
+        - {name: wave, in: query, schema: {type: integer}}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/DeploymentTaskPage'}
+        default: {$ref: '#/components/responses/Error'}
+
+  /fleet/compliance:
+    get:
+      operationId: get_fleet_compliance
+      tags: [fleet]
+      summary: Глобальная сводка флота по статусам соответствия с drill-down
+      description: "Требуется право: fleet.read. Без фильтра status возвращает только сводку; с фильтром — страницу инстансов этого статуса. Цель производительности: < 2 с на 10k инстансов."
+      parameters:
+        - {name: cluster_id, in: query, schema: {type: string, format: uuid}}
+        - {name: status, in: query, description: Drill-down по статусу, schema: {type: string, enum: [in_sync, pending, partial, drift, stale]}}
+        - {$ref: '#/components/parameters/Limit'}
+        - {$ref: '#/components/parameters/Cursor'}
+      responses:
+        '200':
+          description: Сводка + опциональная страница инстансов
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/FleetCompliance'}
+        default: {$ref: '#/components/responses/Error'}
+
+  /instances/{id}/state:
+    parameters:
+      - {$ref: '#/components/parameters/PathId'}
+    get:
+      operationId: get_instance_state
+      tags: [fleet]
+      summary: Desired vs actual состояние инстанса, статус соответствия и diff
+      description: "Требуется право: fleet.read. Включает reported_at — «данные актуальны на»."
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/InstanceState'}
+        default: {$ref: '#/components/responses/Error'}
+
+  /instances/{id}/deploy_history:
+    parameters:
+      - {$ref: '#/components/parameters/PathId'}
+    get:
+      operationId: get_instance_deploy_history
+      tags: [fleet]
+      summary: История деплоев инстанса (версия, время, инициатор, результат)
+      description: "Требуется право: fleet.read"
+      parameters:
+        - {$ref: '#/components/parameters/Limit'}
+        - {$ref: '#/components/parameters/Cursor'}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/DeployHistoryPage'}
+        default: {$ref: '#/components/responses/Error'}
+
+  /matrix/rules:
+    get:
+      operationId: get_rules_matrix
+      tags: [fleet]
+      summary: Матрица «правила × инстансы» (виртуализированная, keyset по обоим измерениям)
+      description: "Требуется право: fleet.read. Ячейка — статус правила на инстансе: loaded | failed | missing | extra. Независимые курсоры по осям."
+      parameters:
+        - {name: rule_status, in: query, description: Фильтр правил по статусу в репозитории, schema: {type: string, enum: [enabled, disabled, expired, under_review, deleted]}}
+        - {name: category, in: query, schema: {type: string}}
+        - {name: sid, in: query, schema: {type: integer, format: int64}}
+        - {name: cluster_id, in: query, schema: {type: string, format: uuid}}
+        - {name: cell_status, in: query, description: Только ячейки со статусом, schema: {type: string, enum: [loaded, failed, missing, extra]}}
+        - {name: rule_cursor, in: query, description: Keyset-курсор по оси правил, schema: {type: string}}
+        - {name: instance_cursor, in: query, description: Keyset-курсор по оси инстансов, schema: {type: string}}
+        - {name: limit, in: query, schema: {type: integer, default: 100, minimum: 1, maximum: 1000}}
+      responses:
+        '200':
+          description: Оси и страница ячеек
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/RulesMatrix'}
+        default: {$ref: '#/components/responses/Error'}
+
+  # --------------------------------------------------------------------------
+  # Агенты и инциденты (ключевое требование Б)
+  # --------------------------------------------------------------------------
+
+  /agents:
+    get:
+      operationId: list_agents
+      tags: [agents]
+      summary: Список агентов
+      description: "Требуется право: agents.read"
+      parameters:
+        - {$ref: '#/components/parameters/Limit'}
+        - {$ref: '#/components/parameters/Cursor'}
+        - {name: status, in: query, schema: {type: string, enum: [online, degraded, offline, updating, error]}}
+        - {name: version, in: query, description: Версия агента, schema: {type: string}}
+        - {name: cluster_id, in: query, schema: {type: string, format: uuid}}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/AgentPage'}
+        default: {$ref: '#/components/responses/Error'}
+
+  /agents/{id}:
+    parameters:
+      - {$ref: '#/components/parameters/PathId'}
+    get:
+      operationId: get_agent
+      tags: [agents]
+      summary: Карточка агента (версии, сертификат, статус, last seen)
+      description: "Требуется право: agents.read"
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Agent'}
+        default: {$ref: '#/components/responses/Error'}
+
+  /agents/{id}/actions/restart:
+    post:
+      operationId: restart_agent
+      tags: [agents]
+      summary: Перезапустить агента
+      description: "Требуется право: agents.actions. Возвращает задачу; статус — GET /tasks/{task_id}."
+      parameters:
+        - {$ref: '#/components/parameters/PathId'}
+      responses:
+        '202':
+          description: Задача выдана
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/TaskInfo'}
+        default: {$ref: '#/components/responses/Error'}
+
+  /agents/{id}/actions/redeploy:
+    post:
+      operationId: redeploy_agent
+      tags: [agents]
+      summary: Повторный деплой текущего desired state на хост
+      description: "Требуется право: agents.actions"
+      parameters:
+        - {$ref: '#/components/parameters/PathId'}
+      responses:
+        '202':
+          description: Задача выдана
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/TaskInfo'}
+        default: {$ref: '#/components/responses/Error'}
+
+  /agents/{id}/actions/rollback:
+    post:
+      operationId: rollback_agent
+      tags: [agents]
+      summary: Откат правил/конфигурации на хосте на предыдущую рабочую версию
+      description: "Требуется право: agents.actions"
+      parameters:
+        - {$ref: '#/components/parameters/PathId'}
+      responses:
+        '202':
+          description: Задача выдана
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/TaskInfo'}
+        default: {$ref: '#/components/responses/Error'}
+
+  /agents/{id}/actions/collect_bundle:
+    post:
+      operationId: collect_agent_bundle
+      tags: [agents]
+      summary: Собрать диагностический бандл одной кнопкой
+      description: "Требуется право: agents.actions. В результате задачи — signed_url архива."
+      parameters:
+        - {$ref: '#/components/parameters/PathId'}
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                include_agent_logs: {type: boolean, default: true}
+                include_suricata_logs: {type: boolean, default: true}
+                include_configs: {type: boolean, default: true}
+                include_system_info: {type: boolean, default: true}
+      responses:
+        '202':
+          description: Задача выдана
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/TaskInfo'}
+        default: {$ref: '#/components/responses/Error'}
+
+  /agents/{id}/actions/update:
+    post:
+      operationId: update_agent
+      tags: [agents]
+      summary: Обновить агента на целевую версию
+      description: "Требуется право: agents.update"
+      parameters:
+        - {$ref: '#/components/parameters/PathId'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [target_version]
+              properties:
+                target_version: {type: string}
+      responses:
+        '202':
+          description: Задача выдана
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/TaskInfo'}
+        default: {$ref: '#/components/responses/Error'}
+
+  /agents/update_wave:
+    post:
+      operationId: create_agent_update_wave
+      tags: [agents]
+      summary: Массовое обновление агентов волнами (canary + batch)
+      description: "Требуется право: agents.update. Идемпотентно по Idempotency-Key."
+      parameters:
+        - {$ref: '#/components/parameters/IdempotencyKey'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/UpdateWaveInput'}
+      responses:
+        '201':
+          description: Волна обновления создана
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/UpdateWave'}
+        default: {$ref: '#/components/responses/Error'}
+
+  /agents/{id}/logs:
+    parameters:
+      - {$ref: '#/components/parameters/PathId'}
+    get:
+      operationId: get_agent_logs
+      tags: [agents]
+      summary: Операционные логи агента (из ClickHouse)
+      description: "Требуется право: agents.logs. Фильтры по уровню, периоду, операции; полнотекстовый поиск q."
+      parameters:
+        - {$ref: '#/components/parameters/Limit'}
+        - {$ref: '#/components/parameters/Cursor'}
+        - {name: level, in: query, schema: {type: string, enum: [debug, info, warn, error]}}
+        - {name: from, in: query, schema: {type: string, format: date-time}}
+        - {name: to, in: query, schema: {type: string, format: date-time}}
+        - {name: operation, in: query, description: "Тип операции (deploy, reload, rollback, ...)", schema: {type: string}}
+        - {name: q, in: query, description: Поиск по тексту, schema: {type: string}}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/AgentLogPage'}
+        default: {$ref: '#/components/responses/Error'}
+
+  /agents/log_level:
+    put:
+      operationId: set_agents_log_level
+      tags: [agents]
+      summary: Установить уровень логирования на кластер/хост/агент (без рестарта)
+      description: "Требуется право: agents.actions. Ровно один из cluster_id/host_id/agent_id."
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/LogLevelInput'}
+      responses:
+        '200':
+          description: Применено (число затронутых агентов)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  affected: {type: integer}
+        default: {$ref: '#/components/responses/Error'}
+
+  /agents/compatibility:
+    get:
+      operationId: get_agents_compatibility
+      tags: [agents]
+      summary: Матрица совместимости агент↔сервер
+      description: "Требуется право: agents.read"
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/CompatibilityView'}
+        default: {$ref: '#/components/responses/Error'}
+
+  /incidents:
+    get:
+      operationId: list_incidents
+      tags: [incidents]
+      summary: Список инцидентов
+      description: "Требуется право: incidents.read"
+      parameters:
+        - {$ref: '#/components/parameters/Limit'}
+        - {$ref: '#/components/parameters/Cursor'}
+        - {name: status, in: query, schema: {type: string, enum: [open, ack, resolved]}}
+        - {name: severity, in: query, schema: {type: string, enum: [info, warning, critical]}}
+        - {name: type, in: query, schema: {type: string}}
+        - {name: host_id, in: query, schema: {type: string, format: uuid}}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/IncidentPage'}
+        default: {$ref: '#/components/responses/Error'}
+
+  /incidents/{id}:
+    parameters:
+      - {$ref: '#/components/parameters/PathId'}
+    get:
+      operationId: get_incident
+      tags: [incidents]
+      summary: Карточка инцидента (контекст, рекомендация)
+      description: "Требуется право: incidents.read"
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Incident'}
+        default: {$ref: '#/components/responses/Error'}
+
+  /incidents/{id}/ack:
+    post:
+      operationId: ack_incident
+      tags: [incidents]
+      summary: Подтвердить инцидент (взят в работу)
+      description: "Требуется право: incidents.write"
+      parameters:
+        - {$ref: '#/components/parameters/PathId'}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Incident'}
+        default: {$ref: '#/components/responses/Error'}
+
+  /incidents/{id}/resolve:
+    post:
+      operationId: resolve_incident
+      tags: [incidents]
+      summary: Закрыть инцидент
+      description: "Требуется право: incidents.write"
+      parameters:
+        - {$ref: '#/components/parameters/PathId'}
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                comment: {type: string}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Incident'}
+        default: {$ref: '#/components/responses/Error'}
+
+  # --------------------------------------------------------------------------
+  # Конфигурации
+  # --------------------------------------------------------------------------
+
+  /config_profiles:
+    get:
+      operationId: list_config_profiles
+      tags: [config_profiles]
+      summary: Список профилей конфигурации
+      description: "Требуется право: config.read"
+      parameters:
+        - {$ref: '#/components/parameters/Limit'}
+        - {$ref: '#/components/parameters/Cursor'}
+        - {name: scope_type, in: query, schema: {type: string, enum: [cluster, host, instance]}}
+        - {name: scope_id, in: query, schema: {type: string, format: uuid}}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ConfigProfilePage'}
+        default: {$ref: '#/components/responses/Error'}
+    post:
+      operationId: create_config_profile
+      tags: [config_profiles]
+      summary: Создать профиль конфигурации
+      description: "Требуется право: config.write. Наследование: кластер → хост → инстанс (parent_id)."
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ConfigProfileInput'}
+      responses:
+        '201':
+          description: Создано
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ConfigProfile'}
+        default: {$ref: '#/components/responses/Error'}
+
+  /config_profiles/{id}:
+    parameters:
+      - {$ref: '#/components/parameters/PathId'}
+    get:
+      operationId: get_config_profile
+      tags: [config_profiles]
+      summary: Карточка профиля
+      description: "Требуется право: config.read"
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ConfigProfile'}
+        default: {$ref: '#/components/responses/Error'}
+    patch:
+      operationId: update_config_profile
+      tags: [config_profiles]
+      summary: Изменить профиль (создаёт новую версию)
+      description: "Требуется право: config.write"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ConfigProfileUpdateInput'}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ConfigProfile'}
+        default: {$ref: '#/components/responses/Error'}
+    delete:
+      operationId: delete_config_profile
+      tags: [config_profiles]
+      summary: Удалить профиль
+      description: "Требуется право: config.write"
+      responses:
+        '204': {description: Удалено}
+        default: {$ref: '#/components/responses/Error'}
+
+  /config_profiles/{id}/render:
+    parameters:
+      - {$ref: '#/components/parameters/PathId'}
+    get:
+      operationId: render_config_profile
+      tags: [config_profiles]
+      summary: Отрендерить итоговый suricata.yaml для цели с учётом наследования
+      description: "Требуется право: config.read"
+      parameters:
+        - {name: target, in: query, required: true, description: instance_id цели, schema: {type: string, format: uuid}}
+      responses:
+        '200':
+          description: Итоговый конфиг и цепочка источников
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/RenderResult'}
+        default: {$ref: '#/components/responses/Error'}
+
+  /config_profiles/{id}/validate:
+    post:
+      operationId: validate_config_profile
+      tags: [config_profiles]
+      summary: Валидация `suricata -T` на агенте до применения
+      description: "Требуется право: config.write. Асинхронно: задача агенту validate_only; результат — GET /tasks/{task_id}."
+      parameters:
+        - {$ref: '#/components/parameters/PathId'}
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                instance_id: {type: string, format: uuid, description: На каком инстансе валидировать; по умолчанию — canary-инстанс}
+      responses:
+        '202':
+          description: Валидация запущена
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/TaskInfo'}
+        default: {$ref: '#/components/responses/Error'}
+
+  /config_profiles/{id}/versions:
+    parameters:
+      - {$ref: '#/components/parameters/PathId'}
+    get:
+      operationId: list_config_profile_versions
+      tags: [config_profiles]
+      summary: История версий профиля
+      description: "Требуется право: config.read"
+      parameters:
+        - {$ref: '#/components/parameters/Limit'}
+        - {$ref: '#/components/parameters/Cursor'}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ConfigProfileVersionPage'}
+        default: {$ref: '#/components/responses/Error'}
+
+  /config_profiles/{id}/versions/diff:
+    parameters:
+      - {$ref: '#/components/parameters/PathId'}
+    get:
+      operationId: diff_config_profile_versions
+      tags: [config_profiles]
+      summary: Diff двух версий профиля (unified diff)
+      description: "Требуется право: config.read"
+      parameters:
+        - {name: from, in: query, required: true, schema: {type: integer}}
+        - {name: to, in: query, required: true, schema: {type: integer}}
+      responses:
+        '200':
+          description: Unified diff
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/DiffResult'}
+        default: {$ref: '#/components/responses/Error'}
+
+  /config_profiles/{id}/rollback:
+    post:
+      operationId: rollback_config_profile
+      tags: [config_profiles]
+      summary: Откат профиля на указанную версию (создаёт новую версию)
+      description: "Требуется право: config.write"
+      parameters:
+        - {$ref: '#/components/parameters/PathId'}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [version]
+              properties:
+                version: {type: integer}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ConfigProfile'}
+        default: {$ref: '#/components/responses/Error'}
+
+  # --------------------------------------------------------------------------
+  # Администрирование: пользователи, роли, SSO, токены, аудит
+  # --------------------------------------------------------------------------
+
+  /users:
+    get:
+      operationId: list_users
+      tags: [users]
+      summary: Список пользователей
+      description: "Требуется право: users.read"
+      parameters:
+        - {$ref: '#/components/parameters/Limit'}
+        - {$ref: '#/components/parameters/Cursor'}
+        - {name: q, in: query, description: Поиск по email/имени, schema: {type: string}}
+        - {name: is_active, in: query, schema: {type: boolean}}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/UserPage'}
+        default: {$ref: '#/components/responses/Error'}
+    post:
+      operationId: create_user
+      tags: [users]
+      summary: Создать локального пользователя
+      description: "Требуется право: users.write. SSO-пользователи создаются автоматически (JIT) при первом входе."
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/UserInput'}
+      responses:
+        '201':
+          description: Создано
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/User'}
+        default: {$ref: '#/components/responses/Error'}
+
+  /users/{id}:
+    parameters:
+      - {$ref: '#/components/parameters/PathId'}
+    get:
+      operationId: get_user
+      tags: [users]
+      summary: Карточка пользователя (с ролями и scoping)
+      description: "Требуется право: users.read"
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/User'}
+        default: {$ref: '#/components/responses/Error'}
+    patch:
+      operationId: update_user
+      tags: [users]
+      summary: Изменить пользователя (активность, роли)
+      description: "Требуется право: users.write"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/UserUpdateInput'}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/User'}
+        default: {$ref: '#/components/responses/Error'}
+    delete:
+      operationId: delete_user
+      tags: [users]
+      summary: Удалить пользователя
+      description: "Требуется право: users.write. Break-glass администратор не может быть удалён последним."
+      responses:
+        '204': {description: Удалено}
+        default: {$ref: '#/components/responses/Error'}
+
+  /users/{id}/revoke_sessions:
+    post:
+      operationId: revoke_user_sessions
+      tags: [users]
+      summary: Отозвать все сессии пользователя (принудительный logout)
+      description: "Требуется право: users.write"
+      parameters:
+        - {$ref: '#/components/parameters/PathId'}
+      responses:
+        '204': {description: Сессии отозваны}
+        default: {$ref: '#/components/responses/Error'}
+
+  /roles:
+    get:
+      operationId: list_roles
+      tags: [roles]
+      summary: Список ролей (встроенные + кастомные)
+      description: "Требуется право: roles.read"
+      parameters:
+        - {$ref: '#/components/parameters/Limit'}
+        - {$ref: '#/components/parameters/Cursor'}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/RolePage'}
+        default: {$ref: '#/components/responses/Error'}
+    post:
+      operationId: create_role
+      tags: [roles]
+      summary: Создать кастомную роль
+      description: "Требуется право: roles.write. permissions — массив строк вида rules.read."
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/RoleInput'}
+      responses:
+        '201':
+          description: Создано
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Role'}
+        default: {$ref: '#/components/responses/Error'}
+
+  /roles/{id}:
+    parameters:
+      - {$ref: '#/components/parameters/PathId'}
+    get:
+      operationId: get_role
+      tags: [roles]
+      summary: Карточка роли
+      description: "Требуется право: roles.read"
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Role'}
+        default: {$ref: '#/components/responses/Error'}
+    patch:
+      operationId: update_role
+      tags: [roles]
+      summary: Изменить кастомную роль
+      description: "Требуется право: roles.write. Встроенные роли неизменяемы."
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/RoleInput'}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Role'}
+        default: {$ref: '#/components/responses/Error'}
+    delete:
+      operationId: delete_role
+      tags: [roles]
+      summary: Удалить кастомную роль
+      description: "Требуется право: roles.write"
+      responses:
+        '204': {description: Удалено}
+        default: {$ref: '#/components/responses/Error'}
+
+  /sso_providers:
+    get:
+      operationId: list_sso_providers
+      tags: [sso_providers]
+      summary: Список SSO-провайдеров организации
+      description: "Требуется право: sso.read"
+      parameters:
+        - {$ref: '#/components/parameters/Limit'}
+        - {$ref: '#/components/parameters/Cursor'}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/SsoProviderPage'}
+        default: {$ref: '#/components/responses/Error'}
+    post:
+      operationId: create_sso_provider
+      tags: [sso_providers]
+      summary: Подключить SSO-провайдера (OIDC/SAML/LDAP)
+      description: "Требуется право: sso.write. Секреты (client_secret и т.п.) — write-only, хранятся шифрованно и никогда не возвращаются."
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/SsoProviderInput'}
+      responses:
+        '201':
+          description: Создано
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/SsoProvider'}
+        default: {$ref: '#/components/responses/Error'}
+
+  /sso_providers/{id}:
+    parameters:
+      - {$ref: '#/components/parameters/PathId'}
+    get:
+      operationId: get_sso_provider
+      tags: [sso_providers]
+      summary: Карточка провайдера (без секретов)
+      description: "Требуется право: sso.read"
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/SsoProvider'}
+        default: {$ref: '#/components/responses/Error'}
+    patch:
+      operationId: update_sso_provider
+      tags: [sso_providers]
+      summary: Изменить провайдера
+      description: "Требуется право: sso.write"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/SsoProviderUpdateInput'}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/SsoProvider'}
+        default: {$ref: '#/components/responses/Error'}
+    delete:
+      operationId: delete_sso_provider
+      tags: [sso_providers]
+      summary: Удалить провайдера
+      description: "Требуется право: sso.write. Пользователи провайдера деактивируются."
+      responses:
+        '204': {description: Удалено}
+        default: {$ref: '#/components/responses/Error'}
+
+  /api_tokens:
+    get:
+      operationId: list_api_tokens
+      tags: [api_tokens]
+      summary: Список API-токенов
+      description: "Требуется право: tokens.read"
+      parameters:
+        - {$ref: '#/components/parameters/Limit'}
+        - {$ref: '#/components/parameters/Cursor'}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ApiTokenPage'}
+        default: {$ref: '#/components/responses/Error'}
+    post:
+      operationId: create_api_token
+      tags: [api_tokens]
+      summary: Выпустить API-токен
+      description: "Требуется право: tokens.write. Значение токена возвращается один раз в поле token."
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ApiTokenInput'}
+      responses:
+        '201':
+          description: Токен создан (значение показано один раз)
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ApiTokenCreated'}
+        default: {$ref: '#/components/responses/Error'}
+
+  /api_tokens/{id}:
+    parameters:
+      - {$ref: '#/components/parameters/PathId'}
+    delete:
+      operationId: revoke_api_token
+      tags: [api_tokens]
+      summary: Отозвать API-токен
+      description: "Требуется право: tokens.write"
+      responses:
+        '204': {description: Отозван}
+        default: {$ref: '#/components/responses/Error'}
+
+  /audit_log:
+    get:
+      operationId: list_audit_log
+      tags: [audit]
+      summary: Аудит-лог (append-only, поиск и фильтрация)
+      description: "Требуется право: audit.read. Keyset по (created_at, id); порядок — от новых к старым."
+      parameters:
+        - {$ref: '#/components/parameters/Limit'}
+        - {$ref: '#/components/parameters/Cursor'}
+        - {name: actor, in: query, description: email/имя актора или id, schema: {type: string}}
+        - {name: action, in: query, description: 'Например: rules.create', schema: {type: string}}
+        - {name: object_type, in: query, schema: {type: string}}
+        - {name: result, in: query, schema: {type: string, enum: [success, denied, error]}}
+        - {name: from, in: query, schema: {type: string, format: date-time}}
+        - {name: to, in: query, schema: {type: string, format: date-time}}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/AuditLogPage'}
+        default: {$ref: '#/components/responses/Error'}
+
+  /audit_log/export:
+    get:
+      operationId: export_audit_log
+      tags: [audit]
+      summary: Экспорт аудит-лога за период (CSV или JSON)
+      description: "Требуется право: audit.read"
+      parameters:
+        - {name: from, in: query, required: true, schema: {type: string, format: date-time}}
+        - {name: to, in: query, required: true, schema: {type: string, format: date-time}}
+        - {name: format, in: query, schema: {type: string, enum: [csv, json], default: csv}}
+      responses:
+        '200':
+          description: Файл экспорта
+          content:
+            text/csv: {}
+            application/json: {}
+        default: {$ref: '#/components/responses/Error'}
+
+  # --------------------------------------------------------------------------
+  # Асинхронные задачи агентам
+  # --------------------------------------------------------------------------
+
+  /tasks/{id}:
+    parameters:
+      - {$ref: '#/components/parameters/PathId'}
+    get:
+      operationId: get_task
+      tags: [tasks]
+      summary: Статус асинхронной задачи агенту (результат actions/*, validate и т.п.)
+      description: "Требуется право: agents.read"
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/TaskInfo'}
+        default: {$ref: '#/components/responses/Error'}
+
+# ============================================================================
+# Компоненты
+# ============================================================================
+components:
+
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Короткоживущий access token (JWT)
+    apiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: API-токен автоматизации (scopes при выпуске)
+
+  parameters:
+    Limit:
+      name: limit
+      in: query
+      description: Размер страницы (keyset)
+      schema: {type: integer, default: 100, minimum: 1, maximum: 1000}
+    Cursor:
+      name: cursor
+      in: query
+      description: Keyset-курсор из поля next_cursor предыдущего ответа
+      schema: {type: string}
+    PathId:
+      name: id
+      in: path
+      required: true
+      description: UUID ресурса
+      schema: {type: string, format: uuid}
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      description: Ключ идемпотентности (UUID); повтор с тем же ключом возвращает исходный результат
+      schema: {type: string}
+
+  responses:
+    Error:
+      description: Единый формат ошибки
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+
+  schemas:
+
+    # ------ Общие ------
+
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code: {type: string, description: 'Машиночитаемый код: validation_failed | unauthorized | forbidden | not_found | conflict | rate_limited | internal | ...'}
+            message: {type: string, description: Человекочитаемое описание}
+            details: {type: object, description: "Контекст ошибки (поля формы, причина отказа)", nullable: true}
+
+    Health:
+      type: object
+      properties:
+        status: {type: string, enum: [ok, degraded]}
+        version: {type: string}
+        components:
+          type: object
+          description: 'Состояние зависимостей: ok | degraded | down'
+          properties:
+            postgres: {type: string}
+            redis: {type: string}
+            nats: {type: string}
+            s3: {type: string}
+            clickhouse: {type: string}
+
+    Version:
+      type: object
+      properties:
+        version: {type: string}
+        commit: {type: string}
+        build_date: {type: string}
+        min_supported_agent_version: {type: string}
+
+    TaskInfo:
+      type: object
+      description: Статус асинхронной задачи агенту
+      properties:
+        task_id: {type: string, format: uuid}
+        type: {type: string}
+        status: {type: string, enum: [pending, sent, running, succeeded, failed, cancelled]}
+        error: {type: string, nullable: true}
+        result: {type: object, nullable: true, description: 'Детали результата, напр. {"signed_url": "..."} для бандла'}
+        created_at: {type: string, format: date-time}
+        finished_at: {type: string, format: date-time, nullable: true}
+
+    # ------ Аутентификация ------
+
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email: {type: string, format: email}
+        password: {type: string, format: password}
+
+    RefreshRequest:
+      type: object
+      required: [refresh_token]
+      properties:
+        refresh_token: {type: string}
+
+    AuthTokens:
+      type: object
+      properties:
+        access_token: {type: string}
+        refresh_token: {type: string}
+        token_type: {type: string, example: Bearer}
+        expires_in: {type: integer, description: "Срок жизни access token, секунды"}
+
+    SsoProviderPublic:
+      type: object
+      properties:
+        id: {type: string, format: uuid}
+        name: {type: string}
+        type: {type: string, enum: [oidc, saml, ldap]}
+
+    CurrentUser:
+      type: object
+      properties:
+        user: {$ref: '#/components/schemas/User'}
+        roles: {type: array, items: {$ref: '#/components/schemas/Role'}}
+        permissions: {type: array, items: {type: string}, description: 'Итоговый набор разрешений: rules.read, deployments.create, ...'}
+
+    # ------ Флот ------
+
+    Organization:
+      type: object
+      properties:
+        id: {type: string, format: uuid}
+        name: {type: string}
+        slug: {type: string}
+        description: {type: string, nullable: true}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+
+    OrganizationInput:
+      type: object
+      required: [name, slug]
+      properties:
+        name: {type: string}
+        slug: {type: string}
+        description: {type: string}
+
+    OrganizationUpdateInput:
+      type: object
+      properties:
+        name: {type: string}
+        description: {type: string}
+
+    Cluster:
+      type: object
+      properties:
+        id: {type: string, format: uuid}
+        organization_id: {type: string, format: uuid}
+        name: {type: string}
+        description: {type: string, nullable: true}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+
+    ClusterInput:
+      type: object
+      required: [organization_id, name]
+      properties:
+        organization_id: {type: string, format: uuid}
+        name: {type: string}
+        description: {type: string}
+
+    ClusterUpdateInput:
+      type: object
+      properties:
+        name: {type: string}
+        description: {type: string}
+
+    Host:
+      type: object
+      properties:
+        id: {type: string, format: uuid}
+        cluster_id: {type: string, format: uuid}
+        hostname: {type: string}
+        ip_addresses: {type: array, items: {type: string}}
+        os: {type: string, nullable: true}
+        labels: {type: object, additionalProperties: {type: string}}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+
+    HostDetail:
+      allOf:
+        - {$ref: '#/components/schemas/Host'}
+        - type: object
+          properties:
+            agent: {$ref: '#/components/schemas/Agent'}
+            instances: {type: array, items: {$ref: '#/components/schemas/Instance'}}
+
+    HostInput:
+      type: object
+      required: [cluster_id, hostname]
+      properties:
+        cluster_id: {type: string, format: uuid}
+        hostname: {type: string}
+        ip_addresses: {type: array, items: {type: string}}
+        os: {type: string}
+        labels: {type: object, additionalProperties: {type: string}}
+
+    HostUpdateInput:
+      type: object
+      properties:
+        hostname: {type: string}
+        labels: {type: object, additionalProperties: {type: string}}
+
+    Instance:
+      type: object
+      properties:
+        id: {type: string, format: uuid}
+        host_id: {type: string, format: uuid}
+        name: {type: string}
+        config_path: {type: string}
+        rules_dir: {type: string}
+        log_dir: {type: string}
+        capture_interfaces: {type: array, items: {type: string}}
+        suricata_version: {type: string, nullable: true}
+        systemd_unit: {type: string, nullable: true}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+
+    InstanceInput:
+      type: object
+      required: [host_id, name, config_path, rules_dir, log_dir]
+      properties:
+        host_id: {type: string, format: uuid}
+        name: {type: string}
+        config_path: {type: string}
+        rules_dir: {type: string}
+        log_dir: {type: string}
+        capture_interfaces: {type: array, items: {type: string}}
+        systemd_unit: {type: string}
+
+    InstanceUpdateInput:
+      type: object
+      properties:
+        name: {type: string}
+        config_path: {type: string}
+        rules_dir: {type: string}
+        log_dir: {type: string}
+        capture_interfaces: {type: array, items: {type: string}}
+        systemd_unit: {type: string}
+
+    CapabilityItem:
+      type: object
+      properties:
+        capability: {type: string, enum: [monitoring, rules, log_rotation, service_mgmt, packages, config]}
+        enabled: {type: boolean}
+        source: {type: string, enum: [default, cluster, host], description: Откуда унаследовано значение}
+
+    CapabilitiesView:
+      type: object
+      properties:
+        host_id: {type: string, format: uuid}
+        capabilities: {type: array, items: {$ref: '#/components/schemas/CapabilityItem'}}
+
+    CapabilitiesInput:
+      type: object
+      required: [capabilities]
+      properties:
+        capabilities:
+          type: array
+          description: Полный целевой набор (отсутствующие capability считаются отключёнными)
+          items:
+            type: object
+            required: [capability, enabled]
+            properties:
+              capability: {type: string, enum: [monitoring, rules, log_rotation, service_mgmt, packages, config]}
+              enabled: {type: boolean}
+
+    JoinTokenInput:
+      type: object
+      properties:
+        ttl_seconds: {type: integer, default: 3600, maximum: 86400}
+        comment: {type: string}
+
+    JoinToken:
+      type: object
+      properties:
+        token: {type: string, description: Показывается один раз}
+        cluster_id: {type: string, format: uuid}
+        expires_at: {type: string, format: date-time}
+        created_at: {type: string, format: date-time}
+
+    DiscoveredInstance:
+      type: object
+      properties:
+        name: {type: string}
+        config_path: {type: string}
+        rules_dir: {type: string}
+        log_dir: {type: string}
+        capture_interfaces: {type: array, items: {type: string}}
+        suricata_version: {type: string}
+        build_flags: {type: string}
+        systemd_unit: {type: string}
+
+    DiscoveryReport:
+      type: object
+      properties:
+        host_id: {type: string, format: uuid}
+        received_at: {type: string, format: date-time}
+        instances: {type: array, items: {$ref: '#/components/schemas/DiscoveredInstance'}}
+        binary:
+          type: object
+          properties:
+            path: {type: string}
+            version: {type: string}
+            built_from_source: {type: boolean}
+
+    ConfirmDiscoveryInput:
+      type: object
+      required: [instances]
+      properties:
+        instances:
+          type: array
+          description: Подмножество найденных инстансов, подтверждённое пользователем
+          items: {$ref: '#/components/schemas/DiscoveredInstance'}
+
+    # ------ Правила, фиды, IOC ------
+
+    Rule:
+      type: object
+      properties:
+        id: {type: string, format: uuid}
+        organization_id: {type: string, format: uuid}
+        sid: {type: integer, format: int64}
+        msg: {type: string, nullable: true}
+        category: {type: string, nullable: true}
+        tags: {type: array, items: {type: string}}
+        status: {type: string, enum: [enabled, disabled, expired, under_review, deleted]}
+        priority: {type: integer, nullable: true, description: Тюнинг аналитика}
+        threshold: {type: object, nullable: true, description: Тюнинг аналитика (threshold/suppress)}
+        source_type: {type: string, enum: [file, feed]}
+        feed_id: {type: string, format: uuid, nullable: true}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+
+    RuleInput:
+      type: object
+      required: [raw]
+      properties:
+        raw: {type: string, description: Сырой текст правила (sid берётся из него)}
+        category: {type: string}
+        tags: {type: array, items: {type: string}}
+        status: {type: string, enum: [enabled, disabled, under_review], default: under_review}
+        priority: {type: integer}
+        threshold: {type: object}
+
+    RuleUpdateInput:
+      type: object
+      properties:
+        category: {type: string}
+        tags: {type: array, items: {type: string}}
+        status: {type: string, enum: [enabled, disabled, expired, under_review, deleted]}
+        priority: {type: integer}
+        threshold: {type: object}
+
+    RuleFilter:
+      type: object
+      properties:
+        status: {type: string, enum: [enabled, disabled, expired, under_review, deleted]}
+        category: {type: string}
+        tag: {type: string}
+        source: {type: string, enum: [file, feed]}
+        feed_id: {type: string, format: uuid}
+
+    RuleRevision:
+      type: object
+      properties:
+        id: {type: string, format: uuid}
+        rule_id: {type: string, format: uuid}
+        sid: {type: integer, format: int64}
+        revision: {type: integer}
+        raw: {type: string}
+        hash: {type: string, description: sha256}
+        created_at: {type: string, format: date-time}
+
+    RuleHistoryItem:
+      type: object
+      properties:
+        ts: {type: string, format: date-time}
+        actor_name: {type: string, nullable: true}
+        action: {type: string, description: 'import | tune | status_change | feed_update | ...'}
+        details: {type: object, nullable: true}
+
+    ImportResult:
+      type: object
+      properties:
+        imported: {type: integer, description: Новых объектов}
+        updated: {type: integer, description: Обновлено существующих}
+        skipped: {type: integer}
+        errors: {type: array, items: {type: string}, description: Строки с ошибками парсинга}
+
+    BulkRequest:
+      type: object
+      required: [action]
+      properties:
+        ids: {type: array, items: {type: string, format: uuid}, description: Явный список; приоритетнее filter}
+        filter: {$ref: '#/components/schemas/RuleFilter'}
+        action: {type: string, enum: [enable, disable, delete, set_priority, add_tag, remove_tag]}
+        params:
+          type: object
+          description: 'Параметры действия: {"priority": 1} или {"tag": "c2"}'
+          properties:
+            priority: {type: integer}
+            tag: {type: string}
+
+    BulkResult:
+      type: object
+      properties:
+        affected: {type: integer}
+
+    Feed:
+      type: object
+      properties:
+        id: {type: string, format: uuid}
+        organization_id: {type: string, format: uuid}
+        name: {type: string}
+        type: {type: string, enum: [et_open, et_pro, taxii, stix, misp, generic]}
+        url: {type: string}
+        schedule: {type: string, nullable: true, description: cron-выражение}
+        enabled: {type: boolean}
+        last_sync_at: {type: string, format: date-time, nullable: true}
+        last_sync_status: {type: string, nullable: true}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+
+    FeedInput:
+      type: object
+      required: [name, type, url]
+      properties:
+        name: {type: string}
+        type: {type: string, enum: [et_open, et_pro, taxii, stix, misp, generic]}
+        url: {type: string}
+        schedule: {type: string, description: cron-выражение}
+        credentials: {type: string, writeOnly: true, description: Креды доступа (токен/логин-пароль); хранятся шифрованно}
+        enabled: {type: boolean, default: true}
+
+    FeedUpdateInput:
+      type: object
+      properties:
+        name: {type: string}
+        url: {type: string}
+        schedule: {type: string}
+        credentials: {type: string, writeOnly: true}
+        enabled: {type: boolean}
+
+    FeedRun:
+      type: object
+      properties:
+        id: {type: string, format: uuid}
+        feed_id: {type: string, format: uuid}
+        status: {type: string, enum: [running, success, failed]}
+        started_at: {type: string, format: date-time}
+        finished_at: {type: string, format: date-time, nullable: true}
+        imported: {type: integer}
+        updated: {type: integer}
+        error: {type: string, nullable: true}
+
+    Ioc:
+      type: object
+      properties:
+        id: {type: string, format: uuid}
+        organization_id: {type: string, format: uuid}
+        type: {type: string, enum: [ip, domain, url, md5, sha1, sha256, email]}
+        value: {type: string}
+        score: {type: integer}
+        status: {type: string, enum: [active, under_review, expired, revoked]}
+        feed_id: {type: string, format: uuid, nullable: true}
+        source: {type: string, nullable: true}
+        expires_at: {type: string, format: date-time, nullable: true}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+
+    IocInput:
+      type: object
+      required: [type, value]
+      properties:
+        type: {type: string, enum: [ip, domain, url, md5, sha1, sha256, email]}
+        value: {type: string}
+        score: {type: integer, default: 0}
+        expires_at: {type: string, format: date-time}
+
+    IocUpdateInput:
+      type: object
+      properties:
+        score: {type: integer}
+        status: {type: string, enum: [active, under_review, expired, revoked]}
+        expires_at: {type: string, format: date-time}
+
+    # ------ Деплой и состояние ------
+
+    Targeting:
+      type: object
+      required: [mode]
+      properties:
+        mode:
+          type: string
+          enum: [all_clusters, selected_clusters, all_except_clusters, specific_hosts, specific_instances]
+        cluster_ids: {type: array, items: {type: string, format: uuid}}
+        host_ids: {type: array, items: {type: string, format: uuid}}
+        instance_ids: {type: array, items: {type: string, format: uuid}}
+
+    DeployTemplate:
+      type: object
+      properties:
+        id: {type: string, format: uuid}
+        organization_id: {type: string, format: uuid}
+        name: {type: string}
+        description: {type: string, nullable: true}
+        targeting: {$ref: '#/components/schemas/Targeting'}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+
+    DeployTemplateInput:
+      type: object
+      required: [name, targeting]
+      properties:
+        name: {type: string}
+        description: {type: string}
+        targeting: {$ref: '#/components/schemas/Targeting'}
+
+    RulesetVersion:
+      type: object
+      properties:
+        id: {type: string, format: uuid}
+        organization_id: {type: string, format: uuid}
+        version: {type: string}
+        sha256: {type: string, description: Content-addressed хэш блоба в S3}
+        rule_count: {type: integer}
+        created_by: {type: string, format: uuid, nullable: true}
+        created_at: {type: string, format: date-time}
+
+    RulesetVersionDetail:
+      allOf:
+        - {$ref: '#/components/schemas/RulesetVersion'}
+        - type: object
+          properties:
+            manifest: {type: object, description: 'Состав версии: ссылки на правила/ревизии'}
+
+    RulesetBuildInput:
+      type: object
+      required: [version]
+      properties:
+        version: {type: string, description: Человекочитаемая версия (semver или метка)}
+        rule_filter: {$ref: '#/components/schemas/RuleFilter', description: По умолчанию — все enabled правила}
+        note: {type: string}
+
+    Deployment:
+      type: object
+      properties:
+        id: {type: string, format: uuid}
+        organization_id: {type: string, format: uuid}
+        ruleset_version_id: {type: string, format: uuid}
+        deploy_template_id: {type: string, format: uuid, nullable: true}
+        targeting: {$ref: '#/components/schemas/Targeting'}
+        batch_size: {type: integer}
+        concurrency: {type: integer}
+        canary_size: {type: integer}
+        status: {type: string, enum: [pending, running, paused, completed, failed, cancelled]}
+        initiated_by: {type: string, format: uuid, nullable: true}
+        progress: {$ref: '#/components/schemas/DeploymentProgress'}
+        started_at: {type: string, format: date-time, nullable: true}
+        paused_at: {type: string, format: date-time, nullable: true}
+        finished_at: {type: string, format: date-time, nullable: true}
+        created_at: {type: string, format: date-time}
+
+    DeploymentProgress:
+      type: object
+      properties:
+        total: {type: integer}
+        pending: {type: integer}
+        running: {type: integer}
+        succeeded: {type: integer}
+        failed: {type: integer}
+        current_wave: {type: integer}
+
+    DeploymentInput:
+      type: object
+      required: [ruleset_id, targeting]
+      properties:
+        ruleset_id: {type: string, format: uuid}
+        deploy_template_id: {type: string, format: uuid, nullable: true, description: Шаблон-источник таргетинга (аудит)}
+        targeting: {$ref: '#/components/schemas/Targeting'}
+        batch_size: {type: integer, default: 50, minimum: 1}
+        concurrency: {type: integer, default: 10, minimum: 1}
+        canary_size: {type: integer, default: 1, minimum: 0}
+
+    DeploymentTask:
+      type: object
+      properties:
+        id: {type: string, format: uuid}
+        deployment_id: {type: string, format: uuid}
+        instance_id: {type: string, format: uuid}
+        wave: {type: integer}
+        status: {type: string, enum: [pending, sent, running, succeeded, failed, cancelled, skipped]}
+        attempts: {type: integer}
+        error: {type: string, nullable: true}
+        started_at: {type: string, format: date-time, nullable: true}
+        finished_at: {type: string, format: date-time, nullable: true}
+
+    ComplianceSummary:
+      type: object
+      properties:
+        total_instances: {type: integer}
+        by_status:
+          type: object
+          properties:
+            in_sync: {type: integer}
+            pending: {type: integer}
+            partial: {type: integer}
+            drift: {type: integer}
+            stale: {type: integer}
+
+    ComplianceItem:
+      type: object
+      properties:
+        instance_id: {type: string, format: uuid}
+        host_id: {type: string, format: uuid}
+        hostname: {type: string}
+        cluster_id: {type: string, format: uuid}
+        status: {type: string, enum: [in_sync, pending, partial, drift, stale]}
+        updated_at: {type: string, format: date-time}
+
+    FleetCompliance:
+      type: object
+      properties:
+        summary: {$ref: '#/components/schemas/ComplianceSummary'}
+        items: {type: array, items: {$ref: '#/components/schemas/ComplianceItem'}, description: Заполняется при drill-down (фильтр status)}
+        next_cursor: {type: string, nullable: true}
+
+    FailedRule:
+      type: object
+      properties:
+        sid: {type: integer, format: int64}
+        rev: {type: integer}
+        error_text: {type: string}
+
+    InstanceState:
+      type: object
+      description: Desired vs actual + статус соответствия + diff
+      properties:
+        instance_id: {type: string, format: uuid}
+        desired:
+          type: object
+          properties:
+            ruleset_version_id: {type: string, format: uuid}
+            ruleset_hash: {type: string}
+            calc_version: {type: integer, format: int64}
+            updated_at: {type: string, format: date-time}
+        actual:
+          type: object
+          nullable: true
+          properties:
+            ruleset_hash: {type: string}
+            loaded_count: {type: integer}
+            failed_count: {type: integer}
+            failed_rules: {type: array, items: {$ref: '#/components/schemas/FailedRule'}}
+            last_reload:
+              type: object
+              nullable: true
+              properties:
+                action: {type: string, enum: [reload, restart]}
+                success: {type: boolean}
+                finished_at: {type: string, format: date-time}
+            reported_at: {type: string, format: date-time, description: '«Данные актуальны на»'}
+        compliance:
+          type: object
+          properties:
+            status: {type: string, enum: [in_sync, pending, partial, drift, stale]}
+            details: {type: object}
+            updated_at: {type: string, format: date-time}
+        diff:
+          type: object
+          description: Расхождение desired/actual (для статусов partial/drift)
+          properties:
+            missing_rules: {type: array, items: {type: integer, format: int64}, description: "sid, которые должны быть, но не загружены"}
+            extra_rules: {type: array, items: {type: integer, format: int64}, description: "sid, загруженные вне desired"}
+            failed_rules: {type: array, items: {$ref: '#/components/schemas/FailedRule'}}
+
+    DeployHistoryItem:
+      type: object
+      properties:
+        deployment_id: {type: string, format: uuid}
+        ruleset_version: {type: string}
+        initiated_by: {type: string, nullable: true}
+        status: {type: string}
+        started_at: {type: string, format: date-time, nullable: true}
+        finished_at: {type: string, format: date-time, nullable: true}
+        result: {type: string, nullable: true}
+
+    RulesMatrix:
+      type: object
+      description: Страница матрицы «правила × инстансы»; курсоры по осям независимы
+      properties:
+        rules:
+          type: array
+          items:
+            type: object
+            properties:
+              sid: {type: integer, format: int64}
+              msg: {type: string}
+              status: {type: string}
+        instances:
+          type: array
+          items:
+            type: object
+            properties:
+              instance_id: {type: string, format: uuid}
+              hostname: {type: string}
+              name: {type: string}
+        cells:
+          type: array
+          items:
+            type: object
+            properties:
+              sid: {type: integer, format: int64}
+              instance_id: {type: string, format: uuid}
+              status: {type: string, enum: [loaded, failed, missing, extra]}
+        next_rule_cursor: {type: string, nullable: true}
+        next_instance_cursor: {type: string, nullable: true}
+
+    # ------ Агенты и инциденты ------
+
+    Agent:
+      type: object
+      properties:
+        id: {type: string, format: uuid}
+        host_id: {type: string, format: uuid}
+        hostname: {type: string, description: Денормализовано для списков}
+        cluster_id: {type: string, format: uuid, description: Денормализовано для фильтров}
+        agent_version: {type: string, nullable: true}
+        protocol_version: {type: integer, nullable: true}
+        status: {type: string, enum: [online, degraded, offline, updating, error]}
+        last_seen_at: {type: string, format: date-time, nullable: true}
+        cert_serial: {type: string, nullable: true}
+        cert_expires_at: {type: string, format: date-time, nullable: true}
+        enrolled_at: {type: string, format: date-time, nullable: true}
+
+    AgentLogEntry:
+      type: object
+      properties:
+        seq: {type: integer, format: int64}
+        ts: {type: string, format: date-time}
+        level: {type: string, enum: [debug, info, warn, error]}
+        msg: {type: string}
+        attrs: {type: object, additionalProperties: {type: string}}
+
+    LogLevelInput:
+      type: object
+      required: [level]
+      properties:
+        level: {type: string, enum: [debug, info, warn, error]}
+        cluster_id: {type: string, format: uuid, description: Ровно один из cluster_id/host_id/agent_id}
+        host_id: {type: string, format: uuid}
+        agent_id: {type: string, format: uuid}
+
+    UpdateWaveInput:
+      type: object
+      required: [target_version]
+      properties:
+        target_version: {type: string}
+        cluster_ids: {type: array, items: {type: string, format: uuid}, description: Пусто — все кластеры}
+        agent_ids: {type: array, items: {type: string, format: uuid}, description: Явный список; приоритетнее cluster_ids}
+        batch_size: {type: integer, default: 50, minimum: 1}
+        concurrency: {type: integer, default: 10, minimum: 1}
+        canary_size: {type: integer, default: 1, minimum: 0}
+
+    UpdateWave:
+      type: object
+      properties:
+        id: {type: string, format: uuid}
+        target_version: {type: string}
+        status: {type: string, enum: [pending, running, paused, completed, failed, cancelled]}
+        total: {type: integer}
+        completed: {type: integer}
+        failed: {type: integer}
+        created_at: {type: string, format: date-time}
+
+    CompatibilityView:
+      type: object
+      properties:
+        server_version: {type: string}
+        min_supported_agent_version: {type: string}
+        rows:
+          type: array
+          items:
+            type: object
+            properties:
+              agent_version: {type: string}
+              agents: {type: integer, description: Сколько агентов флота на этой версии}
+              support: {type: string, enum: [supported, deprecated, unsupported]}
+
+    Incident:
+      type: object
+      properties:
+        id: {type: string, format: uuid}
+        organization_id: {type: string, format: uuid}
+        type: {type: string, description: 'agent_offline | agent_flapping | service_down_after_deploy | failed_rules | config_test_failed | high_kernel_drops | disk_full | clock_skew | agent_outdated | agent_update_failed | drift_timeout'}
+        severity: {type: string, enum: [info, warning, critical]}
+        status: {type: string, enum: [open, ack, resolved]}
+        fingerprint: {type: string, description: Ключ дедупликации}
+        context: {type: object}
+        recommendation: {type: string, nullable: true}
+        host_id: {type: string, format: uuid, nullable: true}
+        instance_id: {type: string, format: uuid, nullable: true}
+        first_seen_at: {type: string, format: date-time}
+        last_seen_at: {type: string, format: date-time}
+        resolved_at: {type: string, format: date-time, nullable: true}
+
+    # ------ Конфигурации ------
+
+    ConfigProfile:
+      type: object
+      properties:
+        id: {type: string, format: uuid}
+        organization_id: {type: string, format: uuid}
+        name: {type: string}
+        description: {type: string, nullable: true}
+        scope_type: {type: string, enum: [cluster, host, instance]}
+        scope_id: {type: string, format: uuid}
+        parent_id: {type: string, format: uuid, nullable: true, description: Родительский профиль (наследование)}
+        content_yaml: {type: string, description: Текущее содержимое (последняя версия)}
+        version: {type: integer}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+
+    ConfigProfileInput:
+      type: object
+      required: [name, scope_type, scope_id, content_yaml]
+      properties:
+        name: {type: string}
+        description: {type: string}
+        scope_type: {type: string, enum: [cluster, host, instance]}
+        scope_id: {type: string, format: uuid}
+        parent_id: {type: string, format: uuid}
+        content_yaml: {type: string}
+
+    ConfigProfileUpdateInput:
+      type: object
+      properties:
+        name: {type: string}
+        description: {type: string}
+        content_yaml: {type: string, description: Изменение содержимого создаёт новую версию}
+
+    ConfigProfileVersion:
+      type: object
+      properties:
+        version: {type: integer}
+        content_yaml: {type: string}
+        created_by: {type: string, nullable: true}
+        created_at: {type: string, format: date-time}
+
+    RenderResult:
+      type: object
+      properties:
+        rendered_yaml: {type: string}
+        sources:
+          type: array
+          description: Цепочка наследования, от кластера к инстансу
+          items:
+            type: object
+            properties:
+              profile_id: {type: string, format: uuid}
+              name: {type: string}
+              scope_type: {type: string}
+
+    DiffResult:
+      type: object
+      properties:
+        from: {type: integer}
+        to: {type: integer}
+        diff: {type: string, description: Unified diff}
+
+    # ------ Администрирование ------
+
+    UserRoleAssignment:
+      type: object
+      properties:
+        role_id: {type: string, format: uuid}
+        role_name: {type: string}
+        scope_type: {type: string, enum: [organization, clusters]}
+        cluster_ids: {type: array, items: {type: string, format: uuid}}
+
+    User:
+      type: object
+      properties:
+        id: {type: string, format: uuid}
+        organization_id: {type: string, format: uuid}
+        email: {type: string}
+        display_name: {type: string}
+        is_active: {type: boolean}
+        is_break_glass: {type: boolean}
+        provider_id: {type: string, format: uuid, nullable: true, description: NULL — локальный пользователь}
+        last_login_at: {type: string, format: date-time, nullable: true}
+        roles: {type: array, items: {$ref: '#/components/schemas/UserRoleAssignment'}}
+        created_at: {type: string, format: date-time}
+
+    UserInput:
+      type: object
+      required: [email, display_name, password]
+      properties:
+        email: {type: string, format: email}
+        display_name: {type: string}
+        password: {type: string, format: password}
+        is_break_glass: {type: boolean, default: false}
+        roles:
+          type: array
+          items:
+            type: object
+            required: [role_id]
+            properties:
+              role_id: {type: string, format: uuid}
+              scope_type: {type: string, enum: [organization, clusters], default: organization}
+              cluster_ids: {type: array, items: {type: string, format: uuid}}
+
+    UserUpdateInput:
+      type: object
+      properties:
+        display_name: {type: string}
+        is_active: {type: boolean}
+        roles:
+          type: array
+          items:
+            type: object
+            required: [role_id]
+            properties:
+              role_id: {type: string, format: uuid}
+              scope_type: {type: string, enum: [organization, clusters]}
+              cluster_ids: {type: array, items: {type: string, format: uuid}}
+
+    Role:
+      type: object
+      properties:
+        id: {type: string, format: uuid}
+        organization_id: {type: string, format: uuid, nullable: true, description: NULL — встроенная роль}
+        name: {type: string}
+        description: {type: string, nullable: true}
+        permissions: {type: array, items: {type: string}, description: 'rules.read, rules.write, deployments.create, ...'}
+        is_builtin: {type: boolean}
+        created_at: {type: string, format: date-time}
+
+    RoleInput:
+      type: object
+      required: [name, permissions]
+      properties:
+        name: {type: string}
+        description: {type: string}
+        permissions: {type: array, items: {type: string}}
+
+    SsoProvider:
+      type: object
+      properties:
+        id: {type: string, format: uuid}
+        organization_id: {type: string, format: uuid}
+        name: {type: string}
+        type: {type: string, enum: [oidc, saml, ldap]}
+        enabled: {type: boolean}
+        config: {type: object, description: 'Несекретная конфигурация: client_id, endpoints, metadata_url, ...'}
+        group_role_mapping: {type: object, description: 'Маппинг групп IdP → роли: {"<группа>": ["<role_uuid>"]}'}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+
+    SsoProviderInput:
+      type: object
+      required: [name, type, config]
+      properties:
+        name: {type: string}
+        type: {type: string, enum: [oidc, saml, ldap]}
+        enabled: {type: boolean, default: true}
+        config: {type: object}
+        secret: {type: string, writeOnly: true, description: "client_secret / bind password; хранится шифрованно, не возвращается"}
+        group_role_mapping: {type: object}
+
+    SsoProviderUpdateInput:
+      type: object
+      properties:
+        name: {type: string}
+        enabled: {type: boolean}
+        config: {type: object}
+        secret: {type: string, writeOnly: true}
+        group_role_mapping: {type: object}
+
+    ApiToken:
+      type: object
+      properties:
+        id: {type: string, format: uuid}
+        name: {type: string}
+        scopes: {type: array, items: {type: string}}
+        expires_at: {type: string, format: date-time, nullable: true}
+        last_used_at: {type: string, format: date-time, nullable: true}
+        created_at: {type: string, format: date-time}
+
+    ApiTokenInput:
+      type: object
+      required: [name, scopes]
+      properties:
+        name: {type: string}
+        scopes: {type: array, items: {type: string}}
+        expires_at: {type: string, format: date-time}
+
+    ApiTokenCreated:
+      allOf:
+        - {$ref: '#/components/schemas/ApiToken'}
+        - type: object
+          properties:
+            token: {type: string, description: Значение токена — показывается один раз}
+
+    AuditLogEntry:
+      type: object
+      properties:
+        id: {type: string, format: uuid}
+        created_at: {type: string, format: date-time}
+        actor_type: {type: string, enum: [user, api_token, system, agent]}
+        actor_name: {type: string, nullable: true}
+        action: {type: string, description: 'rules.create, deployments.pause, auth.login, ...'}
+        object_type: {type: string, nullable: true}
+        object_id: {type: string, format: uuid, nullable: true}
+        result: {type: string, enum: [success, denied, error]}
+        reason: {type: string, nullable: true, description: Причина отказа/ошибки}
+        ip: {type: string, nullable: true}
+        user_agent: {type: string, nullable: true}
+        params: {type: object, nullable: true}
+        diff: {type: object, nullable: true, description: '{"before": {...}, "after": {...}}'}
+
+    # ------ Страницы (keyset-обёртки) ------
+
+    OrganizationPage: {type: object, properties: {items: {type: array, items: {$ref: '#/components/schemas/Organization'}}, next_cursor: {type: string, nullable: true}}}
+    ClusterPage: {type: object, properties: {items: {type: array, items: {$ref: '#/components/schemas/Cluster'}}, next_cursor: {type: string, nullable: true}}}
+    HostPage: {type: object, properties: {items: {type: array, items: {$ref: '#/components/schemas/Host'}}, next_cursor: {type: string, nullable: true}}}
+    InstancePage: {type: object, properties: {items: {type: array, items: {$ref: '#/components/schemas/Instance'}}, next_cursor: {type: string, nullable: true}}}
+    RulePage: {type: object, properties: {items: {type: array, items: {$ref: '#/components/schemas/Rule'}}, next_cursor: {type: string, nullable: true}}}
+    RuleRevisionPage: {type: object, properties: {items: {type: array, items: {$ref: '#/components/schemas/RuleRevision'}}, next_cursor: {type: string, nullable: true}}}
+    RuleHistoryPage: {type: object, properties: {items: {type: array, items: {$ref: '#/components/schemas/RuleHistoryItem'}}, next_cursor: {type: string, nullable: true}}}
+    FeedPage: {type: object, properties: {items: {type: array, items: {$ref: '#/components/schemas/Feed'}}, next_cursor: {type: string, nullable: true}}}
+    FeedRunPage: {type: object, properties: {items: {type: array, items: {$ref: '#/components/schemas/FeedRun'}}, next_cursor: {type: string, nullable: true}}}
+    IocPage: {type: object, properties: {items: {type: array, items: {$ref: '#/components/schemas/Ioc'}}, next_cursor: {type: string, nullable: true}}}
+    DeployTemplatePage: {type: object, properties: {items: {type: array, items: {$ref: '#/components/schemas/DeployTemplate'}}, next_cursor: {type: string, nullable: true}}}
+    RulesetPage: {type: object, properties: {items: {type: array, items: {$ref: '#/components/schemas/RulesetVersion'}}, next_cursor: {type: string, nullable: true}}}
+    DeploymentPage: {type: object, properties: {items: {type: array, items: {$ref: '#/components/schemas/Deployment'}}, next_cursor: {type: string, nullable: true}}}
+    DeploymentTaskPage: {type: object, properties: {items: {type: array, items: {$ref: '#/components/schemas/DeploymentTask'}}, next_cursor: {type: string, nullable: true}}}
+    DeployHistoryPage: {type: object, properties: {items: {type: array, items: {$ref: '#/components/schemas/DeployHistoryItem'}}, next_cursor: {type: string, nullable: true}}}
+    AgentPage: {type: object, properties: {items: {type: array, items: {$ref: '#/components/schemas/Agent'}}, next_cursor: {type: string, nullable: true}}}
+    AgentLogPage: {type: object, properties: {items: {type: array, items: {$ref: '#/components/schemas/AgentLogEntry'}}, next_cursor: {type: string, nullable: true}}}
+    IncidentPage: {type: object, properties: {items: {type: array, items: {$ref: '#/components/schemas/Incident'}}, next_cursor: {type: string, nullable: true}}}
+    ConfigProfilePage: {type: object, properties: {items: {type: array, items: {$ref: '#/components/schemas/ConfigProfile'}}, next_cursor: {type: string, nullable: true}}}
+    ConfigProfileVersionPage: {type: object, properties: {items: {type: array, items: {$ref: '#/components/schemas/ConfigProfileVersion'}}, next_cursor: {type: string, nullable: true}}}
+    UserPage: {type: object, properties: {items: {type: array, items: {$ref: '#/components/schemas/User'}}, next_cursor: {type: string, nullable: true}}}
+    RolePage: {type: object, properties: {items: {type: array, items: {$ref: '#/components/schemas/Role'}}, next_cursor: {type: string, nullable: true}}}
+    SsoProviderPage: {type: object, properties: {items: {type: array, items: {$ref: '#/components/schemas/SsoProvider'}}, next_cursor: {type: string, nullable: true}}}
+    ApiTokenPage: {type: object, properties: {items: {type: array, items: {$ref: '#/components/schemas/ApiToken'}}, next_cursor: {type: string, nullable: true}}}
+    AuditLogPage: {type: object, properties: {items: {type: array, items: {$ref: '#/components/schemas/AuditLogEntry'}}, next_cursor: {type: string, nullable: true}}}

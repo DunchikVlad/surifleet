@@ -5,18 +5,17 @@
 
 ## Текущая фаза
 
-**Фаза 1 — Архитектура и контракты** (п. 11 ТЗ, шаги 1–3).
+**Фаза 1 — Архитектура и контракты** (п. 11 ТЗ, шаги 1–3) — **ЗАВЕРШЕНА**.
+Далее фаза 2 — MVP (п. 11 шаг 4): сервер (Go) + агент (Go) + UI.
 
 ## Следующий шаг (конкретно)
 
-Чанк 4: OpenAPI-спецификация REST API — `api/openapi/openapi.yaml`: auth
-(OIDC flow, локальный логин, refresh, logout), организации/кластеры/хосты/
-инстансы, правила (CRUD, импорт, массовые операции, экспорт), фиды, IOC,
-шаблоны деплоя, ruleset-версии, деплои (создание, pause/resume, откат),
-desired/actual state и статусы соответствия, агенты (статусы, действия,
-логи, бандл), инциденты, пользователи/роли/SSO-провайдеры, аудит-лог,
-API-токены. Keyset-пагинация, единый формат ошибки. Валидация спецификации
-(npx @redocly/cli lint или swagger-parser). Затем коммит.
+Чанк 5: каркас Go-монорепозитория — `go.mod` (модуль
+`github.com/surifleet/surifleet`), генерация Go-кода из proto (protoc-gen-go,
+protoc-gen-go-grpc в `.tools/`), `cmd/server/main.go` (роли --role=api|hub|all,
+загрузка конфига, slog, /metrics), `cmd/agent/main.go` (заготовка цикла
+переподключения с backoff+jitter), `internal/config`, `internal/gen`.
+Критерий готовности: `go build ./...` и `go vet ./...` чистые. Затем коммит.
 
 ## Сделано
 
@@ -25,7 +24,8 @@ API-токены. Keyset-пагинация, единый формат ошиб�
 | 0 | git-репозиторий, структура каталогов, .gitignore, README, живые документы; локальный Go 1.27.1 в `.tools/` | 817cef6 |
 | 1 | `docs/architecture.md`: компонентная диаграмма, протокол агент↔сервер (конверт, жизненный цикл, типы сообщений), масштабирование 10k (Hub-узлы, Redis-реестр, NATS fan-out), волновой деплой, desired/actual state, деградация, безопасность | 2066cfd |
 | 2 | `docs/data-model.md` (ER mermaid, 27 таблиц) + миграция `db/migrations/000001_init.up/down.sql`: все сущности п. 11.2 ТЗ, партиционирование audit_log/deploy_events/agent_state_history по месяцам, append-only триггеры audit_log, индексы под матрицу «правила × хосты» и keyset-пагинацию | abd33ee |
-| 3 | `api/proto/agent/v1/agent.proto` + `enrollment.proto` + `docs/protocol.md`: bidi-стрим Channel, конверты с oneof (8 типов агент→сервер, 5 сервер→агент), 7 типов задач, Enrollment по join token + CSR; компиляция проверена protoc 36.1 | (этот коммит) |
+| 3 | `api/proto/agent/v1/agent.proto` + `enrollment.proto` + `docs/protocol.md`: bidi-стрим Channel, конверты с oneof (8 типов агент→сервер, 5 сервер→агент), 7 типов задач, Enrollment по join token + CSR; компиляция проверена protoc 36.1 | 773b382 |
+| 4 | `api/openapi/openapi.yaml` (85 путей, 126 операций, 114 схем; keyset-пагинация, единый Error, bearerAuth+apiKeyAuth, права в description каждой операции) + `docs/api.md` (конвенции); валидация redocly lint — 0 errors | (этот коммит) |
 
 ## Ключевые архитектурные решения
 
@@ -59,6 +59,11 @@ API-токены. Keyset-пагинация, единый формат ошиб�
   MVP — перевыпуск через повторный Enroll; эволюция proto — только добавление
   полей, резервирование номеров.
 - Тулчейн в `.tools/` (вне git): Go 1.27.1, protoc 36.1.
+- API: /health и /version публичные под /api/v1; единый GET /tasks/{id} для
+  асинхронных действий агентов; rollback деплоя возвращает НОВЫЙ деплой-откат
+  (история append-only); объекты вне RBAC-scoping → 404, не 403; секреты
+  writeOnly, токены показываются один раз; 4xx — единый default→Error
+  (128 стилистических warnings redocly оставлены осознанно).
 
 ## Как поднять окружение
 
