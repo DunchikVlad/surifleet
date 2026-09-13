@@ -19,6 +19,7 @@ web/node_modules/
 .env
 .env.*
 !.env.example
+deploy/.env
 data/
 tmp/
 *.log

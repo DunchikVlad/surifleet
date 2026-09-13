@@ -7,6 +7,15 @@
 
 ### Added
 
+- Чанк 6 (2026-09-14): тестовое окружение на 192.168.31.28 — Docker 29.1.3 +
+  Compose v2.40.3 (apt, пользователь test в группе docker);
+  `deploy/docker-compose.yml` + `deploy/.env.example`: postgres:16-alpine,
+  redis:7-alpine, nats:2.10-alpine (JetStream), clickhouse:24.8-alpine,
+  minio (quay.io) + init-контейнер бакета surifleet-rulesets; healthcheck'и,
+  named volumes, лимиты памяти (стек ~325 МиБ). Миграция 000001 прогнана
+  up/down/up на живом PostgreSQL (43 отношения), append-only триггер
+  audit_log проверен ошибкой на UPDATE. Все сервисы доступны с машины
+  разработки. (infra, db)
 - ТЗ дополнено разделом 13 «Тестовая среда»: 192.168.31.28 — серверный
   контур, 192.168.31.67 — сенсор (Suricata + агент); SSH test/test (+sudo);
   оба хоста Ubuntu 26.04.1 LTS x86_64. Доступность проверена (ping, SSH,

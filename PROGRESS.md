@@ -10,15 +10,18 @@
 
 ## Следующий шаг (конкретно)
 
-Чанк 6: тестовое окружение на 192.168.31.28 — установить Docker
-(`docker.io` + `docker compose` plugin через apt), написать
-`deploy/docker-compose.yml` (PostgreSQL 16, Redis 7, NATS JetStream,
-ClickHouse, MinIO), поднять стек, прогнать миграцию 000001 на живом
-PostgreSQL (up + down + up). Критерий: все контейнеры healthy,
-`migrate up` применяется без ошибок. Затем коммит.
+Чанк 7: сервер — подключение к PostgreSQL (pgx) + запуск миграций
+(golang-migrate) при старте, репозиторий первых сущностей (organizations,
+clusters, hosts), REST-хендлеры CRUD флота по openapi.yaml с keyset-
+пагинацией, скелет auth-middleware (dev-identity заглушка). Кросс-компиляция
+GOOS=linux, запуск на .28 против живого стека. Критерий: `go build ./...`
+чисто, CRUD работает curl-ом с Windows на .28. Затем коммит.
 
-Далее чанк 7: сервер — pgx + миграции при старте, CRUD флота по openapi.yaml
-с keyset-пагинацией, скелет auth-middleware.
+## Сделано (продолжение)
+
+| Чанк | Содержание | Коммит |
+|---|---|---|
+| 6 | Тестовое окружение: Docker 29.1.3 + Compose v2.40.3 на .28; `deploy/docker-compose.yml` (postgres:16-alpine, redis:7-alpine, nats:2.10-alpine -js, clickhouse:24.8-alpine, minio с quay.io + init-бакет surifleet-rulesets); стек healthy (~325 МиБ RAM); миграция 000001 прогнана up/down/up на живом PG (43 отношения: 28 таблиц + 15 партиций); append-only триггер audit_log проверен (UPDATE → ошибка); все сервисы доступны с Windows | (этот коммит) |
 
 ## Тестовая среда (добавлена в ТЗ п. 13)
 
@@ -64,6 +67,10 @@ systemd 259. Интерфейс захвата на сенсоре: enp0s3. Dock
   расчёт инкрементальный по событиям, сводка из `instance_compliance`.
 - mTLS: встроенный CA в MVP, CN сертификата = agent_id, срок 90 дней,
   авторотация за 30 дней; enrollment по одноразовому join token + CSR.
+- Инфра-стек на .28: MinIO — образы quay.io (с Docker Hub удалены),
+  ClickHouse — 24.8-alpine (latest требует AVX, у KVM-гостя его нет;
+  на гипервизоре стоит host-passthrough — тогда вернуть latest),
+  CH-native порт наружу 9900 (9000 занят MinIO).
 - Модель данных: тенант-изоляция через organization_id во всех доменных
   сущностях; audit_log без FK (переживает удаление акторов) и append-only
   на уровне БД (триггеры); desired/actual state — JSONB-документы с PK
@@ -98,11 +105,11 @@ curl http://localhost:8080/api/v1/health
 ## Известные проблемы / отложенное
 
 - **Windows Defender блокирует линковку server.exe под Windows** (ложное
-  срабатывание). Обходной путь найден: кросс-компиляция `GOOS=linux GOARCH=amd64`
-  и запуск на 192.168.31.28 — разработка не блокируется; исключение Defender
-  на Windows-машине — на усмотрение пользователя, не требуется.
-- Миграция 000001 не прогнана на живом PostgreSQL — решается чанком 6.
+  срабатывание). Обходной путь: кросс-компиляция `GOOS=linux GOARCH=amd64`
+  и запуск на 192.168.31.28 — разработка не блокируется.
 - TRUNCATE-триггер audit_log на родителе не сработает при TRUNCATE отдельной
   партиции напрямую — остаточный зазор append-only для ролей с DDL-правами.
+- ClickHouse 24.8 вместо latest — у KVM-гостя нет AVX; на гипервизоре стоит
+  включить host-passthrough CPU, тогда вернуть latest.
 - Suricata на сенсоре 192.168.31.67 ещё не установлена — отдельный чанк
   после поднятия серверного контура.
