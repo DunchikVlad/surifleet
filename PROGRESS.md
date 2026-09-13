@@ -9,19 +9,19 @@
 
 ## Следующий шаг (конкретно)
 
-Чанк 2: модель данных — `docs/data-model.md` (ER-диаграмма mermaid + описание
-таблиц) и первая миграция `db/migrations/0001_init.up.sql` / `.down.sql`:
-organizations, clusters, hosts, instances, users, roles, rules, rule_revisions,
-feeds, deploy_templates, ruleset_versions, desired_state, actual_state,
-deployments, agents, incidents, sso_providers, audit_log (партиционирование
-по времени для audit_log/deploy_events/agent_state_history). Затем коммит.
+Чанк 3: proto-контракт агент↔сервер — `api/proto/agent/v1/agent.proto` по
+разделу 4 `docs/architecture.md` (Envelope oneof, Hello/Heartbeat/StateReport/
+RuleLoadReport/LogBatch/MetricsBatch/TaskResult/DiscoveryReport + серверные
+HelloAck/Task/TaskCancel/LogLevelChange/ConfigPush, сервис Channel bidi stream
++ Enrollment RPC). Затем коммит.
 
 ## Сделано
 
 | Чанк | Содержание | Коммит |
 |---|---|---|
 | 0 | git-репозиторий, структура каталогов, .gitignore, README, живые документы; локальный Go 1.27.1 в `.tools/` | 817cef6 |
-| 1 | `docs/architecture.md`: компонентная диаграмма, протокол агент↔сервер (конверт, жизненный цикл, типы сообщений), масштабирование 10k (Hub-узлы, Redis-реестр, NATS fan-out), волновой деплой, desired/actual state, деградация, безопасность | (этот коммит) |
+| 1 | `docs/architecture.md`: компонентная диаграмма, протокол агент↔сервер (конверт, жизненный цикл, типы сообщений), масштабирование 10k (Hub-узлы, Redis-реестр, NATS fan-out), волновой деплой, desired/actual state, деградация, безопасность | 2066cfd |
+| 2 | `docs/data-model.md` (ER mermaid, 27 таблиц) + миграция `db/migrations/000001_init.up/down.sql`: все сущности п. 11.2 ТЗ, партиционирование audit_log/deploy_events/agent_state_history по месяцам, append-only триггеры audit_log, индексы под матрицу «правила × хосты» и keyset-пагинацию | (этот коммит) |
 
 ## Ключевые архитектурные решения
 
@@ -44,6 +44,12 @@ deployments, agents, incidents, sso_providers, audit_log (партиционир
   расчёт инкрементальный по событиям, сводка из `instance_compliance`.
 - mTLS: встроенный CA в MVP, CN сертификата = agent_id, срок 90 дней,
   авторотация за 30 дней; enrollment по одноразовому join token + CSR.
+- Модель данных: тенант-изоляция через organization_id во всех доменных
+  сущностях; audit_log без FK (переживает удаление акторов) и append-only
+  на уровне БД (триггеры); desired/actual state — JSONB-документы с PK
+  instance_id (link-таблица «инстанс × правило» отвергнута — 500M строк);
+  дедупликация инцидентов — частичный UNIQUE по fingerprint среди нерешённых;
+  enum-подобные поля — text + CHECK, без CREATE TYPE.
 
 ## Как поднять окружение
 
@@ -56,6 +62,11 @@ go version
 
 ## Известные проблемы / отложенное
 
+- Миграция 000001 НЕ прогнана через реальный PostgreSQL (на машине нет ни
+  сервера, ни Docker) — проверка ручная + механическая. Первым делом при
+  появлении окружения: `migrate up` + `migrate down` на тестовой БД.
+- TRUNCATE-триггер audit_log на родителе не сработает при TRUNCATE отдельной
+  партиции напрямую — остаточный зазор append-only для ролей с DDL-правами.
 - Docker на машине разработки отсутствует — окружение (PostgreSQL/Redis/NATS/
   ClickHouse/MinIO) позже поднимем либо через docker-compose на другой машине,
   либо через нативные бинарники; решение отложено до фазы MVP.
