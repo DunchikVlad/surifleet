@@ -1,6 +1,7 @@
 package store
 
 import (
+	"encoding/json"
 	"time"
 
 	"github.com/google/uuid"
@@ -131,4 +132,55 @@ type InstanceUpsertInput struct {
 	SuricataVersion   string   `json:"suricata_version"`
 	BuildFlags        string   `json:"build_flags"`
 	SystemdUnit       string   `json:"systemd_unit"`
+}
+
+// Rule — правило мастер-репозитория (таблица rules; по sid в рамках орг.).
+// priority/threshold/status/tags — тюнинг аналитика: импорт их НЕ перетирает.
+type Rule struct {
+	ID             uuid.UUID       `json:"id"`
+	OrganizationID uuid.UUID       `json:"organization_id"`
+	SID            int64           `json:"sid"`
+	Msg            *string         `json:"msg"`
+	Category       *string         `json:"category"`
+	Tags           []string        `json:"tags"`
+	Status         string          `json:"status"`
+	Priority       *int            `json:"priority"`
+	Threshold      json.RawMessage `json:"threshold"`
+	SourceType     string          `json:"source_type"`
+	FeedID         *uuid.UUID      `json:"feed_id"`
+	CreatedAt      time.Time       `json:"created_at"`
+	UpdatedAt      time.Time       `json:"updated_at"`
+}
+
+// RulePatch — тюнинг аналитика (openapi RuleUpdateInput): nil — «не менять».
+type RulePatch struct {
+	Category  *string         `json:"category"`
+	Tags      []string        `json:"tags"`
+	Status    *string         `json:"status"`
+	Priority  *int            `json:"priority"`
+	Threshold json.RawMessage `json:"threshold"`
+}
+
+// RuleFilter — фильтры списка/bulk (openapi RuleFilter + sid/q для list).
+type RuleFilter struct {
+	Status   string
+	Category string
+	Tag      string
+	Source   string
+	FeedID   uuid.UUID
+	SID      int64
+	Q        string // подстрока по msg (только list)
+}
+
+// RuleRevision — версия правила (таблица rule_revisions): sid + revision +
+// raw + sha256; parsed — разобранные поля (classtype, reference, ...).
+type RuleRevision struct {
+	ID        uuid.UUID       `json:"id"`
+	RuleID    uuid.UUID       `json:"rule_id"`
+	SID       int64           `json:"sid"`
+	Revision  int             `json:"revision"`
+	Raw       string          `json:"raw"`
+	Hash      string          `json:"hash"`
+	Parsed    json.RawMessage `json:"parsed,omitempty"`
+	CreatedAt time.Time       `json:"created_at"`
 }

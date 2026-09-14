@@ -749,14 +749,16 @@ paths:
               type: object
               properties:
                 file: {type: string, format: binary, description: Файл .rules}
-                category: {type: string}
+                category: {type: string, description: 'Override категории для всех правил файла (иначе — classtype)'}
+                source: {type: string, enum: [file, feed], default: file}
           application/json:
             schema:
               type: object
               required: [text]
               properties:
                 text: {type: string, description: Содержимое .rules}
-                category: {type: string}
+                category: {type: string, description: 'Override категории для всех правил (иначе — classtype)'}
+                source: {type: string, enum: [file, feed], default: file}
       responses:
         '200':
           description: Статистика импорта
@@ -2681,9 +2683,17 @@ components:
       type: object
       properties:
         imported: {type: integer, description: Новых объектов}
-        updated: {type: integer, description: Обновлено существующих}
-        skipped: {type: integer}
-        errors: {type: array, items: {type: string}, description: Строки с ошибками парсинга}
+        updated: {type: integer, description: Обновлено существующих (raw изменился → новая ревизия)}
+        unchanged: {type: integer, description: Без изменений (raw совпал с последней ревизией)}
+        errors:
+          type: array
+          description: Ошибки парсинга (первые 100), импорт остальных строк не прерывается
+          items:
+            type: object
+            properties:
+              line: {type: integer, description: Номер строки файла}
+              reason: {type: string, description: Причина}
+        total_lines: {type: integer, description: Физических строк прочитано (включая комментарии/пустые)}
 
     BulkRequest:
       type: object

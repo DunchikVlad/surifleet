@@ -29,6 +29,9 @@ type Deps struct {
 // NewRouter собирает chi-роутер со всеми маршрутами /api/v1.
 func NewRouter(d Deps) http.Handler {
 	h := &handlers{d: d}
+	if d.Log != nil {
+		errLog = d.Log
+	}
 
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
@@ -89,6 +92,19 @@ func NewRouter(d Deps) http.Handler {
 				r.Get("/", h.getInstance)
 				r.Patch("/", h.updateInstance)
 				r.Delete("/", h.deleteInstance)
+			})
+		})
+
+		r.Route("/rules", func(r chi.Router) {
+			r.Get("/", h.listRules)
+			r.Post("/", h.createRule)
+			r.Post("/import", h.importRules)
+			r.Post("/bulk", h.bulkRules)
+			r.Route("/{id}", func(r chi.Router) {
+				r.Get("/", h.getRule)
+				r.Patch("/", h.updateRule)
+				r.Delete("/", h.deleteRule)
+				r.Get("/revisions", h.listRuleRevisions)
 			})
 		})
 	})

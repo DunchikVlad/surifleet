@@ -7,6 +7,18 @@
 
 ### Added
 
+- Чанк 10 (2026-09-14): репозиторий правил. `internal/rules` — парсер
+  Suricata-правил без зависимостей (~430k правил/с): заголовок 7 полей,
+  опции с кавычками/экранированием, continuation-строки, sid/rev/msg/
+  classtype/priority/metadata/reference, ошибки по номерам строк без
+  остановки импорта. `internal/store` RulesRepo: upsert по (org, sid) в
+  транзакции, sha256 raw → imported/updated/unchanged, ревизии
+  (keyset по номеру), тюнинг аналитика (status/priority/threshold/tags)
+  никогда не перетирается импортом. API /api/v1/rules: import
+  (multipart/text, source=file|feed), update CRUD с soft-delete, bulk
+  (enable/disable/delete/set_priority/add_tag по ids или фильтру, пустая
+  цель → 400), revisions. Живьём: 2000 строк ET Open → 1209 imported,
+  повтор идемпотентен, тюнинг пережил реимпорт. (server, api, db)
 - Чанк 9 (2026-09-14): Suricata 8.0.3 на сенсоре .67 (apt, сервис
   active/enabled, конфиг на enp0s3, ET Open 45 МБ через suricata-update).
   Миграция 000003 (hosts.discovery jsonb + discovered_at). Агент: discovery

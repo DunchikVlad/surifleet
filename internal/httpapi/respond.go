@@ -3,10 +3,15 @@ package httpapi
 import (
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 
 	"github.com/surifleet/surifleet/internal/store"
 )
+
+// errLog — логгер внутренних ошибок store (ставится в NewRouter; иначе
+// причина 500 теряется — клиенту отдаём только общий текст).
+var errLog = slog.Default()
 
 // Машиночитаемые коды ошибок — строго по openapi Error.code.
 const (
@@ -57,6 +62,7 @@ func writeStoreError(w http.ResponseWriter, err error) {
 	case errors.Is(err, store.ErrForeignKey):
 		writeError(w, http.StatusBadRequest, CodeValidation, "родительская запись не существует", nil)
 	default:
+		errLog.Error("внутренняя ошибка store", "err", err)
 		writeError(w, http.StatusInternalServerError, CodeInternal, "внутренняя ошибка сервера", nil)
 	}
 }
