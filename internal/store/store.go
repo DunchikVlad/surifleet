@@ -22,6 +22,12 @@ type Store struct {
 	Agents        *AgentsRepo
 	Instances     *InstancesRepo
 	Rules         *RulesRepo
+	Rulesets      *RulesetsRepo
+	Deployments   *DeploymentsRepo
+	DesiredState  *DesiredStateRepo
+	ActualState   *ActualStateRepo
+	Compliance    *ComplianceRepo
+	Capabilities  *CapabilitiesRepo
 }
 
 // Connect открывает пул соединений по DSN и проверяет его ping'ом.
@@ -56,6 +62,12 @@ func Connect(ctx context.Context, dsn string) (*Store, error) {
 	s.Agents = &AgentsRepo{pool: pool}
 	s.Instances = &InstancesRepo{pool: pool}
 	s.Rules = &RulesRepo{pool: pool}
+	s.Rulesets = &RulesetsRepo{pool: pool}
+	s.Deployments = &DeploymentsRepo{pool: pool}
+	s.DesiredState = &DesiredStateRepo{pool: pool}
+	s.ActualState = &ActualStateRepo{pool: pool}
+	s.Compliance = &ComplianceRepo{pool: pool}
+	s.Capabilities = &CapabilitiesRepo{pool: pool}
 	return s, nil
 }
 

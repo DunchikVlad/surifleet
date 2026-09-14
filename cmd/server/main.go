@@ -24,11 +24,13 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 
+	"github.com/surifleet/surifleet/internal/blob"
 	"github.com/surifleet/surifleet/internal/config"
 	"github.com/surifleet/surifleet/internal/enroll"
 	agentv1 "github.com/surifleet/surifleet/internal/gen/agent/v1"
 	"github.com/surifleet/surifleet/internal/httpapi"
 	"github.com/surifleet/surifleet/internal/hub"
+	"github.com/surifleet/surifleet/internal/orchestrator"
 	"github.com/surifleet/surifleet/internal/pki"
 	"github.com/surifleet/surifleet/internal/store"
 )
@@ -123,7 +125,22 @@ func main() {
 	hubID, _ := os.Hostname()
 	hubID = fmt.Sprintf("%s-%d", hubID, os.Getpid())
 
-	app := &App{cfg: cfg, log: log, db: db, ca: ca, rdb: rdb, hubID: hubID}
+	// S3-блобы (ruleset) и оркестратор волновых деплоев (chunk 11).
+	blobStore, err := blob.New(ctx, cfg.S3)
+	if err != nil {
+		fatal(fmt.Errorf("S3: %w", err))
+	}
+	log.Info("S3 подключено", "endpoint", cfg.S3.Endpoint, "bucket", cfg.S3.Bucket)
+
+	hubSrv := hub.NewServer(db, rdb, hubID, version, log)
+	orch := orchestrator.New(db, blobStore, hubSrv, log)
+	hubSrv.OnTaskResult = orch.HandleTaskResult
+	hubSrv.OnAgentOnline = orch.DispatchPending
+	if err := orch.Recover(ctx); err != nil {
+		log.Error("восстановление оркестратора", "err", err)
+	}
+
+	app := &App{cfg: cfg, log: log, db: db, ca: ca, rdb: rdb, hubID: hubID, blob: blobStore, orch: orch}
 
 	errCh := make(chan error, 4)
 
@@ -152,7 +169,7 @@ func main() {
 			fatal(fmt.Errorf("TLS Hub: %w", err))
 		}
 		grpcSrv := grpc.NewServer(grpc.Creds(credentials.NewTLS(tlsCfg)))
-		agentv1.RegisterAgentChannelServer(grpcSrv, hub.NewServer(db, rdb, hubID, version, log))
+		agentv1.RegisterAgentChannelServer(grpcSrv, hubSrv)
 		ln, err := net.Listen("tcp", cfg.GRPCAddr)
 		if err != nil {
 			fatal(fmt.Errorf("слушатель hub %s: %w", cfg.GRPCAddr, err))
@@ -232,6 +249,8 @@ type App struct {
 	ca    *pki.CA
 	rdb   *redis.Client
 	hubID string
+	blob  *blob.Store
+	orch  *orchestrator.Orchestrator
 }
 
 // routes собирает HTTP-маршруты API v1 (реализация — internal/httpapi).
@@ -241,6 +260,8 @@ func (a *App) routes() http.Handler {
 		Version: version,
 		Commit:  commit,
 		Store:   a.db,
+		Blob:    a.blob,
+		Orch:    a.orch,
 		PingDB:  a.db.Pool.Ping,
 	})
 }

@@ -53,11 +53,14 @@ func (d *Duration) UnmarshalYAML(value *yaml.Node) error {
 // Ключи доступа задаются только через env:
 // SURIFLEET_SERVER_S3_ACCESS_KEY / SURIFLEET_SERVER_S3_SECRET_KEY.
 type S3Config struct {
-	Endpoint  string `yaml:"endpoint"`
-	Bucket    string `yaml:"bucket"`
-	AccessKey string `yaml:"access_key"`
-	SecretKey string `yaml:"secret_key"`
-	UseSSL    bool   `yaml:"use_ssl"`
+	Endpoint string `yaml:"endpoint"` // внутренний адрес (для сервера: upload/stat)
+	// PublicEndpoint — адрес, доступный агентам (для подписанных URL;
+	// пусто → подпись тем же endpoint).
+	PublicEndpoint string `yaml:"public_endpoint"`
+	Bucket         string `yaml:"bucket"`
+	AccessKey      string `yaml:"access_key"`
+	SecretKey      string `yaml:"secret_key"`
+	UseSSL         bool   `yaml:"use_ssl"`
 }
 
 // ServerConfig — конфигурация сервера (секция server в YAML).

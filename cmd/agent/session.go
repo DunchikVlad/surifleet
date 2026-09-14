@@ -88,8 +88,13 @@ func runSession(ctx context.Context, cfg *config.AgentConfig, id *identity, leve
 	}
 	log.Info("сессия установлена",
 		"session_id", ack.GetSessionId(), "server_version", ack.GetServerVersion(),
-		"heartbeat_s", ack.GetHeartbeatIntervalSeconds(), "log_level", ack.GetLogLevel())
+		"heartbeat_s", ack.GetHeartbeatIntervalSeconds(), "log_level", ack.GetLogLevel(),
+		"capabilities", ack.GetConfig().GetCapabilities())
 	applyLogLevel(levelVar, ack.GetLogLevel(), log)
+
+	// Исполнитель задач сервера (chunk 11): capability из HelloAck.Config,
+	// журнал обработанных task_id в data_dir (идемпотентность).
+	exec := newTaskExecutor(cfg.DataDir, ack.GetConfig().GetCapabilities(), send, log)
 
 	// Смещение часов относительно сервера (по SentAt HelloAck, без поправки
 	// на RTT — грубая оценка для детекта заметного рассинхрона).
@@ -184,26 +189,15 @@ func runSession(ctx context.Context, cfg *config.AgentConfig, id *identity, leve
 			}
 			return fmt.Errorf("разрыв стрима: %w", err)
 		}
-		handleServerMessage(msg, send, levelVar, log)
+		handleServerMessage(msg, exec, levelVar, log)
 	}
 }
 
 // handleServerMessage — разбор одного серверного сообщения.
-func handleServerMessage(msg *agentv1.ServerMessage, send func(*agentv1.AgentMessage) error, levelVar *slog.LevelVar, log *slog.Logger) {
+func handleServerMessage(msg *agentv1.ServerMessage, exec *taskExecutor, levelVar *slog.LevelVar, log *slog.Logger) {
 	switch p := msg.GetPayload().(type) {
 	case *agentv1.ServerMessage_Task:
-		task := p.Task
-		log.Info("получена задача", "task_id", task.GetTaskId(), "type", fmt.Sprintf("%T", task.GetType()))
-		// TODO(chunk 10+): реальное выполнение задач. Пока — честный отказ,
-		// чтобы оркестратор не ждал таймаутом.
-		res := &agentv1.AgentMessage{Payload: &agentv1.AgentMessage_TaskResult{TaskResult: &agentv1.TaskResult{
-			TaskId: task.GetTaskId(),
-			Status: agentv1.TaskStatus_TASK_STATUS_FAILED,
-			Error:  "not implemented",
-		}}}
-		if err := send(res); err != nil {
-			log.Warn("TaskResult не отправлен", "task_id", task.GetTaskId(), "err", err)
-		}
+		exec.handle(p.Task)
 
 	case *agentv1.ServerMessage_LogLevelChange:
 		applyLogLevel(levelVar, p.LogLevelChange.GetLevel(), log)

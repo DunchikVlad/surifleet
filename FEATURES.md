@@ -17,10 +17,10 @@
 
 | Пункт ТЗ | Статус | Где реализовано | Чанк |
 |---|---|---|---|
-| Desired state (версии, хэш ruleset) | ⬜ | — | — |
-| Actual state (отчёты агента, кэш Redis, история PG) | ⬜ | — | — |
-| Drift detection (In sync / Pending / Partial / Drift / Stale) | ⬜ | — | — |
-| Подтверждение деплоя по факту загрузки движком | ⬜ | — | — |
+| Desired state (версии, хэш ruleset) | 🚧 | `internal/ruleset`, `internal/store` rulesets/deploy, desired_state; код готов, живая проверка не пройдена | чанк 11 |
+| Actual state (отчёты агента, кэш Redis, история PG) | 🚧 | `cmd/agent/deploy.go` (RuleLoadReport/StateReport), actual_state + кэш Redis; код готов, живая проверка не пройдена | чанк 11 |
+| Drift detection (In sync / Pending / Partial / Drift / Stale) | 🚧 | `internal/compliance`, таблица instance_compliance, GET /fleet/compliance, /instances/{id}/state; код готов, живая проверка не пройдена | чанк 11 |
+| Подтверждение деплоя по факту загрузки движком | 🚧 | `cmd/agent/deploy.go`: suricata -T → reload-rules → ruleset-failed-rules через unix-сокет; код готов, живая проверка не пройдена | чанк 11 |
 | UI: матрица правила×хосты, страница инстанса, сводка флота | ⬜ | — | — |
 
 ## 7. Ключевое требование Б: проблемы с агентами

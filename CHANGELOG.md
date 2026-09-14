@@ -7,6 +7,22 @@
 
 ### Added
 
+- Чанк 11 (2026-09-14): волновой деплой ruleset (требование А) — **код
+  готов, живая проверка не выполнена** (прервано по лимиту шагов; верификация
+  — следующий шаг по PROGRESS.md). `internal/blob` — MinIO content-addressed
+  блобы (SHA-256, presigned GET). `internal/ruleset` — детерминированный
+  рендер ruleset. `internal/orchestrator` — волны (canary + batch),
+  Recover при рестарте сервера, DispatchPending при Hello агента,
+  auto-pause при провале canary, deploy_events. `internal/hub/tasks.go` —
+  in-process реестр стримов и отправка задач. `internal/compliance` —
+  статусы in_sync/pending/partial/drift/stale по событиям.
+  `cmd/agent/deploy.go` — выполнение DeployRulesTask: скачивание + проверка
+  SHA-256, бэкап, атомарная запись, `suricata -T` с откатом, reload-rules
+  через unix-сокет, верификация ruleset-failed-rules, журнал task_id
+  (идемпотентность). API: /rulesets, /deployments (pause/resume/cancel/
+  tasks), /instances/{id}/state, /instances/{id}/deploy_history,
+  /fleet/compliance, capabilities. build/vet/gofmt/test зелёные.
+  (server, agent, api, db)
 - Чанк 10 (2026-09-14): репозиторий правил. `internal/rules` — парсер
   Suricata-правил без зависимостей (~430k правил/с): заголовок 7 полей,
   опции с кавычками/экранированием, continuation-строки, sid/rev/msg/

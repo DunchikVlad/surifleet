@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -54,6 +55,15 @@ type Server struct {
 	hubID   string
 	version string
 	log     *slog.Logger
+
+	// streams — реестр подключённых стримов (agentID → *streamHandle),
+	// in-process доставка задач (chunk 11).
+	streams sync.Map
+
+	// OnTaskResult — подписчик результатов задач (оркестратор деплоев).
+	OnTaskResult func(ctx context.Context, agentID uuid.UUID, res *agentv1.TaskResult)
+	// OnAgentOnline — подписчик подключения агента (подхват pending-задач).
+	OnAgentOnline func(ctx context.Context, agentID uuid.UUID)
 }
 
 // NewServer собирает Hub.
@@ -132,10 +142,14 @@ func (s *Server) Channel(stream grpc.BidiStreamingServer[agentv1.AgentMessage, a
 		if err := s.rdb.SRem(bgCtx, "hub:"+s.hubID+":agents", agentID.String()).Err(); err != nil {
 			log.Error("srem hub-set", "err", err)
 		}
+		// Агент офлайн — compliance инстансов хоста больше недостоверен (stale).
+		s.recomputeHostCompliance(bgCtx, log, agentID, false)
 		log.Info("агент отключился")
 	}()
 
-	// HelloAck — параметры сессии и начальная конфигурация.
+	// HelloAck — параметры сессии и начальная конфигурация (включая
+	// включённые capability хоста: host → cluster → дефолт monitoring).
+	caps := s.hostCapabilities(ctx, log, agentID)
 	if err := stream.Send(&agentv1.ServerMessage{
 		MsgId:  uuid.New().String(),
 		Seq:    1,
@@ -147,9 +161,41 @@ func (s *Server) Channel(stream grpc.BidiStreamingServer[agentv1.AgentMessage, a
 			StateReportIntervalSeconds: 300,
 			MetricsIntervalSeconds:     60,
 			LogLevel:                   "info",
+			Config:                     &agentv1.AgentConfig{LogLevel: "info", Capabilities: caps},
 		}},
 	}); err != nil {
 		return fmt.Errorf("отправка HelloAck: %w", err)
+	}
+
+	// Реестр стрима: с этого момента открыт приём задач через SendTask.
+	// Отдельная горутина-отправитель — единственный писатель в stream.Send
+	// (seq сервера монотонен с 2; HelloAck ушёл с seq=1).
+	handle := &streamHandle{out: make(chan *agentv1.ServerMessage, 64)}
+	s.streams.Store(agentID, handle)
+	defer s.streams.Delete(agentID)
+	go func() {
+		seq := int64(2)
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case m := <-handle.out:
+				m.Seq = seq
+				seq++
+				m.SentAt = timestamppb.Now()
+				if err := stream.Send(m); err != nil {
+					log.Warn("отправка в стрим", "err", err)
+					return
+				}
+			}
+		}
+	}()
+
+	// Агент онлайн: пересчёт compliance его инстансов (из stale в фактический
+	// статус) и подхват накопленных pending-задач (оркестратор).
+	s.recomputeHostCompliance(ctx, log, agentID, true)
+	if s.OnAgentOnline != nil {
+		go s.OnAgentOnline(context.Background(), agentID)
 	}
 
 	// Основной цикл приёма сообщений агента.
@@ -223,8 +269,10 @@ func (s *Server) handleMessage(ctx context.Context, log *slog.Logger, agentID uu
 		s.handleDiscoveryReport(ctx, log, agentID, p.DiscoveryReport)
 
 	case *agentv1.AgentMessage_StateReport:
-		log.Info("StateReport", "instance", p.StateReport.GetInstanceId(), "ruleset", p.StateReport.GetRulesetHash())
-		// TODO(chunk 9+): сохранение actual state.
+		s.handleStateReport(ctx, log, p.StateReport)
+
+	case *agentv1.AgentMessage_RuleLoadReport:
+		s.handleRuleLoadReport(ctx, log, p.RuleLoadReport)
 
 	case *agentv1.AgentMessage_LogBatch:
 		log.Debug("LogBatch", "entries", len(p.LogBatch.GetEntries()))
@@ -235,8 +283,7 @@ func (s *Server) handleMessage(ctx context.Context, log *slog.Logger, agentID uu
 		// TODO(chunk 9+): запись метрик в ClickHouse.
 
 	case *agentv1.AgentMessage_TaskResult:
-		log.Info("TaskResult", "task_id", p.TaskResult.GetTaskId(), "status", p.TaskResult.GetStatus(), "error", p.TaskResult.GetError())
-		// TODO(chunk 10+): обработка результатов задач оркестратором.
+		s.handleTaskResult(ctx, log, agentID, p.TaskResult)
 
 	default:
 		log.Debug("сообщение агента", "type", fmt.Sprintf("%T", p), "msg_id", msg.GetMsgId())

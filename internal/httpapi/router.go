@@ -11,6 +11,8 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 
+	"github.com/surifleet/surifleet/internal/blob"
+	"github.com/surifleet/surifleet/internal/orchestrator"
 	"github.com/surifleet/surifleet/internal/store"
 )
 
@@ -21,6 +23,11 @@ type Deps struct {
 	Commit  string
 
 	Store *store.Store
+
+	// Blob — ruleset-блобы в S3 (сборка ruleset, chunk 11).
+	Blob *blob.Store
+	// Orch — оркестратор волновых деплоев (chunk 11).
+	Orch *orchestrator.Orchestrator
 
 	// PingDB проверяет живость PostgreSQL для /health (nil — проверка выкл.).
 	PingDB func(ctx context.Context) error
@@ -92,6 +99,8 @@ func NewRouter(d Deps) http.Handler {
 				r.Get("/", h.getInstance)
 				r.Patch("/", h.updateInstance)
 				r.Delete("/", h.deleteInstance)
+				r.Get("/state", h.getInstanceState)
+				r.Get("/deploy_history", h.getDeployHistory)
 			})
 		})
 
@@ -107,6 +116,26 @@ func NewRouter(d Deps) http.Handler {
 				r.Get("/revisions", h.listRuleRevisions)
 			})
 		})
+
+		r.Route("/rulesets", func(r chi.Router) {
+			r.Get("/", h.listRulesets)
+			r.Post("/", h.buildRuleset)
+			r.Get("/{id}", h.getRuleset)
+		})
+
+		r.Route("/deployments", func(r chi.Router) {
+			r.Get("/", h.listDeployments)
+			r.Post("/", h.createDeployment)
+			r.Route("/{id}", func(r chi.Router) {
+				r.Get("/", h.getDeployment)
+				r.Post("/pause", h.pauseDeployment)
+				r.Post("/resume", h.resumeDeployment)
+				r.Post("/cancel", h.cancelDeployment)
+				r.Get("/tasks", h.listDeploymentTasks)
+			})
+		})
+
+		r.Get("/fleet/compliance", h.getFleetCompliance)
 	})
 
 	return r

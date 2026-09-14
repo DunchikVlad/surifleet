@@ -174,3 +174,59 @@ func (r *InstancesRepo) List(ctx context.Context, hostID, clusterID, cursor uuid
 	}
 	return items, next, nil
 }
+
+// --- Резолв таргетинга деплоев (chunk 11) ---
+
+// IDsForOrg — id всех инстансов организации (mode all_clusters;
+// excludeClusterIDs — mode all_except_clusters).
+func (r *InstancesRepo) IDsForOrg(ctx context.Context, orgID uuid.UUID, excludeClusterIDs []uuid.UUID) ([]uuid.UUID, error) {
+	return r.idQuery(ctx,
+		`SELECT i.id FROM instances i
+		 JOIN hosts h ON h.id = i.host_id
+		 JOIN clusters c ON c.id = h.cluster_id
+		 WHERE c.organization_id = $1 AND NOT (h.cluster_id = ANY ($2))
+		 ORDER BY i.id`, orgID, excludeClusterIDs)
+}
+
+// IDsForClusters — id инстансов заданных кластеров (mode selected_clusters).
+func (r *InstancesRepo) IDsForClusters(ctx context.Context, clusterIDs []uuid.UUID) ([]uuid.UUID, error) {
+	return r.idQuery(ctx,
+		`SELECT i.id FROM instances i
+		 JOIN hosts h ON h.id = i.host_id
+		 WHERE h.cluster_id = ANY ($1)
+		 ORDER BY i.id`, clusterIDs)
+}
+
+// IDsForHosts — id инстансов заданных хостов (mode specific_hosts).
+func (r *InstancesRepo) IDsForHosts(ctx context.Context, hostIDs []uuid.UUID) ([]uuid.UUID, error) {
+	return r.idQuery(ctx,
+		`SELECT id FROM instances WHERE host_id = ANY ($1) ORDER BY id`, hostIDs)
+}
+
+// ExistingIDs — подмножество переданных id инстансов, существующих
+// в организации (валидация mode specific_instances).
+func (r *InstancesRepo) ExistingIDs(ctx context.Context, orgID uuid.UUID, ids []uuid.UUID) ([]uuid.UUID, error) {
+	return r.idQuery(ctx,
+		`SELECT i.id FROM instances i
+		 JOIN hosts h ON h.id = i.host_id
+		 JOIN clusters c ON c.id = h.cluster_id
+		 WHERE c.organization_id = $1 AND i.id = ANY ($2)
+		 ORDER BY i.id`, orgID, ids)
+}
+
+func (r *InstancesRepo) idQuery(ctx context.Context, query string, args ...any) ([]uuid.UUID, error) {
+	rows, err := r.pool.Query(ctx, query, args...)
+	if err != nil {
+		return nil, translate(err)
+	}
+	defer rows.Close()
+	ids := []uuid.UUID{}
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, translate(err)
+		}
+		ids = append(ids, id)
+	}
+	return ids, translate(rows.Err())
+}

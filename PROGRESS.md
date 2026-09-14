@@ -10,17 +10,22 @@
 
 ## Следующий шаг (конкретно)
 
-Чанк 11: волновой деплой ruleset end-to-end — ключевое требование А:
-сборка ruleset-версии из выбранных правил → блоб в MinIO (SHA-256,
-content-addressed) → POST /deployments (таргетинг, волны) → задача
-DeployRulesTask агенту через стрим → агент будет скачивать блоб по
-подписанному URL, писать в rules_dir, `suricata -T` валидация, reload
-(unix-сокет или kill -USR2), верификация загрузки → RuleLoadReport →
-actual_state + instance_compliance в PG/Redis → GET /instances/{id}/state
-и /fleet/compliance. Затем коммит.
-
-Далее чанк 12: доставка instance_id агенту (ConfigPush/HelloAck) и
-автооткат при падении сервиса после деплоя.
+Чанк 11-верификация: живая проверка волнового деплоя end-to-end на .28/.67
+(код чанка 11 написан и юнит-тесты зелёные, но ЖИВАЯ ПРОВЕРКА НЕ ВЫПОЛНЕНА —
+субагент упёрся в лимит шагов до живых тестов):
+1. Пересобрать server+agent (linux), перекатить на .28/.67 (после kill ждать
+   освобождения порта до 10 с).
+2. POST /api/v1/rulesets из ~50 enabled правил → проверить блоб в MinIO и
+   запись в ruleset_versions.
+3. POST /api/v1/deployments (targeting instances=[инстанс .67]) → агент
+   скачивает, suricata -T, reload-rules, RuleLoadReport → compliance=in_sync.
+4. GET /api/v1/instances/{id}/state и /api/v1/fleet/compliance.
+5. Негативы: битое правило (suricata -T fail → откат, drift) и деплой при
+   офлайн-агенте (pending → подхват при Hello).
+6. Проверить, что Suricata после тестов active.
+Затем коммит результатов верификации и чанк 12: instance_id агенту
+(ConfigPush/HelloAck), автооткат при падении сервиса после деплоя, логи
+агента на сервер (LogBatch → ClickHouse).
 
 ## Сделано (продолжение)
 
@@ -30,7 +35,8 @@ actual_state + instance_compliance в PG/Redis → GET /instances/{id}/state
 | 7 | Сервер: `internal/store` (pgx/v5 пул, миграции golang-migrate из embed.FS при старте + --migrate-only, репозитории organizations/clusters/hosts с keyset-пагинацией, маппинг 23505→409/23503→400) + `internal/httpapi` (chi /api/v1 CRUD флота, формат Error по openapi, limit/cursor, middleware request-id/recover/access-log/DevAuth-заглушка X-Dev-User); pgx 5.7.2, migrate 4.18.2, uuid 1.6.0; build/vet/test зелёные (go test прошёл под Windows); живой CRUD проверен curl-ом с Windows на .28 (201/409/400/404/204, next_cursor, health с checks.postgres). Dev-стенд запущен на .28 (PID в ~/surifleet/server.pid, API http://192.168.31.28:8080/api/v1), в БД тестовые org acme/кластер DC-1/хост sensor-01-dc1 | 0447e1f |
 | 8 | gRPC Hub + агент end-to-end: миграция 000002 join_tokens; `internal/pki` (встроенный CA ECDSA P-256, SignCSR CN=agent_id 90 дней, серверный сертификат с SAN); `internal/enroll` (Enroll: проверка токена, атомарный расход в tx, создание host+agent, AlreadyExists при повторе без расхода токена); `internal/hub` (mTLS-сверка CN↔agent_id, Hello timeout, HelloAck 30/300/60, presence Redis stream:{agent_id} TTL 120 + hub:{id}:agents, seq replay-защита, clock-skew warn, offline в defer, agent_state_history при сменах); API POST/GET /clusters/{id}/join_tokens (токен один раз, в БД хэш); агент: enrollment (ключи/CSR, сохранение 0600) + mTLS-стрим + heartbeat-горутина. Живой e2e: enrollment с .67 → heartbeat → online в PG/Redis; kill → offline; рестарт → online без повторного enrollment | b6ecad4 |
 | 9 | Suricata 8.0.3 на .67 (apt, сервис active/enabled, конфиг на enp0s3, ET Open 45 МБ через suricata-update); миграция 000003 (hosts.discovery jsonb + discovered_at); агент: discovery (бинарь/yaml/юнит/интерфейсы, свой лёгкий парсер yaml), DiscoveryReport после HelloAck, heartbeat с ResourceSummary (/proc) и статусами сервисов; сервер: сохранение discovery в PG, GET /hosts/{id}/discovery, POST confirm_discovery (идемпотентный upsert в instances), полный CRUD /instances. Живой e2e: discovery → confirm → инстанс с реальными путями в БД. Запущено: сервер .28 PID 64741, агент .67 PID 5404 | c07b8c4 |
-| 10 | Репозиторий правил: `internal/rules` парсер (без зависимостей, ~430k правил/с, заголовок+опции с кавычками/экранированием, continuation-строки, action-набор + rejectsrc/dst/both, ошибки по строкам без остановки импорта); `internal/store` RulesRepo (upsert по (org,sid) в tx, sha256 raw → imported/updated/unchanged, тюнинг аналитика status/priority/threshold/tags НИКОГДА не перетирается импортом, keyset-ревизии по номеру); API /rules: import (multipart/text, source), CRUD (soft-delete, список скрывает deleted), bulk (enable/disable/delete/set_priority/add_tag по ids или фильтру, защита от пустой цели → 400), revisions. Живьём: 2000 строк ET Open → 1209 imported, повтор → unchanged, битый файл → errors со строками, bulk по категории 241 affected, тюнинг пережил реимпорт. Исправлен баг ANY-плейсхолдера в Bulk по ids. Сервер .28 PID 83802 | (этот коммит) |
+| 10 | Репозиторий правил: `internal/rules` парсер (без зависимостей, ~430k правил/с, заголовок+опции с кавычками/экранированием, continuation-строки, action-набор + rejectsrc/dst/both, ошибки по строкам без остановки импорта); `internal/store` RulesRepo (upsert по (org,sid) в tx, sha256 raw → imported/updated/unchanged, тюнинг аналитика status/priority/threshold/tags НИКОГДА не перетирается импортом, keyset-ревизии по номеру); API /rules: import (multipart/text, source), CRUD (soft-delete, список скрывает deleted), bulk (enable/disable/delete/set_priority/add_tag по ids или фильтру, защита от пустой цели → 400), revisions. Живьём: 2000 строк ET Open → 1209 imported, повтор → unchanged, битый файл → errors со строками, bulk по категории 241 affected, тюнинг пережил реимпорт. Исправлен баг ANY-плейсхолдера в Bulk по ids. Сервер .28 PID 83802 | 68c3c74 |
+| 11 | Волновой деплой (требование А) — **КОД ГОТОВ, ЖИВАЯ ПРОВЕРКА НЕ ВЫПОЛНЕНА**: `internal/blob` (MinIO, content-addressed по SHA-256, presigned GET); `internal/ruleset` (детерминированный рендер ruleset из выбранных правил); `internal/store` rulesets/deploy/capabilities; `internal/orchestrator` (волны canary+batch, Recover при рестарте, DispatchPending при Hello, HandleTaskResult, auto-pause при провале canary, deploy_events); `internal/hub/tasks.go` (in-process реестр стримов, SendTask); `internal/compliance` (расчёт in_sync/pending/partial/drift/stale по событиям); `cmd/agent/deploy.go` (скачивание блоба + проверка SHA-256, бэкап, атомарная запись, suricata -T с откатом, reload-rules через сокет, верификация ruleset-failed-rules, журнал обработанных task_id для идемпотентности); API: /rulesets, /deployments (+pause/resume/cancel/tasks), /instances/{id}/state, /instances/{id}/deploy_history, /fleet/compliance, capabilities. build/vet/gofmt/test зелёные | (этот коммит) |
 
 ## Тестовая среда (добавлена в ТЗ п. 13)
 

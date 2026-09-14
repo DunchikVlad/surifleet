@@ -804,6 +804,7 @@ type AgentConfig struct {
 	HeartbeatIntervalSeconds   int32                  `protobuf:"varint,5,opt,name=heartbeat_interval_seconds,json=heartbeatIntervalSeconds,proto3" json:"heartbeat_interval_seconds,omitempty"`         // 0 — не менять
 	StateReportIntervalSeconds int32                  `protobuf:"varint,6,opt,name=state_report_interval_seconds,json=stateReportIntervalSeconds,proto3" json:"state_report_interval_seconds,omitempty"` // 0 — не менять
 	MetricsIntervalSeconds     int32                  `protobuf:"varint,7,opt,name=metrics_interval_seconds,json=metricsIntervalSeconds,proto3" json:"metrics_interval_seconds,omitempty"`               // 0 — не менять
+	Capabilities               []string               `protobuf:"bytes,8,rep,name=capabilities,proto3" json:"capabilities,omitempty"`                                                                    // включённые capability хоста (monitoring, rules, ...); агент выполняет задачи типа deploy только при наличии соответствующей capability
 	unknownFields              protoimpl.UnknownFields
 	sizeCache                  protoimpl.SizeCache
 }
@@ -885,6 +886,13 @@ func (x *AgentConfig) GetMetricsIntervalSeconds() int32 {
 		return x.MetricsIntervalSeconds
 	}
 	return 0
+}
+
+func (x *AgentConfig) GetCapabilities() []string {
+	if x != nil {
+		return x.Capabilities
+	}
+	return nil
 }
 
 // Heartbeat — лёгкое сообщение каждые heartbeat_interval_seconds.
@@ -2620,8 +2628,13 @@ type DeployRulesTask struct {
 	RulesetVersion string                 `protobuf:"bytes,2,opt,name=ruleset_version,json=rulesetVersion,proto3" json:"ruleset_version,omitempty"` // человекочитаемая версия (ruleset_versions.version)
 	RulesetHash    string                 `protobuf:"bytes,3,opt,name=ruleset_hash,json=rulesetHash,proto3" json:"ruleset_hash,omitempty"`          // sha256 content-addressed блоба в S3
 	SignedUrl      string                 `protobuf:"bytes,4,opt,name=signed_url,json=signedUrl,proto3" json:"signed_url,omitempty"`                // подписанный URL скачивания блоба
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// Локальные пути инстанса (из карточки instances на сервере) — задача
+	// самодостаточна, агенту не нужен маппинг instance_id → пути.
+	RulesDir      string `protobuf:"bytes,5,opt,name=rules_dir,json=rulesDir,proto3" json:"rules_dir,omitempty"`          // каталог правил инстанса (куда писать managed-файл)
+	ConfigPath    string `protobuf:"bytes,6,opt,name=config_path,json=configPath,proto3" json:"config_path,omitempty"`    // путь к suricata.yaml (валидация `suricata -T`, правка rule-files)
+	SystemdUnit   string `protobuf:"bytes,7,opt,name=systemd_unit,json=systemdUnit,proto3" json:"systemd_unit,omitempty"` // юнит сервиса (диагностика состояния)
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *DeployRulesTask) Reset() {
@@ -2678,6 +2691,27 @@ func (x *DeployRulesTask) GetRulesetHash() string {
 func (x *DeployRulesTask) GetSignedUrl() string {
 	if x != nil {
 		return x.SignedUrl
+	}
+	return ""
+}
+
+func (x *DeployRulesTask) GetRulesDir() string {
+	if x != nil {
+		return x.RulesDir
+	}
+	return ""
+}
+
+func (x *DeployRulesTask) GetConfigPath() string {
+	if x != nil {
+		return x.ConfigPath
+	}
+	return ""
+}
+
+func (x *DeployRulesTask) GetSystemdUnit() string {
+	if x != nil {
+		return x.SystemdUnit
 	}
 	return ""
 }
@@ -3319,7 +3353,7 @@ const file_agent_v1_agent_proto_rawDesc = "" +
 	"\x1dstate_report_interval_seconds\x18\x04 \x01(\x05R\x1astateReportIntervalSeconds\x128\n" +
 	"\x18metrics_interval_seconds\x18\x05 \x01(\x05R\x16metricsIntervalSeconds\x12\x1b\n" +
 	"\tlog_level\x18\x06 \x01(\tR\blogLevel\x12-\n" +
-	"\x06config\x18\a \x01(\v2\x15.agent.v1.AgentConfigR\x06config\"\xef\x02\n" +
+	"\x06config\x18\a \x01(\v2\x15.agent.v1.AgentConfigR\x06config\"\x93\x03\n" +
 	"\vAgentConfig\x12\x1b\n" +
 	"\tlog_level\x18\x01 \x01(\tR\blogLevel\x12%\n" +
 	"\x0flog_max_size_mb\x18\x02 \x01(\x05R\flogMaxSizeMb\x12&\n" +
@@ -3327,7 +3361,8 @@ const file_agent_v1_agent_proto_rawDesc = "" +
 	"\vlog_max_age\x18\x04 \x01(\v2\x19.google.protobuf.DurationR\tlogMaxAge\x12<\n" +
 	"\x1aheartbeat_interval_seconds\x18\x05 \x01(\x05R\x18heartbeatIntervalSeconds\x12A\n" +
 	"\x1dstate_report_interval_seconds\x18\x06 \x01(\x05R\x1astateReportIntervalSeconds\x128\n" +
-	"\x18metrics_interval_seconds\x18\a \x01(\x05R\x16metricsIntervalSeconds\"\xbd\x02\n" +
+	"\x18metrics_interval_seconds\x18\a \x01(\x05R\x16metricsIntervalSeconds\x12\"\n" +
+	"\fcapabilities\x18\b \x03(\tR\fcapabilities\"\xbd\x02\n" +
 	"\tHeartbeat\x12\x19\n" +
 	"\bagent_id\x18\x01 \x01(\tR\aagentId\x12%\n" +
 	"\x0euptime_seconds\x18\x02 \x01(\x03R\ruptimeSeconds\x12#\n" +
@@ -3473,14 +3508,18 @@ const file_agent_v1_agent_proto_rawDesc = "" +
 	"\x0ecollect_bundle\x18\x0e \x01(\v2\x1b.agent.v1.CollectBundleTaskH\x00R\rcollectBundle\x12>\n" +
 	"\fagent_update\x18\x0f \x01(\v2\x19.agent.v1.AgentUpdateTaskH\x00R\vagentUpdate\x12J\n" +
 	"\x10set_capabilities\x18\x10 \x01(\v2\x1d.agent.v1.SetCapabilitiesTaskH\x00R\x0fsetCapabilitiesB\x06\n" +
-	"\x04type\"\x9d\x01\n" +
+	"\x04type\"\xfe\x01\n" +
 	"\x0fDeployRulesTask\x12\x1f\n" +
 	"\vinstance_id\x18\x01 \x01(\tR\n" +
 	"instanceId\x12'\n" +
 	"\x0fruleset_version\x18\x02 \x01(\tR\x0erulesetVersion\x12!\n" +
 	"\fruleset_hash\x18\x03 \x01(\tR\vrulesetHash\x12\x1d\n" +
 	"\n" +
-	"signed_url\x18\x04 \x01(\tR\tsignedUrl\"\xcd\x01\n" +
+	"signed_url\x18\x04 \x01(\tR\tsignedUrl\x12\x1b\n" +
+	"\trules_dir\x18\x05 \x01(\tR\brulesDir\x12\x1f\n" +
+	"\vconfig_path\x18\x06 \x01(\tR\n" +
+	"configPath\x12!\n" +
+	"\fsystemd_unit\x18\a \x01(\tR\vsystemdUnit\"\xcd\x01\n" +
 	"\x10DeployConfigTask\x12\x1f\n" +
 	"\vinstance_id\x18\x01 \x01(\tR\n" +
 	"instanceId\x12%\n" +

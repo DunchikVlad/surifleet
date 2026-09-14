@@ -118,6 +118,7 @@ message AgentConfig {
   int32 heartbeat_interval_seconds = 5;     // 0 — не менять
   int32 state_report_interval_seconds = 6;  // 0 — не менять
   int32 metrics_interval_seconds = 7;       // 0 — не менять
+  repeated string capabilities = 8;         // включённые capability хоста (monitoring, rules, ...); агент выполняет задачи типа deploy только при наличии соответствующей capability
 }
 
 // ---------------------------------------------------------------------------
@@ -346,6 +347,11 @@ message DeployRulesTask {
   string ruleset_version = 2;  // человекочитаемая версия (ruleset_versions.version)
   string ruleset_hash = 3;     // sha256 content-addressed блоба в S3
   string signed_url = 4;       // подписанный URL скачивания блоба
+  // Локальные пути инстанса (из карточки instances на сервере) — задача
+  // самодостаточна, агенту не нужен маппинг instance_id → пути.
+  string rules_dir = 5;        // каталог правил инстанса (куда писать managed-файл)
+  string config_path = 6;      // путь к suricata.yaml (валидация `suricata -T`, правка rule-files)
+  string systemd_unit = 7;     // юнит сервиса (диагностика состояния)
 }
 
 // DeployConfigTask — доставка конфигурации suricata.yaml на инстанс.
