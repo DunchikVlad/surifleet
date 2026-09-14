@@ -7,6 +7,21 @@
 
 ### Added
 
+- Чанк 8 (2026-09-14): gRPC Hub + агент end-to-end. Миграция 000002
+  (join_tokens). `internal/pki` — встроенный CA (ECDSA P-256, 0700/0600),
+  SignCSR (CN=agent_id, 90 дней, clientAuth), серверный сертификат с SAN,
+  TLS-конфиги Hub (mTLS) / Enrollment (TLS без client cert). `internal/enroll`
+  — Enroll по join token (атомарный расход в tx, создание host+agent,
+  AlreadyExists при повторе без расхода токена). `internal/hub` — Channel:
+  сверка CN↔agent_id, Hello timeout 10 с, HelloAck (30/300/60, log_level),
+  presence Redis (stream:{agent_id} TTL 120 с, продление heartbeat'ами),
+  seq replay-защита, clock-skew warn >60 с, статус offline при разрыве,
+  agent_state_history при сменах статуса. API: POST/GET
+  /api/v1/clusters/{id}/join_tokens (токен показывается один раз, в БД —
+  SHA-256 хэш). Агент: enrollment (генерация ключей, CSR, сохранение
+  идентичности 0600) + mTLS-стрим + heartbeat-горутина. redis/go-redis/v9
+  9.7.3. Живой e2e: enrollment с .67 → heartbeat → online в PG/Redis,
+  kill → offline, рестарт → online. (server, agent, db, api, proto)
 - Чанк 7 (2026-09-14): сервер — `internal/store` (pgx/v5 пул, миграции
   golang-migrate из embed.FS при старте, флаг --migrate-only, репозитории
   organizations/clusters/hosts с keyset-пагинацией base64-курсором,

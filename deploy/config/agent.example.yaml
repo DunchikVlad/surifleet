@@ -3,13 +3,20 @@
 # Переопределение через env: SURIFLEET_AGENT_SERVER_ADDR и т.п.
 
 agent:
-  # Адрес Hub-узла сервера (исходящее подключение, mTLS)
+  # Адрес Hub-узла сервера (исходящее mTLS-подключение; после enrollment
+  # приоритет у hub_endpoints из ответа сервера)
   server_addr: "localhost:8443"
+  # Адрес enrollment-сервиса (обычный TLS; нужен только при первом запуске)
+  enroll_addr: "localhost:8444"
+  # Одноразовый join token (POST /api/v1/clusters/{id}/join_tokens).
+  # Нужен только пока нет сертификата в data_dir; после enrollment можно стереть.
+  join_token: ""
 
-  # mTLS-материал — появляется после enrollment (join token → CSR → сертификат)
-  cert_file: "./data/agent.crt"
-  key_file: "./data/agent.key"
-  ca_file: "./data/ca.crt"
+  # mTLS-материал и agent_id сохраняются в data_dir после enrollment:
+  # agent.crt.pem (0644), agent.key.pem (0600), ca.pem (0644), agent_id
+  cert_file: ""
+  key_file: ""
+  ca_file: ""
 
   # Рабочий каталог агента (буферы, журнал обработанных task_id)
   data_dir: "./data"

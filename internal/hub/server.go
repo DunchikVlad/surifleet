@@ -1,0 +1,283 @@
+// Package hub — концентратор gRPC-стримов агентов (роль hub|all).
+//
+// AgentChannel.Channel поверх mTLS (CN клиентского сертификата = agent_id).
+// Первым сообщением ждёт Hello (таймаут 10 с), сверяет agent_id с CN,
+// регистрирует presence в Redis (ключ stream:{agent_id}, TTL 120 с,
+// продлевается heartbeat'ами), смены статуса пишет в PostgreSQL
+// (agents.status/last_seen_at + agent_state_history). См.
+// docs/architecture.md §4, §5.2.
+package hub
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"log/slog"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/redis/go-redis/v9"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/peer"
+	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/timestamppb"
+
+	agentv1 "github.com/surifleet/surifleet/internal/gen/agent/v1"
+	"github.com/surifleet/surifleet/internal/store"
+)
+
+// Параметры стрима (docs/architecture.md §4.3, §5.2).
+const (
+	helloTimeout  = 10 * time.Second  // ожидание первого Hello
+	presenceTTL   = 120 * time.Second // TTL ключа stream:{agent_id} в Redis
+	clockSkewWarn = 60_000            // |clock_offset_ms| свыше — warn
+	protocolMajor = 1                 // поддерживаемая версия протокола
+)
+
+// presence — значение ключа stream:{agent_id} в Redis.
+type presence struct {
+	HubID       string `json:"hub_id"`
+	SessionID   string `json:"session_id"`
+	ConnectedAt string `json:"connected_at"`
+}
+
+// Server — реализация agent.v1.AgentChannel.
+type Server struct {
+	agentv1.UnimplementedAgentChannelServer
+
+	db      *store.Store
+	rdb     *redis.Client
+	hubID   string
+	version string
+	log     *slog.Logger
+}
+
+// NewServer собирает Hub.
+func NewServer(db *store.Store, rdb *redis.Client, hubID, version string, log *slog.Logger) *Server {
+	return &Server{db: db, rdb: rdb, hubID: hubID, version: version, log: log}
+}
+
+// Channel — основной стрим агента (см. контракт agent.proto).
+func (s *Server) Channel(stream grpc.BidiStreamingServer[agentv1.AgentMessage, agentv1.ServerMessage]) error {
+	ctx := stream.Context()
+	log := s.log
+
+	// Идентичность из mTLS: CN клиентского сертификата.
+	certAgentID, err := peerAgentID(ctx)
+	if err != nil {
+		return status.Errorf(codes.Unauthenticated, "mTLS-идентичность: %v", err)
+	}
+
+	// Первое сообщение — Hello, с таймаутом (агент без Hello бесполезен).
+	helloMsg, err := recvWithTimeout(stream, helloTimeout)
+	if err != nil {
+		return status.Errorf(codes.DeadlineExceeded, "ожидание Hello: %v", err)
+	}
+	hello := helloMsg.GetHello()
+	if hello == nil {
+		return status.Error(codes.InvalidArgument, "первое сообщение стрима должно быть Hello")
+	}
+
+	// Сверка agent_id из Hello с CN сертификата (защита от чужого agent_id).
+	agentID, err := uuid.Parse(hello.GetAgentId())
+	if err != nil {
+		return status.Error(codes.InvalidArgument, "Hello.agent_id должен быть UUID")
+	}
+	if agentID.String() != certAgentID {
+		return status.Errorf(codes.PermissionDenied,
+			"agent_id %s не совпадает с CN сертификата %s", agentID, certAgentID)
+	}
+	if hello.GetProtocolVersion() != protocolMajor {
+		return status.Errorf(codes.FailedPrecondition,
+			"неподдерживаемая версия протокола %d (сервер поддерживает %d)", hello.GetProtocolVersion(), protocolMajor)
+	}
+
+	// Агент должен существовать в БД (зарегистрирован enrollment'ом).
+	if _, err := s.db.Agents.GetByID(ctx, agentID); errors.Is(err, store.ErrNotFound) {
+		return status.Error(codes.PermissionDenied, "агент не зарегистрирован (enrollment не пройден)")
+	} else if err != nil {
+		return status.Errorf(codes.Internal, "проверка агента: %v", err)
+	}
+
+	sessionID := uuid.New().String()
+	log = log.With("agent_id", agentID, "session_id", sessionID, "hostname", hello.GetHostname())
+	log.Info("агент подключился",
+		"agent_version", hello.GetAgentVersion(), "boot_id", hello.GetBootId(),
+		"instances", len(hello.GetInstances()), "capabilities", hello.GetCapabilities())
+
+	// Online: PostgreSQL (статус + история) и Redis (presence с TTL).
+	details := map[string]any{"hub_id": s.hubID, "session_id": sessionID, "boot_id": hello.GetBootId()}
+	if err := s.db.Agents.SetStatus(ctx, agentID, "online", details); err != nil {
+		log.Error("установка статуса online", "err", err)
+		return status.Errorf(codes.Internal, "смена статуса: %v", err)
+	}
+	if err := s.setPresence(ctx, agentID, sessionID); err != nil {
+		log.Error("регистрация presence в Redis", "err", err)
+	}
+
+	// Отключение — при выходе из функции (разрыв, ошибка, shutdown).
+	defer func() {
+		bgCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := s.db.Agents.SetStatus(bgCtx, agentID, "offline", map[string]any{"hub_id": s.hubID, "session_id": sessionID}); err != nil {
+			log.Error("установка статуса offline", "err", err)
+		}
+		if err := s.rdb.Del(bgCtx, presenceKey(agentID)).Err(); err != nil {
+			log.Error("удаление presence из Redis", "err", err)
+		}
+		if err := s.rdb.SRem(bgCtx, "hub:"+s.hubID+":agents", agentID.String()).Err(); err != nil {
+			log.Error("srem hub-set", "err", err)
+		}
+		log.Info("агент отключился")
+	}()
+
+	// HelloAck — параметры сессии и начальная конфигурация.
+	if err := stream.Send(&agentv1.ServerMessage{
+		MsgId:  uuid.New().String(),
+		Seq:    1,
+		SentAt: timestamppb.Now(),
+		Payload: &agentv1.ServerMessage_HelloAck{HelloAck: &agentv1.HelloAck{
+			SessionId:                  sessionID,
+			ServerVersion:              s.version,
+			HeartbeatIntervalSeconds:   30,
+			StateReportIntervalSeconds: 300,
+			MetricsIntervalSeconds:     60,
+			LogLevel:                   "info",
+		}},
+	}); err != nil {
+		return fmt.Errorf("отправка HelloAck: %w", err)
+	}
+
+	// Основной цикл приёма сообщений агента.
+	lastSeq := helloMsg.GetSeq()
+	for {
+		msg, err := stream.Recv()
+		if errors.Is(err, io.EOF) {
+			return nil
+		}
+		if err != nil {
+			return nil // разрыв соединения — defer зафиксирует offline
+		}
+
+		// Replay-защита: seq строго монотонен в рамках сессии (§4.6).
+		if msg.GetSeq() <= lastSeq {
+			log.Warn("разрыв: немонотонный seq", "seq", msg.GetSeq(), "last", lastSeq)
+			return status.Errorf(codes.InvalidArgument, "seq %d <= %d: нарушение монотонности", msg.GetSeq(), lastSeq)
+		}
+		lastSeq = msg.GetSeq()
+
+		s.handleMessage(ctx, log, agentID, sessionID, msg)
+	}
+}
+
+// handleMessage — разбор одного сообщения агента (после проверки seq).
+func (s *Server) handleMessage(ctx context.Context, log *slog.Logger, agentID uuid.UUID, sessionID string, msg *agentv1.AgentMessage) {
+	// Детект рассинхронизации часов по sent_at (protocol.md §2).
+	if sentAt := msg.GetSentAt(); sentAt != nil {
+		if skew := time.Since(sentAt.AsTime()); skew > clockSkewWarn*time.Millisecond || skew < -clockSkewWarn*time.Millisecond {
+			log.Warn("рассинхронизация часов агента", "skew_ms", skew.Milliseconds())
+		}
+	}
+
+	switch p := msg.GetPayload().(type) {
+	case *agentv1.AgentMessage_Heartbeat:
+		hb := p.Heartbeat
+		if off := hb.GetClockOffsetMs(); off > clockSkewWarn || off < -clockSkewWarn {
+			log.Warn("большой clock_offset агента", "clock_offset_ms", off)
+		}
+		// Heartbeat продлевает только Redis-TTL (§5.4: без записи в PG).
+		if err := s.touchPresence(ctx, agentID); err != nil {
+			log.Error("продление presence", "err", err)
+		}
+		log.Debug("heartbeat", "uptime_s", hb.GetUptimeSeconds(), "agent_version", hb.GetAgentVersion())
+
+	case *agentv1.AgentMessage_StateReport:
+		log.Info("StateReport", "instance", p.StateReport.GetInstanceId(), "ruleset", p.StateReport.GetRulesetHash())
+		// TODO(chunk 9+): сохранение actual state.
+
+	case *agentv1.AgentMessage_LogBatch:
+		log.Debug("LogBatch", "entries", len(p.LogBatch.GetEntries()))
+		// TODO(chunk 9+): доставка логов (NATS/ClickHouse).
+
+	case *agentv1.AgentMessage_MetricsBatch:
+		log.Debug("MetricsBatch", "points", len(p.MetricsBatch.GetPoints()))
+		// TODO(chunk 9+): запись метрик в ClickHouse.
+
+	case *agentv1.AgentMessage_TaskResult:
+		log.Info("TaskResult", "task_id", p.TaskResult.GetTaskId(), "status", p.TaskResult.GetStatus(), "error", p.TaskResult.GetError())
+		// TODO(chunk 10+): обработка результатов задач оркестратором.
+
+	default:
+		log.Debug("сообщение агента", "type", fmt.Sprintf("%T", p), "msg_id", msg.GetMsgId())
+	}
+}
+
+// presenceKey — ключ реестра стримов (§5.2).
+func presenceKey(agentID uuid.UUID) string { return "stream:" + agentID.String() }
+
+// setPresence регистрирует стрим: stream:{agent_id} → presence (TTL 120 с),
+// агент добавляется в set hub:{hub_id}:agents.
+func (s *Server) setPresence(ctx context.Context, agentID uuid.UUID, sessionID string) error {
+	val, err := json.Marshal(presence{
+		HubID:       s.hubID,
+		SessionID:   sessionID,
+		ConnectedAt: time.Now().UTC().Format(time.RFC3339),
+	})
+	if err != nil {
+		return err
+	}
+	if err := s.rdb.Set(ctx, presenceKey(agentID), val, presenceTTL).Err(); err != nil {
+		return err
+	}
+	return s.rdb.SAdd(ctx, "hub:"+s.hubID+":agents", agentID.String()).Err()
+}
+
+// touchPresence продлевает TTL ключа presence (на каждый heartbeat).
+func (s *Server) touchPresence(ctx context.Context, agentID uuid.UUID) error {
+	return s.rdb.Expire(ctx, presenceKey(agentID), presenceTTL).Err()
+}
+
+// peerAgentID — CN клиентского сертификата из mTLS-контекста gRPC.
+func peerAgentID(ctx context.Context) (string, error) {
+	p, ok := peer.FromContext(ctx)
+	if !ok || p.AuthInfo == nil {
+		return "", errors.New("нет данных пира")
+	}
+	ti, ok := p.AuthInfo.(credentials.TLSInfo)
+	if !ok {
+		return "", errors.New("соединение без TLS")
+	}
+	if len(ti.State.VerifiedChains) == 0 || len(ti.State.VerifiedChains[0]) == 0 {
+		return "", errors.New("клиентский сертификат не проверен")
+	}
+	cn := ti.State.VerifiedChains[0][0].Subject.CommonName
+	if cn == "" {
+		return "", errors.New("пустой CN клиентского сертификата")
+	}
+	return cn, nil
+}
+
+// recvWithTimeout — первый Recv стрима с дедлайном (ожидание Hello).
+func recvWithTimeout(stream grpc.BidiStreamingServer[agentv1.AgentMessage, agentv1.ServerMessage], d time.Duration) (*agentv1.AgentMessage, error) {
+	type result struct {
+		msg *agentv1.AgentMessage
+		err error
+	}
+	ch := make(chan result, 1)
+	go func() {
+		m, err := stream.Recv()
+		ch <- result{m, err}
+	}()
+	select {
+	case r := <-ch:
+		return r.msg, r.err
+	case <-time.After(d):
+		return nil, fmt.Errorf("Hello не получен за %s", d)
+	case <-stream.Context().Done():
+		return nil, stream.Context().Err()
+	}
+}

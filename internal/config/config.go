@@ -65,7 +65,11 @@ type ServerConfig struct {
 	Role          string   `yaml:"role"` // api | hub | all
 	HTTPAddr      string   `yaml:"http_addr"`
 	GRPCAddr      string   `yaml:"grpc_addr"`
+	EnrollAddr    string   `yaml:"enroll_addr"`
 	MetricsAddr   string   `yaml:"metrics_addr"`
+	CADir         string   `yaml:"ca_dir"`
+	HubEndpoints  []string `yaml:"hub_endpoints"` // адреса Hub для агентов (отдаются в Enroll)
+	CertSANs      []string `yaml:"cert_sans"`     // SAN серверного сертификата (DNS/IP)
 	PostgresDSN   string   `yaml:"postgres_dsn"`
 	RedisAddr     string   `yaml:"redis_addr"`
 	NatsURL       string   `yaml:"nats_url"`
@@ -77,11 +81,15 @@ type ServerConfig struct {
 // DefaultServer возвращает конфигурацию сервера с дефолтами.
 func DefaultServer() *ServerConfig {
 	return &ServerConfig{
-		Role:        "all",
-		HTTPAddr:    ":8080",
-		GRPCAddr:    ":8443",
-		MetricsAddr: ":9090",
-		LogLevel:    "info",
+		Role:         "all",
+		HTTPAddr:     ":8080",
+		GRPCAddr:     ":8443",
+		EnrollAddr:   ":8444",
+		MetricsAddr:  ":9090",
+		CADir:        "./data/ca",
+		HubEndpoints: []string{"localhost:8443"},
+		CertSANs:     []string{"localhost", "127.0.0.1", "::1"},
+		LogLevel:     "info",
 		S3: S3Config{
 			Endpoint: "localhost:9000",
 			Bucket:   "surifleet-rulesets",
@@ -101,6 +109,15 @@ func (c *ServerConfig) Validate() error {
 	}
 	if c.GRPCAddr == "" {
 		return fmt.Errorf("server.grpc_addr: обязательное поле")
+	}
+	if c.EnrollAddr == "" {
+		return fmt.Errorf("server.enroll_addr: обязательное поле")
+	}
+	if c.CADir == "" {
+		return fmt.Errorf("server.ca_dir: обязательное поле")
+	}
+	if len(c.HubEndpoints) == 0 {
+		return fmt.Errorf("server.hub_endpoints: нужен хотя бы один адрес Hub для агентов")
 	}
 	if c.PostgresDSN == "" {
 		return fmt.Errorf("server.postgres_dsn: обязательное поле")
@@ -122,8 +139,10 @@ func (c *ServerConfig) Validate() error {
 
 // AgentConfig — конфигурация агента (секция agent в YAML).
 type AgentConfig struct {
-	ServerAddr string `yaml:"server_addr"`
-	CertFile   string `yaml:"cert_file"` // путь к сертификату mTLS (после enrollment)
+	ServerAddr string `yaml:"server_addr"` // Hub (mTLS-стрим), host:port
+	EnrollAddr string `yaml:"enroll_addr"` // Enrollment (TLS без client cert), host:port
+	JoinToken  string `yaml:"join_token"`  // одноразовый токен (только для первого enrollment)
+	CertFile   string `yaml:"cert_file"`   // путь к сертификату mTLS (после enrollment)
 	KeyFile    string `yaml:"key_file"`
 	CAFile     string `yaml:"ca_file"`
 	DataDir    string `yaml:"data_dir"`
@@ -146,6 +165,7 @@ type AgentConfig struct {
 func DefaultAgent() *AgentConfig {
 	return &AgentConfig{
 		ServerAddr:          "localhost:8443",
+		EnrollAddr:          "localhost:8444",
 		DataDir:             "./data",
 		LogMaxSizeMB:        100,
 		LogMaxBackups:       5,

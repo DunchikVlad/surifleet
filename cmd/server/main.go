@@ -12,6 +12,7 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -19,9 +20,16 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/redis/go-redis/v9"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 
 	"github.com/surifleet/surifleet/internal/config"
+	"github.com/surifleet/surifleet/internal/enroll"
+	agentv1 "github.com/surifleet/surifleet/internal/gen/agent/v1"
 	"github.com/surifleet/surifleet/internal/httpapi"
+	"github.com/surifleet/surifleet/internal/hub"
+	"github.com/surifleet/surifleet/internal/pki"
 	"github.com/surifleet/surifleet/internal/store"
 )
 
@@ -60,13 +68,14 @@ func main() {
 	log.Info("запуск сервера",
 		"version", version, "commit", commit,
 		"role", cfg.Role,
-		"http_addr", cfg.HTTPAddr, "grpc_addr", cfg.GRPCAddr, "metrics_addr", cfg.MetricsAddr,
+		"http_addr", cfg.HTTPAddr, "grpc_addr", cfg.GRPCAddr,
+		"enroll_addr", cfg.EnrollAddr, "metrics_addr", cfg.MetricsAddr,
 	)
 
-	// PostgreSQL: пул соединений + автоматические миграции при старте.
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	// PostgreSQL: пул соединений + автоматические миграции при старте.
 	db, err := store.Connect(ctx, cfg.PostgresDSN)
 	if err != nil {
 		fatal(err)
@@ -87,9 +96,36 @@ func main() {
 		return
 	}
 
-	app := &App{cfg: cfg, log: log, db: db}
+	// Встроенный CA (генерируется при первом старте, хранится в ca_dir).
+	ca, err := pki.LoadOrCreateCA(cfg.CADir)
+	if err != nil {
+		fatal(fmt.Errorf("CA: %w", err))
+	}
+	log.Info("CA загружен", "ca_dir", cfg.CADir, "ca_subject", ca.Cert.Subject)
 
-	errCh := make(chan error, 2)
+	// Серверный сертификат (Hub и Enrollment слушатели) от нашего CA.
+	srvCertPEM, srvKeyPEM, err := ca.IssueServerCert(cfg.CertSANs)
+	if err != nil {
+		fatal(fmt.Errorf("серверный сертификат: %w", err))
+	}
+
+	// Redis — реестр стримов (presence).
+	rdb := redis.NewClient(&redis.Options{Addr: cfg.RedisAddr})
+	pingCtx, pingCancel := context.WithTimeout(ctx, 5*time.Second)
+	if err := rdb.Ping(pingCtx).Err(); err != nil {
+		pingCancel()
+		fatal(fmt.Errorf("ping Redis %s: %w", cfg.RedisAddr, err))
+	}
+	pingCancel()
+	defer func() { _ = rdb.Close() }()
+	log.Info("Redis подключён", "addr", cfg.RedisAddr)
+
+	hubID, _ := os.Hostname()
+	hubID = fmt.Sprintf("%s-%d", hubID, os.Getpid())
+
+	app := &App{cfg: cfg, log: log, db: db, ca: ca, rdb: rdb, hubID: hubID}
+
+	errCh := make(chan error, 4)
 
 	// HTTP API (роль api|all).
 	if cfg.Role == "api" || cfg.Role == "all" {
@@ -109,7 +145,57 @@ func main() {
 		log.Info("роль hub: HTTP API отключён")
 	}
 
-	// TODO(chunk 8+): gRPC Hub-стримы агентов (роль hub|all) на cfg.GRPCAddr.
+	// gRPC Hub — mTLS-стримы агентов (роль hub|all).
+	if cfg.Role == "hub" || cfg.Role == "all" {
+		tlsCfg, err := ca.HubServerTLSConfig(srvCertPEM, srvKeyPEM)
+		if err != nil {
+			fatal(fmt.Errorf("TLS Hub: %w", err))
+		}
+		grpcSrv := grpc.NewServer(grpc.Creds(credentials.NewTLS(tlsCfg)))
+		agentv1.RegisterAgentChannelServer(grpcSrv, hub.NewServer(db, rdb, hubID, version, log))
+		ln, err := net.Listen("tcp", cfg.GRPCAddr)
+		if err != nil {
+			fatal(fmt.Errorf("слушатель hub %s: %w", cfg.GRPCAddr, err))
+		}
+		go func() {
+			log.Info("Hub (mTLS) слушает", "addr", cfg.GRPCAddr, "hub_id", hubID)
+			if err := grpcSrv.Serve(ln); err != nil {
+				errCh <- fmt.Errorf("hub: %w", err)
+			}
+		}()
+		defer func() {
+			// GracefulStop шлёт GOAWAY и ждёт завершения стримов.
+			done := make(chan struct{})
+			go func() { grpcSrv.GracefulStop(); close(done) }()
+			select {
+			case <-done:
+			case <-time.After(10 * time.Second):
+				grpcSrv.Stop()
+			}
+		}()
+	} else {
+		log.Info("роль api: Hub отключён")
+	}
+
+	// Enrollment — отдельный TLS-слушатель БЕЗ клиентского сертификата
+	// (одноразовый join token внутри RPC), все роли.
+	enrollTLS, err := ca.EnrollmentTLSConfig(srvCertPEM, srvKeyPEM)
+	if err != nil {
+		fatal(fmt.Errorf("TLS enrollment: %w", err))
+	}
+	enrollSrv := grpc.NewServer(grpc.Creds(credentials.NewTLS(enrollTLS)))
+	agentv1.RegisterEnrollmentServer(enrollSrv, enroll.NewService(db, ca, cfg.HubEndpoints, log))
+	enrollLn, err := net.Listen("tcp", cfg.EnrollAddr)
+	if err != nil {
+		fatal(fmt.Errorf("слушатель enrollment %s: %w", cfg.EnrollAddr, err))
+	}
+	go func() {
+		log.Info("Enrollment (TLS) слушает", "addr", cfg.EnrollAddr)
+		if err := enrollSrv.Serve(enrollLn); err != nil {
+			errCh <- fmt.Errorf("enrollment: %w", err)
+		}
+	}()
+	defer enrollSrv.GracefulStop()
 
 	// Метрики Prometheus — отдельный listener для всех ролей.
 	if cfg.MetricsAddr != "" {
@@ -138,11 +224,14 @@ func main() {
 	}
 }
 
-// App — корневой объект сервера: конфигурация, логер и подключение к БД.
+// App — корневой объект сервера: конфигурация, логер, БД, CA, Redis.
 type App struct {
-	cfg *config.ServerConfig
-	log *slog.Logger
-	db  *store.Store
+	cfg   *config.ServerConfig
+	log   *slog.Logger
+	db    *store.Store
+	ca    *pki.CA
+	rdb   *redis.Client
+	hubID string
 }
 
 // routes собирает HTTP-маршруты API v1 (реализация — internal/httpapi).

@@ -1,6 +1,8 @@
 // SuriFleet Agent — агент хоста-сенсора: единый статический бинарь,
-// исходящее gRPC-подключение к серверу (mTLS), локальное логирование
-// в файл с ротацией + дублирование в stdout.
+// исходящее gRPC-подключение к серверу (enrollment → mTLS-стрим Hub),
+// локальное логирование в файл с ротацией + дублирование в stdout.
+//
+// Версия подставляется при сборке: -ldflags "-X main.version=0.1.0".
 package main
 
 import (
@@ -20,6 +22,9 @@ import (
 
 	"github.com/surifleet/surifleet/internal/config"
 )
+
+// version — версия агента (переопределяется через -ldflags -X).
+var version = "dev"
 
 func main() {
 	configPath := flag.String("config", os.Getenv("SURIFLEET_CONFIG"), "путь к YAML-конфигурации")
@@ -47,39 +52,51 @@ func main() {
 	}
 	defer rotator.Close()
 
+	// Уровень логирования — динамический: сервер может менять его на лету
+	// (LogLevelChange / HelloAck, docs/protocol.md §5).
 	level, err := config.ParseLogLevel(cfg.LogLevel)
 	if err != nil {
 		fatal(err)
 	}
+	levelVar := &slog.LevelVar{}
+	levelVar.Set(level)
 	// Локальный файл — источник истины при потере связи; stdout — для journald/отладки.
-	log := slog.New(slog.NewJSONHandler(io.MultiWriter(os.Stdout, rotator), &slog.HandlerOptions{Level: level}))
+	log := slog.New(slog.NewJSONHandler(io.MultiWriter(os.Stdout, rotator), &slog.HandlerOptions{Level: levelVar}))
 	slog.SetDefault(log)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
 	log.Info("запуск агента",
+		"version", version,
 		"server_addr", cfg.ServerAddr,
+		"enroll_addr", cfg.EnrollAddr,
 		"data_dir", cfg.DataDir,
 		"log_file", logFile,
 		"backoff", fmt.Sprintf("%s..%s", cfg.BackoffMin.D(), cfg.BackoffMax.D()),
 	)
 
-	connectLoop(ctx, cfg, log)
+	// Идентичность: сертификат с диска или enrollment по join token.
+	id, err := loadOrEnroll(ctx, cfg, log)
+	if err != nil {
+		fatal(err)
+	}
+
+	connectLoop(ctx, cfg, id, levelVar, log)
 	log.Info("агент остановлен")
 }
 
-// connectLoop — цикл переподключения к серверу: exponential backoff
+// connectLoop — цикл переподключения к Hub: exponential backoff
 // (backoff_min → ×2 → backoff_max) с полным jitter (защита от
 // reconnect-штормов, см. docs/architecture.md §4.7).
-func connectLoop(ctx context.Context, cfg *config.AgentConfig, log *slog.Logger) {
+func connectLoop(ctx context.Context, cfg *config.AgentConfig, id *identity, levelVar *slog.LevelVar, log *slog.Logger) {
 	backoff := cfg.BackoffMin.D()
-	attempt := 0
 	for {
-		attempt++
-		// TODO(chunk 6+): реальное подключение — mTLS (cert/key/ca из конфига),
-		// gRPC-стрим agent.v1.AgentChannel/Channel, Hello → HelloAck → heartbeat.
-		log.Info("попытка подключения к серверу", "attempt", attempt, "addr", cfg.ServerAddr)
+		err := runSession(ctx, cfg, id, levelVar, log)
+		if ctx.Err() != nil {
+			return // остановка по сигналу
+		}
+		log.Warn("сессия завершилась, переподключение", "err", err, "backoff", backoff)
 
 		select {
 		case <-ctx.Done():

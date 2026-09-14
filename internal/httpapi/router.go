@@ -65,6 +65,8 @@ func NewRouter(d Deps) http.Handler {
 				r.Get("/", h.getCluster)
 				r.Patch("/", h.updateCluster)
 				r.Delete("/", h.deleteCluster)
+				r.Get("/join_tokens", h.listJoinTokens)
+				r.Post("/join_tokens", h.createJoinToken)
 			})
 		})
 

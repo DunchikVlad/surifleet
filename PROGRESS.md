@@ -10,18 +10,23 @@
 
 ## Следующий шаг (конкретно)
 
-Чанк 8: gRPC Hub + агент end-to-end — Enrollment RPC (join token → CSR →
-сертификат; встроенный CA сервера), mTLS на стриме Channel, обработка
-Hello/Heartbeat на Hub, presence в Redis, регистрация агента/хоста в БД,
-цикл переподключения агента с реальным подключением. Установка Suricata
-на 192.168.31.67 — отдельным чанком 9.
+Чанк 9: установка Suricata на 192.168.31.67 (apt suricata из Ubuntu PPA или
+официальный PPA suricata-stable), discovery на агенте (бинарь, версия,
+suricata.yaml, каталоги, интерфейсы, systemd-юнит) → DiscoveryReport на
+сервер, endpoint подтверждения онбординга, создание instances в БД.
+Heartbeat дополнить ResourceSummary и статусами инстансов. Затем коммит.
+
+Далее чанк 10: репозиторий правил (импорт/парсинг) и чанк 11: волновой
+деплой ruleset end-to-end (S3-блоб → агент → reload → RuleLoadReport →
+actual state → статусы соответствия).
 
 ## Сделано (продолжение)
 
 | Чанк | Содержание | Коммит |
 |---|---|---|
 | 6 | Тестовое окружение: Docker 29.1.3 + Compose v2.40.3 на .28; `deploy/docker-compose.yml` (postgres:16-alpine, redis:7-alpine, nats:2.10-alpine -js, clickhouse:24.8-alpine, minio с quay.io + init-бакет surifleet-rulesets); стек healthy (~325 МиБ RAM); миграция 000001 прогнана up/down/up на живом PG (43 отношения: 28 таблиц + 15 партиций); append-only триггер audit_log проверен (UPDATE → ошибка); все сервисы доступны с Windows | 2940139 |
-| 7 | Сервер: `internal/store` (pgx/v5 пул, миграции golang-migrate из embed.FS при старте + --migrate-only, репозитории organizations/clusters/hosts с keyset-пагинацией, маппинг 23505→409/23503→400) + `internal/httpapi` (chi /api/v1 CRUD флота, формат Error по openapi, limit/cursor, middleware request-id/recover/access-log/DevAuth-заглушка X-Dev-User); pgx 5.7.2, migrate 4.18.2, uuid 1.6.0; build/vet/test зелёные (go test прошёл под Windows); живой CRUD проверен curl-ом с Windows на .28 (201/409/400/404/204, next_cursor, health с checks.postgres). Dev-стенд запущен на .28 (PID в ~/surifleet/server.pid, API http://192.168.31.28:8080/api/v1), в БД тестовые org acme/кластер DC-1/хост sensor-01-dc1 | (этот коммит) |
+| 7 | Сервер: `internal/store` (pgx/v5 пул, миграции golang-migrate из embed.FS при старте + --migrate-only, репозитории organizations/clusters/hosts с keyset-пагинацией, маппинг 23505→409/23503→400) + `internal/httpapi` (chi /api/v1 CRUD флота, формат Error по openapi, limit/cursor, middleware request-id/recover/access-log/DevAuth-заглушка X-Dev-User); pgx 5.7.2, migrate 4.18.2, uuid 1.6.0; build/vet/test зелёные (go test прошёл под Windows); живой CRUD проверен curl-ом с Windows на .28 (201/409/400/404/204, next_cursor, health с checks.postgres). Dev-стенд запущен на .28 (PID в ~/surifleet/server.pid, API http://192.168.31.28:8080/api/v1), в БД тестовые org acme/кластер DC-1/хост sensor-01-dc1 | 0447e1f |
+| 8 | gRPC Hub + агент end-to-end: миграция 000002 join_tokens; `internal/pki` (встроенный CA ECDSA P-256, SignCSR CN=agent_id 90 дней, серверный сертификат с SAN); `internal/enroll` (Enroll: проверка токена, атомарный расход в tx, создание host+agent, AlreadyExists при повторе без расхода токена); `internal/hub` (mTLS-сверка CN↔agent_id, Hello timeout, HelloAck 30/300/60, presence Redis stream:{agent_id} TTL 120 + hub:{id}:agents, seq replay-защита, clock-skew warn, offline в defer, agent_state_history при сменах); API POST/GET /clusters/{id}/join_tokens (токен один раз, в БД хэш); агент: enrollment (ключи/CSR, сохранение 0600) + mTLS-стрим + heartbeat-горутина. Живой e2e: enrollment с .67 → heartbeat → online в PG/Redis; kill → offline; рестарт → online без повторного enrollment. Запущено: сервер .28 PID 8057, агент .67 PID 3506 | (этот коммит) |
 
 ## Тестовая среда (добавлена в ТЗ п. 13)
 
@@ -87,6 +92,12 @@ systemd 259. Интерфейс захвата на сенсоре: enp0s3. Dock
   (история append-only); объекты вне RBAC-scoping → 404, не 403; секреты
   writeOnly, токены показываются один раз; 4xx — единый default→Error
   (128 стилистических warnings redocly оставлены осознанно).
+- TLS-схема: два слушателя — Hub :8443 (mTLS, RequireAndVerifyClientCert) и
+  Enrollment :8444 (TLS от того же CA без client cert); серверный сертификат
+  от встроенного CA, SAN из server.cert_sans. Enrollment у агента —
+  InsecureSkipVerify с TODO на TOFU-пиннинг (защита MVP: одноразовость+TTL
+  токена). Повторный enrollment хоста → AlreadyExists, токен не сгорает
+  (откат tx). agents.id = CN сертификата.
 
 ## Как поднять окружение
 
@@ -111,5 +122,14 @@ curl http://localhost:8080/api/v1/health
   партиции напрямую — остаточный зазор append-only для ролей с DDL-правами.
 - ClickHouse 24.8 вместо latest — у KVM-гостя нет AVX; на гипервизоре стоит
   включить host-passthrough CPU, тогда вернуть latest.
-- Suricata на сенсоре 192.168.31.67 ещё не установлена — отдельный чанк
-  после поднятия серверного контура.
+- Suricata на сенсоре 192.168.31.67 ещё не установлена — чанк 9.
+- Enrollment использует InsecureSkipVerify (проблема «нет CA до enrollment») —
+  TODO: TOFU-пиннинг/отпечаток CA в токене.
+- TTL-свипер offline по истечении ключа Redis не реализован — при «тихой»
+  смерти агента статус в PG останется online до переподключения; last_seen_at
+  пишется только на connect/disconnect (heartbeat в PG не пишется, §5.4).
+- Heartbeat пока без ResourceSummary/статусов инстансов (чанк 9);
+  TaskResult — заглушка not implemented (чанк 10+).
+- В середине чанка 8 sshd на .28 ~15 минут не обслуживал подключения
+  (banner/auth висли) — похоже на rate-limit при частых SSH; ssh.py/scp.py
+  теперь имеют jump-фолбэк через .67.

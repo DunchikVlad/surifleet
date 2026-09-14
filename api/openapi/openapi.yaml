@@ -390,6 +390,20 @@ paths:
         default: {$ref: '#/components/responses/Error'}
 
   /clusters/{id}/join_tokens:
+    get:
+      operationId: list_join_tokens
+      tags: [hosts]
+      summary: Список join tokens кластера (метаданные, без значений токенов)
+      description: "Требуется право: hosts.read. Значения токенов не хранятся и не возвращаются — только SHA-256 хэши в БД."
+      parameters:
+        - {$ref: '#/components/parameters/PathId'}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/JoinTokenPage'}
+        default: {$ref: '#/components/responses/Error'}
     post:
       operationId: create_join_token
       tags: [hosts]
@@ -2547,6 +2561,20 @@ components:
         cluster_id: {type: string, format: uuid}
         expires_at: {type: string, format: date-time}
         created_at: {type: string, format: date-time}
+
+    JoinTokenEntry:
+      type: object
+      properties:
+        id: {type: string, format: uuid}
+        cluster_id: {type: string, format: uuid}
+        name: {type: string}
+        expires_at: {type: string, format: date-time}
+        used_at: {type: string, format: date-time, nullable: true}
+        max_uses: {type: integer}
+        use_count: {type: integer}
+        created_at: {type: string, format: date-time}
+
+    JoinTokenPage: {type: object, properties: {items: {type: array, items: {$ref: '#/components/schemas/JoinTokenEntry'}}, next_cursor: {type: string, nullable: true}}}
 
     DiscoveredInstance:
       type: object
