@@ -77,6 +77,18 @@ func NewRouter(d Deps) http.Handler {
 				r.Get("/", h.getHost)
 				r.Patch("/", h.updateHost)
 				r.Delete("/", h.deleteHost)
+				r.Get("/discovery", h.getDiscovery)
+				r.Post("/confirm_discovery", h.confirmDiscovery)
+			})
+		})
+
+		r.Route("/instances", func(r chi.Router) {
+			r.Get("/", h.listInstances)
+			r.Post("/", h.createInstance)
+			r.Route("/{id}", func(r chi.Router) {
+				r.Get("/", h.getInstance)
+				r.Patch("/", h.updateInstance)
+				r.Delete("/", h.deleteInstance)
 			})
 		})
 	})

@@ -7,6 +7,18 @@
 
 ### Added
 
+- Чанк 9 (2026-09-14): Suricata 8.0.3 на сенсоре .67 (apt, сервис
+  active/enabled, конфиг на enp0s3, ET Open 45 МБ через suricata-update).
+  Миграция 000003 (hosts.discovery jsonb + discovered_at). Агент: discovery
+  (бинарь, `suricata --build-info`, suricata.yaml, каталоги правил/логов,
+  интерфейсы af-packet→pcap→default route, systemd-юнит — свой лёгкий
+  парсер yaml без зависимостей), DiscoveryReport после HelloAck, heartbeat
+  с ResourceSummary (/proc) и статусами сервисов инстансов. Сервер:
+  сохранение discovery в PG, GET /api/v1/hosts/{id}/discovery, POST
+  /api/v1/hosts/{id}/confirm_discovery (идемпотентный upsert в instances),
+  полный CRUD /api/v1/instances. Живой e2e: discovery → confirm → инстанс
+  с реальными путями (/etc/suricata/suricata.yaml, enp0s3, suricata.service)
+  в БД. (agent, server, db, api)
 - Чанк 8 (2026-09-14): gRPC Hub + агент end-to-end. Миграция 000002
   (join_tokens). `internal/pki` — встроенный CA (ECDSA P-256, 0700/0600),
   SignCSR (CN=agent_id, 90 дней, clientAuth), серверный сертификат с SAN,

@@ -53,7 +53,7 @@
 | Пункт ТЗ | Статус | Где реализовано | Чанк |
 |---|---|---|---|
 | Организация → Кластеры → Хосты → Инстансы | 🚧 | CRUD organizations/clusters/hosts: `internal/store`, `internal/httpapi`; instances — после discovery (чанк 9) | чанки 7–8 |
-| Онбординг без переустановки (детект существующей Suricata) | ⬜ | — | — |
+| Онбординг без переустановки (детект существующей Suricata) | ✅ | `cmd/agent/discovery.go` (бинарь/yaml/юнит/интерфейсы), GET /hosts/{id}/discovery, POST confirm_discovery → instances; проверено на Suricata 8.0.3 | чанк 9 |
 | 6 capability поэтапной передачи контроля | ⬜ | — | — |
 
 ## 10. Нефункциональные

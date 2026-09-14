@@ -20,6 +20,7 @@ type Store struct {
 	Hosts         *HostsRepo
 	JoinTokens    *JoinTokensRepo
 	Agents        *AgentsRepo
+	Instances     *InstancesRepo
 }
 
 // Connect открывает пул соединений по DSN и проверяет его ping'ом.
@@ -52,6 +53,7 @@ func Connect(ctx context.Context, dsn string) (*Store, error) {
 	s.Hosts = &HostsRepo{pool: pool}
 	s.JoinTokens = &JoinTokensRepo{pool: pool}
 	s.Agents = &AgentsRepo{pool: pool}
+	s.Instances = &InstancesRepo{pool: pool}
 	return s, nil
 }
 

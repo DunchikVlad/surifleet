@@ -193,7 +193,34 @@ func (s *Server) handleMessage(ctx context.Context, log *slog.Logger, agentID uu
 		if err := s.touchPresence(ctx, agentID); err != nil {
 			log.Error("продление presence", "err", err)
 		}
-		log.Debug("heartbeat", "uptime_s", hb.GetUptimeSeconds(), "agent_version", hb.GetAgentVersion())
+		res := hb.GetResources()
+		log.Debug("heartbeat",
+			"uptime_s", hb.GetUptimeSeconds(), "agent_version", hb.GetAgentVersion(),
+			"suricata_version", hb.GetSuricataVersion(),
+			"cpu_pct", fmt.Sprintf("%.1f", res.GetCpuPercent()),
+			"mem_bytes", res.GetMemBytes(),
+			"disk_pct", fmt.Sprintf("%.1f", res.GetDiskUsedPercent()),
+			"svc_statuses", len(hb.GetInstances()))
+		// Статусы сервисов инстансов — в Redis (живут до TTL, §5.2).
+		// instance_id появляется у агента только после confirm_discovery;
+		// статусы с пустым/неизвестным id пропускаем.
+		for _, st := range hb.GetInstances() {
+			iid, err := uuid.Parse(st.GetInstanceId())
+			if err != nil {
+				continue
+			}
+			val, _ := json.Marshal(map[string]any{
+				"state": st.GetState(), "pid": st.GetPid(),
+				"agent_id": agentID.String(),
+				"at":       time.Now().UTC().Format(time.RFC3339),
+			})
+			if err := s.rdb.Set(ctx, instanceSvcKey(iid), val, presenceTTL).Err(); err != nil {
+				log.Error("instance_svc в Redis", "instance_id", iid, "err", err)
+			}
+		}
+
+	case *agentv1.AgentMessage_DiscoveryReport:
+		s.handleDiscoveryReport(ctx, log, agentID, p.DiscoveryReport)
 
 	case *agentv1.AgentMessage_StateReport:
 		log.Info("StateReport", "instance", p.StateReport.GetInstanceId(), "ruleset", p.StateReport.GetRulesetHash())
@@ -218,6 +245,34 @@ func (s *Server) handleMessage(ctx context.Context, log *slog.Logger, agentID uu
 
 // presenceKey — ключ реестра стримов (§5.2).
 func presenceKey(agentID uuid.UUID) string { return "stream:" + agentID.String() }
+
+// instanceSvcKey — ключ статуса сервиса инстанса (heartbeat → Redis, TTL 120 с).
+func instanceSvcKey(instanceID uuid.UUID) string { return "instance_svc:" + instanceID.String() }
+
+// handleDiscoveryReport сохраняет DiscoveryReport агента в hosts.discovery
+// (jsonb) + discovered_at. Хост находится по agent_id (агент своего host_id
+// не знает). encoding/json даёт snake_case по тегам сгенерированных
+// proto-структур — форму openapi DiscoveryReport (без обёртки
+// host_id/received_at, они добавляются HTTP-слоем из колонок).
+func (s *Server) handleDiscoveryReport(ctx context.Context, log *slog.Logger, agentID uuid.UUID, rep *agentv1.DiscoveryReport) {
+	host, err := s.db.Hosts.GetByAgentID(ctx, agentID)
+	if err != nil {
+		log.Error("DiscoveryReport: хост агента не найден", "err", err)
+		return
+	}
+	raw, err := json.Marshal(rep)
+	if err != nil {
+		log.Error("DiscoveryReport: marshal", "err", err)
+		return
+	}
+	if err := s.db.Hosts.SetDiscovery(ctx, host.ID, raw); err != nil {
+		log.Error("DiscoveryReport: сохранение", "host_id", host.ID, "err", err)
+		return
+	}
+	log.Info("DiscoveryReport сохранён",
+		"host_id", host.ID, "instances", len(rep.GetInstances()),
+		"binary", rep.GetBinary().GetPath(), "suricata_version", rep.GetBinary().GetVersion())
+}
 
 // setPresence регистрирует стрим: stream:{agent_id} → presence (TTL 120 с),
 // агент добавляется в set hub:{hub_id}:agents.

@@ -79,3 +79,56 @@ type HostPatch struct {
 	Hostname *string           `json:"hostname"`
 	Labels   map[string]string `json:"labels"`
 }
+
+// Instance — инстанс Suricata на хосте (таблица instances):
+// свой suricata.yaml, каталоги правил/логов, интерфейсы захвата, systemd-юнит.
+// organization_id не хранится — вычисляется через host→cluster→org.
+type Instance struct {
+	ID                uuid.UUID `json:"id"`
+	HostID            uuid.UUID `json:"host_id"`
+	Name              string    `json:"name"`
+	ConfigPath        string    `json:"config_path"`
+	RulesDir          string    `json:"rules_dir"`
+	LogDir            string    `json:"log_dir"`
+	CaptureInterfaces []string  `json:"capture_interfaces"`
+	SuricataVersion   *string   `json:"suricata_version"`
+	SystemdUnit       *string   `json:"systemd_unit"`
+	CreatedAt         time.Time `json:"created_at"`
+	UpdatedAt         time.Time `json:"updated_at"`
+}
+
+// InstanceInput — ручное создание инстанса (openapi InstanceInput).
+type InstanceInput struct {
+	HostID            uuid.UUID `json:"host_id"`
+	Name              string    `json:"name"`
+	ConfigPath        string    `json:"config_path"`
+	RulesDir          string    `json:"rules_dir"`
+	LogDir            string    `json:"log_dir"`
+	CaptureInterfaces []string  `json:"capture_interfaces"`
+	SystemdUnit       *string   `json:"systemd_unit"`
+}
+
+// InstancePatch — частичное обновление инстанса (openapi InstanceUpdateInput):
+// nil-поле означает «не изменять».
+type InstancePatch struct {
+	Name              *string  `json:"name"`
+	ConfigPath        *string  `json:"config_path"`
+	RulesDir          *string  `json:"rules_dir"`
+	LogDir            *string  `json:"log_dir"`
+	CaptureInterfaces []string `json:"capture_interfaces"`
+	SystemdUnit       *string  `json:"systemd_unit"`
+}
+
+// InstanceUpsertInput — подтверждённый инстанс из DiscoveryReport
+// (confirm_discovery): upsert по (host_id, name). build_flags из отчёта
+// в instances не хранится (остаётся в hosts.discovery).
+type InstanceUpsertInput struct {
+	Name              string   `json:"name"`
+	ConfigPath        string   `json:"config_path"`
+	RulesDir          string   `json:"rules_dir"`
+	LogDir            string   `json:"log_dir"`
+	CaptureInterfaces []string `json:"capture_interfaces"`
+	SuricataVersion   string   `json:"suricata_version"`
+	BuildFlags        string   `json:"build_flags"`
+	SystemdUnit       string   `json:"systemd_unit"`
+}

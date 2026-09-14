@@ -71,7 +71,7 @@ func runSession(ctx context.Context, cfg *config.AgentConfig, id *identity, leve
 		ProtocolVersion: protocolMajor,
 		BootId:          bootID(),
 		Hostname:        hostname,
-		Instances:       nil, // discovery инстансов Suricata — chunk 9
+		Instances:       nil, // управляемые инстансы — chunk 10+ (discovery идёт отдельным DiscoveryReport)
 		Capabilities:    nil,
 	}}}); err != nil {
 		return fmt.Errorf("отправка Hello: %w", err)
@@ -91,7 +91,35 @@ func runSession(ctx context.Context, cfg *config.AgentConfig, id *identity, leve
 		"heartbeat_s", ack.GetHeartbeatIntervalSeconds(), "log_level", ack.GetLogLevel())
 	applyLogLevel(levelVar, ack.GetLogLevel(), log)
 
+	// Смещение часов относительно сервера (по SentAt HelloAck, без поправки
+	// на RTT — грубая оценка для детекта заметного рассинхрона).
+	var clockOffsetMs atomic.Int64
+	if sent := first.GetSentAt(); sent != nil {
+		clockOffsetMs.Store(sent.AsTime().Sub(time.Now()).Milliseconds())
+	}
+
+	// Discovery существующей установки Suricata (ТЗ п.4): один раз за сессию,
+	// асинхронно — вызовы --build-info/systemctl не должны задерживать старт
+	// heartbeat'ов. Отчёт кэшируется: heartbeat использует версию и юниты.
+	var disc atomic.Pointer[agentv1.DiscoveryReport]
+	wg0 := sync.WaitGroup{}
+	wg0.Add(1)
+	go func() {
+		defer wg0.Done()
+		rep := discoverSuricata(log)
+		if rep == nil {
+			return
+		}
+		disc.Store(rep)
+		err := send(&agentv1.AgentMessage{Payload: &agentv1.AgentMessage_DiscoveryReport{DiscoveryReport: rep}})
+		if err != nil {
+			log.Warn("DiscoveryReport не отправлен", "err", err)
+		}
+	}()
+	defer wg0.Wait()
+
 	// Heartbeat-горутина.
+	sampler := &resourceSampler{}
 	hbInterval := time.Duration(ack.GetHeartbeatIntervalSeconds()) * time.Second
 	if hbInterval <= 0 {
 		hbInterval = 30 * time.Second
@@ -109,11 +137,33 @@ func runSession(ctx context.Context, cfg *config.AgentConfig, id *identity, leve
 			case <-hbCtx.Done():
 				return
 			case <-t.C:
+				// Данные из кэша discovery (если уже завершён): версия,
+				// диск с логами первого инстанса, статусы systemd-юнитов.
+				var surVer, diskPath string
+				var svcStatuses []*agentv1.InstanceServiceStatus
+				if rep := disc.Load(); rep != nil {
+					surVer = rep.GetBinary().GetVersion()
+					if inst := rep.GetInstances(); len(inst) > 0 {
+						diskPath = inst[0].GetLogDir()
+						for _, in := range inst {
+							if st, pid := unitStatus(in.GetSystemdUnit()); st != "" {
+								svcStatuses = append(svcStatuses, &agentv1.InstanceServiceStatus{
+									InstanceId: "", // серверный id появится после confirm (chunk 10+)
+									State:      normalizeUnitState(st),
+									Pid:        pid,
+								})
+							}
+						}
+					}
+				}
 				hb := &agentv1.AgentMessage{Payload: &agentv1.AgentMessage_Heartbeat{Heartbeat: &agentv1.Heartbeat{
-					AgentId:       id.agentID,
-					UptimeSeconds: int64(time.Since(startedAt).Seconds()),
-					AgentVersion:  version,
-					// TODO(chunk 9): resources, статусы инстансов, clock_offset.
+					AgentId:         id.agentID,
+					UptimeSeconds:   int64(time.Since(startedAt).Seconds()),
+					AgentVersion:    version,
+					SuricataVersion: surVer,
+					Resources:       sampler.sample(diskPath),
+					ClockOffsetMs:   clockOffsetMs.Load(),
+					Instances:       svcStatuses,
 				}}}
 				if err := send(hb); err != nil {
 					log.Warn("heartbeat не отправлен", "err", err)
