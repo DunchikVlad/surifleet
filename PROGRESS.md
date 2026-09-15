@@ -10,22 +10,32 @@
 
 ## Следующий шаг (конкретно)
 
-Чанк 11-верификация: живая проверка волнового деплоя end-to-end на .28/.67
-(код чанка 11 написан и юнит-тесты зелёные, но ЖИВАЯ ПРОВЕРКА НЕ ВЫПОЛНЕНА —
-субагент упёрся в лимит шагов до живых тестов):
-1. Пересобрать server+agent (linux), перекатить на .28/.67 (после kill ждать
-   освобождения порта до 10 с).
-2. POST /api/v1/rulesets из ~50 enabled правил → проверить блоб в MinIO и
-   запись в ruleset_versions.
-3. POST /api/v1/deployments (targeting instances=[инстанс .67]) → агент
-   скачивает, suricata -T, reload-rules, RuleLoadReport → compliance=in_sync.
-4. GET /api/v1/instances/{id}/state и /api/v1/fleet/compliance.
-5. Негативы: битое правило (suricata -T fail → откат, drift) и деплой при
-   офлайн-агенте (pending → подхват при Hello).
-6. Проверить, что Suricata после тестов active.
-Затем коммит результатов верификации и чанк 12: instance_id агенту
-(ConfigPush/HelloAck), автооткат при падении сервиса после деплоя, логи
-агента на сервер (LogBatch → ClickHouse).
+Доверификация чанка 11 (прервана по тайм-боксу 2026-09-15):
+1. **Решить модель прав агента**: деплой падает на `permission denied` при
+   бэкапе /etc/suricata/suricata.yaml — агент работает от test, каталоги
+   Suricata принадлежат root (группы suricata в Ubuntu 26.04 нет, setfacl
+   не установлен). Варианты: агент под root (systemd), polkit/sudo-обёртки,
+   или управляемый rules-файл в каталоге, доступном агенту + include в
+   suricata.yaml один раз при онбординге (через sudo). Выбрать и реализовать.
+2. После решения прав: повторить деплой ruleset 6ca65f0f (243 правила) на
+   инстанс 468c9c71 (.67) → ожидается suricata -T → reload → RuleLoadReport
+   → compliance=in_sync; проверить GET /instances/{id}/state и
+   /fleet/compliance.
+3. **Баг**: POST /deployments/{id}/resume НЕ перезапускает failed-задачи
+   (progress остаётся failed:1, paused) — нужен retry механизм для
+   failed-задач при resume.
+4. Негативы (не выполнены): битое правило → suricata -T fail → откат;
+   деплой при офлайн-агенте → pending → подхват при Hello.
+
+Уже проверено живьём (2026-09-15): сборка ruleset (SHA-256, блоб в MinIO,
+запись в PG), создание деплоя, доставка DeployRulesTask агенту через стрим,
+скачивание блоба агентом (после фикса public_endpoint). Найден и исправлен
+баг: presigned URL генерировался с внутренним endpoint (localhost) вместо
+публичного — в server.yaml на .28 добавлен s3.public_endpoint=192.168.31.28:9000
+(в example-конфиг репозитория тоже добавить!).
+
+Далее чанк 12: instance_id агенту (ConfigPush/HelloAck), автооткат при
+падении сервиса после деплоя, логи агента на сервер (LogBatch → ClickHouse).
 
 ## Сделано (продолжение)
 
