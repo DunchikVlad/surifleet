@@ -10,32 +10,41 @@
 
 ## Следующий шаг (конкретно)
 
-Доверификация чанка 11 (прервана по тайм-боксу 2026-09-15):
-1. **Решить модель прав агента**: деплой падает на `permission denied` при
-   бэкапе /etc/suricata/suricata.yaml — агент работает от test, каталоги
-   Suricata принадлежат root (группы suricata в Ubuntu 26.04 нет, setfacl
-   не установлен). Варианты: агент под root (systemd), polkit/sudo-обёртки,
-   или управляемый rules-файл в каталоге, доступном агенту + include в
-   suricata.yaml один раз при онбординге (через sudo). Выбрать и реализовать.
-2. После решения прав: повторить деплой ruleset 6ca65f0f (243 правила) на
-   инстанс 468c9c71 (.67) → ожидается suricata -T → reload → RuleLoadReport
-   → compliance=in_sync; проверить GET /instances/{id}/state и
-   /fleet/compliance.
-3. **Баг**: POST /deployments/{id}/resume НЕ перезапускает failed-задачи
-   (progress остаётся failed:1, paused) — нужен retry механизм для
-   failed-задач при resume.
-4. Негативы (не выполнены): битое правило → suricata -T fail → откат;
-   деплой при офлайн-агенте → pending → подхват при Hello.
+Доверификация чанка 11 (второй заход, 2026-09-15, тайм-бокс):
+1. **Пройден негативный сценарий полностью**: бэкап suricata.yaml → запись
+   managed-файла → `suricata -T` ПОЙМАЛ ошибки → откат (файл удалён,
+   Suricata не пострадала) → TaskResult failed с текстами парсера Suricata.
+   Механика деплоя работает целиком.
+2. **Позитивный сценарий НЕ пройден** — мешают тестовые данные: деплой
+   подмножества ET Open конфликтует со штатным /var/lib/suricata/rules/
+   suricata.rules (Duplicate signature — те же sid уже загружены движком).
+   Решение по дизайну: при выдаче capability 'rules' SuriFleet должен сам
+   управлять списком rule-files (убирать штатный файл) — реализовать в
+   чанке 12 (агент правит rule-files при первом деплое: оставляет только
+   managed-файл; попытка ручной правки — см. п.4).
+3. **БАГ**: POST /rulesets с rule_ids игнорирует список — собрал 245 правил
+   вместо 2 (собирает по фильтру/все enabled). Исправить в
+   internal/httpapi/rulesets.go или internal/store/rulesets.go.
+4. **ЗАГАДКА на .67**: из ssh-сессии `sudo rm` в /etc/suricata → Permission
+   denied (при том что touch прошёл и агент от root успешно создал там
+   бэкап ранее). lsattr чистый. Похоже на аномалию sudo-сессии/LSM —
+   расследовать; обход: агент сам правит rule-files (ему удавалось).
+5. После п.2–4: повторить деплой ruleset d44182a6 (245 правил, вкл. 2
+   кастомных 9000020/9000021) → ожидается in_sync; проверить /instances/
+   {id}/state и /fleet/compliance. Отдельно проверить правило sid 2045706
+   (dns.query+dotprefix) — убедиться, что его ошибка была каскадом от
+   дубликатов, а не несовместимостью с 8.0.3.
+6. **БАГ (с прошлого захода)**: resume не перезапускает failed-задачи.
 
-Уже проверено живьём (2026-09-15): сборка ruleset (SHA-256, блоб в MinIO,
-запись в PG), создание деплоя, доставка DeployRulesTask агенту через стрим,
-скачивание блоба агентом (после фикса public_endpoint). Найден и исправлен
-баг: presigned URL генерировался с внутренним endpoint (localhost) вместо
-публичного — в server.yaml на .28 добавлен s3.public_endpoint=192.168.31.28:9000
-(в example-конфиг репозитория тоже добавить!).
+Состояние стенда: агент на .67 запущен от root (PID был 2262; способ —
+/tmp/start-agent.sh через sudo); /etc/suricata/suricata.yaml.manual-bak —
+ручной бэкап; rule-files пока НЕ изменён (sed не удался из-за п.4).
+В БД: ruleset 6ca65f0f (243 ET), d44182a6 (245), кастомные правила
+9000020/9000021, деплои e7ac5424/951d91bf/7ad065b6/1b8fbcf5 (failed).
 
-Далее чанк 12: instance_id агенту (ConfigPush/HelloAck), автооткат при
-падении сервиса после деплоя, логи агента на сервер (LogBatch → ClickHouse).
+Далее чанк 12: instance_id агенту (ConfigPush/HelloAck), управление
+rule-files при capability rules, автооткат при падении сервиса после
+деплоя, логи агента на сервер (LogBatch → ClickHouse).
 
 ## Сделано (продолжение)
 
