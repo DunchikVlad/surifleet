@@ -10,13 +10,31 @@
 
 ## Следующий шаг (конкретно)
 
-**После 14** (2026-09-16):
+**После 15** (2026-09-16):
 1. Визуально проверить React UI (/app/) в браузере при первом открытии —
-   все проверки были только HTTP.
-2. Развитие React UI: конструктор ruleset'ов (выбор правил чекбоксами),
-   страница инстанса, IOC; затем auth/RBAC (DevAuth → токены).
+   все проверки были только HTTP (особенно конструктор ruleset'ов и
+   страницу инстанса чанка 15).
+2. IOC/TI (п. 5.2 FEATURES) или auth/RBAC (DevAuth → токены, п. 8–9).
 3. **Аномалия (не блокер)**: из ssh `sudo rm` в /etc/suricata → Permission
    denied при работающем touch; обход — агент от root правит сам (12a).
+
+Чанк 15 ГОТОВ (2026-09-16): развитие React UI. Конструктор ruleset'ов
+(вкладка «Ruleset'ы»): выбор правил чекбоксами (фильтр по статусу,
+поиск по sid/msg, дозагрузка по 50), выбор накапливается между
+страницами (Map id→rule), счётчик/чипы/«снять выбор», сборка
+POST /rulesets с rule_ids, в ответе различаются 201/200 (apiPostEx).
+Страница инстанса (pages/InstanceDetail.tsx): drill-down из списка —
+параметры, compliance, desired/actual hash, loaded/failed, last_reload,
+failed-правила, diff missing/extra, история деплоев
+(/instances/{id}/deploy_history — эндпоинт уже был с чанка 11, новый
+server-side НЕ понадобился), логи агента хоста (по host_id). Проверки:
+npm run build чисто (171 КБ js), go build/vet/test зелёные; перекат
+.28: health ok, /app/ 200, index-C4hUzcSx.js 200, deploy_history
+инстанса 468c9c71 → 200 (09200803, 102c688b и др.), state → in_sync
+245/0. Живой e2e конструктора через API: 3 sid → 201 ruleset
+8ce1b381-c4a9-42f2-b886-89a3f73f7824 (version chunk15-e2e, 3 правила),
+повтор → 200 (идемпотентность по содержимому); DELETE /rulesets нет —
+ruleset оставлен в БД. Браузер недоступен — только HTTP-проверки.
 
 Чанк 14 ГОТОВ (2026-09-16): React-фронтенд в `web/` (Vite 5 + React 18 +
 TS strict, без UI-китов; стили портированы из webui/style.css). Экраны в
@@ -186,7 +204,8 @@ managed-файле (245 правил).
 | 13b | Управление из UI: кнопки pause/resume/cancel у деплоев (dep-act), вкл/откл правил (rule-toggle → POST /rules/bulk), форма сборки ruleset (rs-build → POST /rulesets с rule_filter status=enabled), форма нового деплоя (dep-create). apiPOST-хелпер. Живой e2e через API как из UI: сборка ruleset 200 (идемпотентный 245 правил), деплой 102c688b create→pause→resume→completed 1/1, bulk enable/disable affected:1 туда-обратно; node --check app.js; сервер перекачен, app.js отдаётся с новыми функциями | c046466 |
 | 13c | Логи агента на сервер и в UI: агент — captureHandler поверх slog → ring buffer 500 (переживает reconnect) → LogBatch каждые 30 с по стриму (`cmd/agent/logship.go`); сервер — `internal/chlogs` (ClickHouse по HTTP; native-DSN clickhouse://host:9900 конвертируется в http :8123), таблица surifleet.agent_logs (CREATE IF NOT EXISTS при старте), запись батчей в hub.handleLogBatch; API: GET /api/v1/agents (список с hostname), GET /api/v1/agents/{id}/logs?limit=200 (≤1000, ts DESC, ts→RFC3339); UI — вкладка «Логи» (селектор агента, лимит, обновить, авто 10 с). Infra-фикс: ClickHouse default без пароля из LAN через маунт zz_allow_network.xml в users.d (entrypoint без кредами сам резал default до localhost → 403). Живой e2e: 30 записей за первый батч (включая warn о разрыве — буфер дождался reconnect), SELECT count()>0, API 200 с записями, app.js содержит logs, go build/vet/test/node --check чисто | 500fb50 |
 | 13d | Матрица «правила × инстансы» (требование А): API GET /api/v1/matrix/rules (openapi get_rules_matrix) — независимые keyset-курсоры rule_cursor (по sid) / instance_cursor (по id), фильтры rule_status/category/sid/cluster_id/cell_status, limit ≤1000; ячейка loaded/failed/missing/extra из desired_state.computed_rules + actual_state (loaded/failed StateReport); store — `internal/store/matrix.go` (страницы осей + батч состояний 2 запросами), handler — `internal/httpapi/matrix.go`; тесты sid-курсора и cellStatusOf. UI — вкладка «Матрица» (строки sid+msg, столбцы hostname вертикально, цветные ячейки + легенда, фильтр по статусу ячейки, поиск по sid, дозагрузка по 50). Живой e2e: ?limit=5 → 200 с ячейками loaded для инстанса 468c9c71; пагинация/фильтры/400-валидация; кейс missing живьём (битое правило 9999991 отклонено агентом через suricata -T → desired без actual → missing, сводка 244 loaded + 1 missing); disable+ребилд+деплой → ячейка исчезла; стенд восстановлен (245/245 loaded). Ограничение MVP: cell_status фильтрует ячейки внутри текущей страницы оси правил | d868a9b |
-| 14 | React-фронтенд в `web/`: Vite 5 + React 18 + TS strict, без UI-китов (стили из webui/style.css); 7 экранов в паритете с ванильным MVP (Обзор/Инстансы/Правила/Ruleset'ы/Деплои/Логи/Матрица) + улучшение (вкладки не размонтируются — фильтры/пагинация сохраняются, сводка ячеек матрицы). Vite base=/app/, dev-proxy /api → .28:8080. Раздача из бинаря: `web/embed.go` (go:embed dist) + `internal/httpapi/reactui.go` (/app/*, SPA-fallback, заглушка когда dist не собран; placeholder.txt в git, postbuild восстанавливает). Старый UI на / не тронут. Проверки: npm install/build/dev чисто, go build/vet/test зелёные, перекат .28 — /app/ + ассеты + SPA-fallback + /api/v1/fleet/compliance 200; браузер недоступен — только HTTP | (этот коммит) |
+| 14 | React-фронтенд в `web/`: Vite 5 + React 18 + TS strict, без UI-китов (стили из webui/style.css); 7 экранов в паритете с ванильным MVP (Обзор/Инстансы/Правила/Ruleset'ы/Деплои/Логи/Матрица) + улучшение (вкладки не размонтируются — фильтры/пагинация сохраняются, сводка ячеек матрицы). Vite base=/app/, dev-proxy /api → .28:8080. Раздача из бинаря: `web/embed.go` (go:embed dist) + `internal/httpapi/reactui.go` (/app/*, SPA-fallback, заглушка когда dist не собран; placeholder.txt в git, postbuild восстанавливает). Старый UI на / не тронут. Проверки: npm install/build/dev чисто, go build/vet/test зелёные, перекат .28 — /app/ + ассеты + SPA-fallback + /api/v1/fleet/compliance 200; браузер недоступен — только HTTP | 96c777e |
+| 15 | Развитие React UI: конструктор ruleset'ов во вкладке «Ruleset'ы» (выбор правил чекбоксами с фильтром/поиском/дозагрузкой, накопление выбора между страницами, чипы/счётчик/снятие, сборка POST /rulesets с rule_ids, различение 201 «создан»/200 «уже существует» через новый apiPostEx); страница инстанса (требование А) — drill-down `pages/InstanceDetail.tsx`: параметры, compliance, desired/actual hash, loaded/failed, last_reload, failed-правила, diff missing/extra, история деплоев (существующий GET /instances/{id}/deploy_history), логи агента хоста. Проверки: npm build + go build/vet/test чисто, перекат .28 (health ok, /app/ 200, новый бандл отдаётся, deploy_history 200 с деплоями 09200803/102c688b), живой e2e конструктора: 3 sid → 201 ruleset 8ce1b381 (chunk15-e2e), повтор → 200 (идемпотентность); браузер недоступен — только HTTP | (этот коммит) |
 
 ## Тестовая среда (добавлена в ТЗ п. 13)
 

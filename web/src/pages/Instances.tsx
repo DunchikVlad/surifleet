@@ -1,13 +1,14 @@
 import React from "react";
-import { apiGet, Instance, InstanceState, Page } from "../api";
-import { Badge, ErrorBox, fmtTime, short } from "../components";
+import { apiGet, Instance, Page } from "../api";
+import { ErrorBox, fmtTime, short } from "../components";
+import InstanceDetail from "./InstanceDetail";
 
+// Instances — список инстансов; клик по строке — drill-down на страницу
+// инстанса (InstanceDetail): состояние, история деплоев, логи агента.
 export default function Instances({ active }: { active: boolean }) {
   const [items, setItems] = React.useState<Instance[] | null>(null);
   const [err, setErr] = React.useState<unknown>(null);
-  const [state, setState] = React.useState<InstanceState | null>(null);
-  const [stateId, setStateId] = React.useState<string | null>(null);
-  const [stateErr, setStateErr] = React.useState<unknown>(null);
+  const [detailId, setDetailId] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     if (!active) return;
@@ -20,14 +21,9 @@ export default function Instances({ active }: { active: boolean }) {
     })();
   }, [active]);
 
-  const loadState = async (id: string) => {
-    setStateId(id);
-    setState(null);
-    setStateErr(null);
-    try {
-      setState(await apiGet<InstanceState>(`/instances/${id}/state`));
-    } catch (e) { setStateErr(e); }
-  };
+  if (detailId) {
+    return <InstanceDetail id={detailId} onBack={() => setDetailId(null)} />;
+  }
 
   return (
     <>
@@ -41,7 +37,7 @@ export default function Instances({ active }: { active: boolean }) {
           </thead>
           <tbody>
             {items.map(i => (
-              <tr key={i.id} className="clickable" onClick={() => loadState(i.id)}>
+              <tr key={i.id} className="clickable" onClick={() => setDetailId(i.id)}>
                 <td>{i.name}</td>
                 <td className="muted">{short(i.id)}</td>
                 <td>{i.suricata_version || "—"}</td>
@@ -52,27 +48,8 @@ export default function Instances({ active }: { active: boolean }) {
           </tbody>
         </table>
       )}
-      {stateId && (
-        <div className="detail">
-          <h3>Состояние инстанса {short(stateId)}</h3>
-          <ErrorBox error={stateErr} />
-          {!state && !stateErr && <p className="muted">Загрузка состояния…</p>}
-          {state && (
-            <>
-              <p>
-                Compliance: <Badge status={state.compliance?.status || "unknown"} />{" "}
-                <span className="muted">· обновлено {fmtTime(state.compliance?.updated_at)}</span>
-              </p>
-              <p>
-                Desired: <code>{(state.desired?.ruleset_hash || "—").slice(0, 16)}…</code> ·
-                Actual: <code>{(state.actual?.ruleset_hash || "—").slice(0, 16)}…</code> ·
-                загружено {state.actual?.loaded_count ?? "—"}, не загрузилось{" "}
-                {state.actual?.failed_count ?? "—"}
-              </p>
-              <pre>{JSON.stringify(state.diff || {}, null, 2)}</pre>
-            </>
-          )}
-        </div>
+      {items && items.length > 0 && (
+        <p className="muted">Клик по строке — страница инстанса: состояние, деплои, логи агента.</p>
       )}
     </>
   );

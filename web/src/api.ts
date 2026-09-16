@@ -25,6 +25,25 @@ export const apiPost = <T,>(path: string, body?: unknown) =>
     body: body !== undefined ? JSON.stringify(body) : null,
   });
 
+// apiPostEx — как apiPost, но возвращает и HTTP-статус (напр. различать
+// 201 «создан» и 200 «уже существовал» у идемпотентного POST /rulesets).
+export const apiPostEx = async <T,>(path: string, body?: unknown) => {
+  const r = await fetch(API + path, {
+    method: "POST",
+    headers: body !== undefined ? { "Content-Type": "application/json" } : {},
+    body: body !== undefined ? JSON.stringify(body) : null,
+  });
+  if (!r.ok) {
+    let msg = "HTTP " + r.status;
+    try {
+      const j = await r.json();
+      if (j.error?.message) msg += ": " + j.error.message;
+    } catch { /* тело не JSON — оставляем HTTP-код */ }
+    throw new ApiError(msg);
+  }
+  return { status: r.status, body: (await r.json()) as T };
+};
+
 // --- типы (соответствуют api/openapi/openapi.yaml, подмножество для UI) ---
 
 export interface Health { status: string; checks?: Record<string, string> }
@@ -56,17 +75,57 @@ export interface DeployTask {
 
 export interface Instance {
   id: string;
+  host_id?: string;
   name: string;
   suricata_version?: string;
   config_path?: string;
+  rules_dir?: string;
+  log_dir?: string;
+  capture_interfaces?: string[];
+  systemd_unit?: string;
   updated_at?: string;
 }
 
+export interface FailedRule { sid: number; rev: number; error_text: string }
+
 export interface InstanceState {
+  instance_id?: string;
   compliance?: { status?: string; updated_at?: string };
-  desired?: { ruleset_hash?: string };
-  actual?: { ruleset_hash?: string; loaded_count?: number; failed_count?: number };
-  diff?: unknown;
+  desired?: {
+    ruleset_version_id?: string;
+    ruleset_hash?: string;
+    calc_version?: number;
+    updated_at?: string;
+  };
+  actual?: {
+    ruleset_hash?: string;
+    reported_at?: string;
+    loaded_count?: number;
+    failed_count?: number;
+    failed_rules?: FailedRule[];
+    last_reload?: {
+      action: string;
+      success: boolean;
+      message?: string;
+      finished_at?: string | null;
+    };
+  };
+  diff?: {
+    missing_rules?: number[];
+    extra_rules?: number[];
+    failed_rules?: FailedRule[];
+  };
+}
+
+// DeployHistoryItem — запись GET /instances/{id}/deploy_history.
+export interface DeployHistoryItem {
+  deployment_id: string;
+  ruleset_version: string;
+  initiated_by?: string | null;
+  status: string;
+  started_at?: string | null;
+  finished_at?: string | null;
+  result?: string | null;
 }
 
 export interface Rule {
