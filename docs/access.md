@@ -1,7 +1,7 @@
 # Подключение к SuriFleet: API и интерфейсы
 
 > Документ для аналитика/инженера: как подключиться к развёрнутому стенду
-> и что через него можно делать. Актуально на 2026-09-16 (после чанка 16).
+> и что через него можно делать. Актуально на 2026-09-16 (после чанка 21).
 > Тестовая среда описана в ТЗ п. 13: сервер — 192.168.31.28, сенсор —
 > 192.168.31.67 (ssh/sudo: test/test).
 
@@ -229,44 +229,63 @@ default 50) и `cursor`; в ответе `next_cursor` (null — страниц 
   `ioc-revoked` (чанк 19); повторная генерация отозванное правило не
   включает, пока IOC не вернулся в active.
 
-### 4.8 Фиды IOC (чанк 18)
+### 4.8 Фиды IOC и правил (чанки 18, 21)
 - `GET /feeds` — список фидов с фильтром `type` (et_open/et_pro/taxii/
   stix/misp/generic) и keyset-пагинацией.
 - `POST /feeds` — подключение: `{name, type, url, schedule?,
   credentials?, enabled?}`; URL — абсолютный http(s), дубль (org, name)
-  → 409. `credentials` — writeOnly (в ответах не возвращается;
+  → 409. Для `type=et_open` пустой `url` → дефолт
+  `https://rules.emergingthreats.net/open/suricata/rules/emerging-all.rules`
+  (можно URL отдельной категории ET или свой .rules-файл).
+  `credentials` — writeOnly (в ответах не возвращается;
   "user:pass" → Basic Auth, иначе Bearer-токен при загрузке фида).
 - `GET/PATCH/DELETE /feeds/{id}` — карточка, частичное изменение
   (name/url/schedule/credentials/enabled), удаление (204;
-  импортированные IOC остаются — feed_id → NULL по FK, история
+  импортированные IOC/правила остаются — feed_id → NULL по FK, история
   feed_runs удаляется каскадом).
 - `POST /feeds/{id}/sync` — СИНХРОННАЯ синхронизация: HTTP GET
-  (таймаут 30 с, лимит 32 МБ) → разбор (plain text: один IOC на строку,
-  `#`/`//` — комментарии; CSV `value,type`/`type,value`; JSON — массив
-  строк или `{type,value,score}`; тип угадывается: ip/CIDR, домен, URL,
-  md5/sha1/sha256, email) → идемпотентный импорт (upsert по
-  (org, type, value), source = имя фида, feed_id = id фида, score 50).
-  Поддерживается только `type=generic`. Ошибки загрузки/разбора — не
-  5xx, а `status=failed` + `error` в теле (дублируются в
-  `feeds.last_error`); мусорные строки не прерывают импорт (skipped).
-  Ответ — FeedRun `{status, imported, updated, skipped, error}` плюс,
-  при успехе, итог автопрогона генерации правил (`rules_created/
-  rules_updated/rules_unchanged`, `ruleset_version` — ruleset
-  ioc-current-*, БЕЗ деплоя).
+  (таймаут 30 с, лимит 32 МБ) → разбор → идемпотентный импорт.
+  Два коннектора:
+  - `type=generic` — IOC-лист (plain text: один IOC на строку,
+    `#`/`//` — комментарии; CSV `value,type`/`type,value`; JSON — массив
+    строк или `{type,value,score}`; тип угадывается: ip/CIDR, домен, URL,
+    md5/sha1/sha256, email) → upsert в iocs по (org, type, value),
+    source = имя фида, feed_id = id фида, score 50. После успешного
+    импорта — автопрогон генерации правил из IOC (счётчики rules_*,
+    ruleset ioc-current-*, БЕЗ деплоя).
+  - `type=et_open` (чанк 21) — фид ПРАВИЛ ET Open (.rules-файл) → upsert
+    в репозиторий rules по (org, sid) с `source_type=et_open` и feed_id
+    фида (НЕ в iocs; автопрогон IOC-генерации не выполняется).
+    Выключенные в фиде правила ET («#alert ...» — комментарий без пробела
+    перед action) создаются со status=disabled, активные — under_review.
+    Тюнинг аналитика (status/priority/threshold/tags) и первичные
+    source_type/feed_id уже существующих правил импорт НЕ перетирает —
+    поэтому 245 ET-правил начального импорта (source_type='file') при
+    синке того же sid обновятся по (org, sid) без дублей, сохранив
+    source_type='file'. Счётчики run: imported — новые sid, updated —
+    изменившийся raw (новая ревизия), skipped — битые строки; правила без
+    изменений в счётчики не входят («без изменений N» — в error при
+    success).
+  Остальные типы (et_pro/taxii/stix/misp) — failed с пояснением.
+  Ошибки загрузки/разбора — не 5xx, а `status=failed` + `error` в теле
+  (дублируются в `feeds.last_error`); мусорные строки не прерывают импорт.
+  Ответ — FeedRun `{status, imported, updated, skipped, error}` плюс для
+  generic итог автопрогона (`rules_created/rules_updated/rules_unchanged`,
+  `ruleset_version`).
 - `GET /feeds/{id}/runs` — история запусков (feed_runs, миграция
   000005), свежие первыми, keyset по (started_at, id).
 - Планировщик авто-синка — фоновая горутина (роль api|all), интервал
   `server.feed_sync_interval` (default 60s, 0 — выключен): enabled-фиды
   с `schedule` в виде длительности Go ("1h", "30m"; cron — следующие
   чанки) синкаются при `last_sync_at + schedule <= now()`; плановый
-  синк только импортирует IOC (автогенерация правил — у ручного синка).
+  синк только импортирует (автогенерация правил — у ручного синка
+  generic-фида). Работает для обоих коннекторов (generic и et_open).
 - React UI: вкладка «Фиды» (таблица, форма добавления, кнопка
   «Синхронизировать» со строкой результата, переключатель enabled,
   удаление).
 
-Не реализовано пока: коннекторы et_open/et_pro/taxii/stix/misp (синк
-возвращает failed с пояснением), cron-расписания, отзыв IOC-правил при
-revoke источника.
+Не реализовано пока: коннекторы et_pro/taxii/stix/misp (синк возвращает
+failed с пояснением), cron-расписания.
 
 ## 5. Сквозной сценарий «от нуля до задеплоенных правил»
 
@@ -277,7 +296,7 @@ in_sync). Все команды — с Windows-хоста или с самого
 API=http://192.168.31.28:8080/api/v1
 
 # 1. Импорт правил (файл .rules)
-curl -X POST "$API/rules/import?source=etopen" \
+curl -X POST "$API/rules/import?source=feed" \
   -H "Content-Type: text/plain" --data-binary @rules.rules
 
 # 2. Сборка ruleset из всех enabled правил (или явным списком rule_ids)

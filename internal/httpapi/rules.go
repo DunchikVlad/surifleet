@@ -73,8 +73,8 @@ func (h *handlers) listRules(w http.ResponseWriter, r *http.Request) {
 	if f.Status != "" && !ruleStatuses[f.Status] {
 		fe.add("status", "enabled|disabled|expired|under_review|deleted")
 	}
-	if f.Source != "" && f.Source != "file" && f.Source != "feed" && f.Source != "ioc" {
-		fe.add("source", "file|feed|ioc")
+	if f.Source != "" && f.Source != "file" && f.Source != "feed" && f.Source != "ioc" && f.Source != "et_open" {
+		fe.add("source", "file|feed|ioc|et_open")
 	}
 	if s := q.Get("sid"); s != "" {
 		n, err := strconv.ParseInt(s, 10, 64)

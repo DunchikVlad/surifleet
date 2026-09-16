@@ -666,7 +666,7 @@ paths:
         - {name: status, in: query, schema: {type: string, enum: [enabled, disabled, expired, under_review, deleted]}}
         - {name: category, in: query, schema: {type: string}}
         - {name: tag, in: query, schema: {type: string}}
-        - {name: source, in: query, description: 'Источник: file | feed | ioc', schema: {type: string, enum: [file, feed, ioc]}}
+        - {name: source, in: query, description: 'Источник: file | feed | ioc | et_open', schema: {type: string, enum: [file, feed, ioc, et_open]}}
         - {name: sid, in: query, schema: {type: integer, format: int64}}
         - {name: q, in: query, description: Поиск по msg, schema: {type: string}}
       responses:
@@ -932,12 +932,21 @@ paths:
       summary: Синхронизировать фид (вне расписания)
       description: >
         Требуется право: feeds.write. Выполняется СИНХРОННО: HTTP GET → разбор
-        (plain text / CSV / JSON, тип IOC угадывается) → идемпотентный импорт
-        (upsert по (org, type, value); source = имя фида, feed_id = id фида).
-        Поддерживаются только фиды type=generic. Ошибки загрузки/разбора — не
-        5xx, а status=failed + error в теле (дублируются в last_error фида).
-        После успешного импорта — автопрогон генерации Suricata-правил из
-        активных IOC (ruleset ioc-current-*, БЕЗ деплоя; счётчики rules_*).
+        → идемпотентный импорт. Коннекторы: type=generic — IOC-лист
+        (plain text / CSV / JSON, тип IOC угадывается) → upsert в iocs по
+        (org, type, value); source = имя фида, feed_id = id фида. type=et_open —
+        фид ПРАВИЛ ET Open (.rules-файл; URL по умолчанию при создании —
+        https://rules.emergingthreats.net/open/suricata/rules/emerging-all.rules)
+        → upsert в репозиторий rules по (org, sid) с source_type=et_open и
+        feed_id фида; выключенные в фиде правила («#alert ...») создаются со
+        status=disabled, активные — under_review; тюнинг аналитика
+        (status/priority/threshold/tags) и первичный source_type/feed_id
+        существующих правил импорт не перетирает. Прочие типы — failed с
+        пояснением. Ошибки загрузки/разбора — не 5xx, а status=failed + error
+        в теле (дублируются в last_error фида). После успешного импорта
+        generic-фида — автопрогон генерации Suricata-правил из активных IOC
+        (ruleset ioc-current-*, БЕЗ деплоя; счётчики rules_*); для et_open
+        автопрогон не выполняется (фид сам импортирует правила).
       parameters:
         - {$ref: '#/components/parameters/PathId'}
       responses:
@@ -2648,7 +2657,7 @@ components:
         status: {type: string, enum: [enabled, disabled, expired, under_review, deleted]}
         priority: {type: integer, nullable: true, description: Тюнинг аналитика}
         threshold: {type: object, nullable: true, description: Тюнинг аналитика (threshold/suppress)}
-        source_type: {type: string, enum: [file, feed, ioc]}
+        source_type: {type: string, enum: [file, feed, ioc, et_open]}
         feed_id: {type: string, format: uuid, nullable: true}
         created_at: {type: string, format: date-time}
         updated_at: {type: string, format: date-time}
@@ -2758,7 +2767,7 @@ components:
       properties:
         name: {type: string}
         type: {type: string, enum: [et_open, et_pro, taxii, stix, misp, generic]}
-        url: {type: string}
+        url: {type: string, description: 'Абсолютный URL http(s). Для et_open может быть пустой строкой — подставляется дефолт https://rules.emergingthreats.net/open/suricata/rules/emerging-all.rules (или URL отдельной категории/свой .rules-файл)'}
         schedule: {type: string, description: 'Интервал авто-синка (MVP: длительность Go, напр. "1h"; cron — следующие чанки)'}
         credentials: {type: string, writeOnly: true, description: Креды доступа (токен/логин-пароль); хранятся шифрованно}
         enabled: {type: boolean, default: true}
@@ -2774,7 +2783,7 @@ components:
 
     FeedRun:
       type: object
-      description: 'Запуск синхронизации фида. Поля rules_* и ruleset_version — только в ответе POST /feeds/{id}/sync (итог автопрогона генерации правил из IOC), в истории runs не хранятся.'
+      description: 'Запуск синхронизации фида. Поля rules_* и ruleset_version — только в ответе POST /feeds/{id}/sync (итог автопрогона генерации правил из IOC; выполняется лишь для generic-фидов), в истории runs не хранятся. Для et_open счётчики imported/updated/skipped относятся к правилам (новые sid / изменившийся raw / битые строки); правила без изменений в счётчики не входят, их число — в error-сообщении при успехе.'
       properties:
         id: {type: string, format: uuid}
         feed_id: {type: string, format: uuid}

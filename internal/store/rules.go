@@ -45,6 +45,13 @@ type ImportItem struct {
 	Classtype string          // → category, если CategoryOverride пуст
 	Raw       string          // исходная строка правила целиком
 	Parsed    json.RawMessage // разобранные поля (classtype, reference, ...) → revisions.parsed
+	// FeedID — фид-источник (проставляется только при создании правила;
+	// при обновлении существующего первичный источник сохраняется).
+	FeedID *uuid.UUID
+	// InitialStatus — статус нового правила (пусто → 'under_review');
+	// фид et_open передаёт 'disabled' для выключенных в фиде правил.
+	// На существующие правила не влияет — статус аналитика не перетирается.
+	InitialStatus string
 }
 
 // Hash — sha256(hex) от Raw (ключ сравнения ревизий).
@@ -69,7 +76,9 @@ func (it ImportItem) category(override string) *string {
 // Сохранение тюнинга аналитика (ТЗ 5.1): импорт пишет ТОЛЬКО msg/category
 // (данные фида) и ревизии; status/priority/threshold/tags никогда не
 // перетираются — их меняет только аналитик (PATCH/bulk). Новое правило
-// создаётся в status='under_review'.
+// создаётся в status=InitialStatus (по умолчанию 'under_review'); feed_id и
+// source_type фиксируются при создании и при последующих импортах по тому же
+// (org, sid) не меняются — первичный источник сохраняется.
 //
 // Raw изменился → UPDATE rules (msg, category) + новая строка в
 // rule_revisions с rev из файла; если пара (rule_id, revision) уже есть
@@ -91,11 +100,15 @@ func (r *RulesRepo) UpsertImport(ctx context.Context, orgID uuid.UUID, it Import
 			return Rule{}, "", translate(err)
 		}
 		// Новое правило + первая ревизия.
+		initialStatus := it.InitialStatus
+		if initialStatus == "" {
+			initialStatus = "under_review"
+		}
 		rule, err = scanRule(tx.QueryRow(ctx,
-			`INSERT INTO rules (organization_id, sid, msg, category, status, source_type)
-			 VALUES ($1, $2, $3, $4, 'under_review', $5)
+			`INSERT INTO rules (organization_id, sid, msg, category, status, source_type, feed_id)
+			 VALUES ($1, $2, $3, $4, $5, $6, $7)
 			 RETURNING `+ruleColumns,
-			orgID, it.SID, it.Msg, it.category(categoryOverride), sourceType))
+			orgID, it.SID, it.Msg, it.category(categoryOverride), initialStatus, sourceType, it.FeedID))
 		if err != nil {
 			return Rule{}, "", translate(err)
 		}

@@ -172,9 +172,10 @@ func main() {
 		go runIocSweeper(ctx, db, cfg.IocSweepInterval.D(), log)
 	}
 
-	// Синхронизация IOC-фидов (чанк 18): syncer общий для HTTP-хендлера
-	// ручного синка и фонового планировщика (schedule у фида — длительность
-	// Go: "1h", "30m", ...; cron-формат — следующие чанки).
+	// Синхронизация фидов (чанк 18 — generic IOC, чанк 21 — et_open правила):
+	// syncer общий для HTTP-хендлера ручного синка и фонового планировщика
+	// (schedule у фида — длительность Go: "1h", "30m", ...; cron-формат —
+	// следующие чанки).
 	feedSync := &feedsync.Syncer{Store: db, Log: log}
 	if (cfg.Role == "api" || cfg.Role == "all") && cfg.FeedSyncInterval.D() > 0 {
 		go runFeedScheduler(ctx, feedSync, cfg.FeedSyncInterval.D(), log)

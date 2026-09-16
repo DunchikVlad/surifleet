@@ -7,6 +7,46 @@
 
 ### Added
 
+- Чанк 21 (2026-09-16): коннектор et_open — фиды ПРАВИЛ Emerging Threats
+  Open. В отличие от generic (IOC), фид type=et_open при sync скачивает
+  .rules-файл и импортирует правила в мастер-репозиторий rules (НЕ в iocs).
+  `internal/feedsync/rulesfeed.go`: `ParseRules` — разбор .rules-тела
+  (комментарии «# ...» пропускаются; выключенные в фиде правила ET
+  «#alert ...»/«#drop ...» — комментарий без пробела перед action —
+  распознаются и импортируются со status=disabled; если остаток после '#'
+  не парсится как правило — это обычный комментарий; continuation-строки
+  '\\' склеиваются; битые строки — в ошибки, разбор не прерывается) и
+  `syncRules` — upsert по (org, sid) через `Rules.UpsertImport` с
+  source_type='et_open' и feed_id фида. Миграция 000006 расширяет CHECK
+  rules.source_type значением 'et_open' (+зеркало в
+  internal/store/migrations). `store.ImportItem` +FeedID/InitialStatus:
+  новое правило создаётся в InitialStatus (по умолчанию under_review,
+  для выключенных в фиде — disabled), feed_id фиксируется при создании;
+  на существующие правила импорт по-прежнему не трогает тюнинг аналитика
+  (status/priority/threshold/tags) и первичные source_type/feed_id.
+  Счётчики run для et_open: imported — новые sid, updated — изменившийся
+  raw (новая ревизия), skipped — битые строки/ошибки БД; правила без
+  изменений в счётчики не входят, их число — в error-сообщении
+  («без изменений N; ...»). URL по умолчанию (пустой url при создании
+  et_open-фида) — emerging-all.rules; поддерживается любой URL на
+  .rules-файл (категории ET, свой файл). et_pro/taxii/stix/misp по-прежнему
+  failed с пояснением. Автопрогон генерации IOC-правил после ручного синка
+  теперь только для generic (et_open сам импортирует правила). GET /rules
+  source-фильтр принимает et_open. OpenAPI приведён под факт. Юнит-тесты
+  ParseRules (активные/disabled/комментарии/мусор/continuation/BOM/без
+  финального \n). Живой e2e на .28: тестовый feed.rules (5 правил:
+  3 активных + 2 выключенных + мусорная строка) через локальный
+  http.server → sync: imported=5, skipped=1; правила с source_type=et_open,
+  feed_id, активные under_review, выключенные disabled; повторный sync —
+  imported=0/updated=0, «без изменений 5», дублей нет; изменение
+  msg+rev в фиде → sync: updated=1, новая ревизия rev 3 (rev 2 в истории),
+  статус нетронут; дефолтный URL подставляется; et_pro → failed с
+  понятным текстом. Существующие 245 ET-правил (source_type='file')
+  не мигрированы — повторный импорт тех же sid через фид обновит их
+  по (org, sid) без дублей (первичный source_type сохранится). Реальный
+  URL ET Open с .28 доступен (HTTP 200, emerging-dns.rules). Деплоев на
+  инстанс не было, compliance in_sync 1/1. (server, db, api)
+
 - Чанк 20 (2026-09-16): исправлена ошибка «column reference "status" is
   ambiguous» (SQLSTATE 42702) в подхвате pending-задач. Кореневая причина:
   в `PendingTasksForAgent` (`internal/store/deploy.go`) список колонок

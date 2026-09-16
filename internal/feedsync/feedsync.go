@@ -1,6 +1,8 @@
-// Package feedsync — синхронизация IOC-фидов: загрузка по HTTP(S),
-// разбор простых форматов (plain text / CSV / JSON) с угадыванием типа
-// IOC и идемпотентный импорт в репозиторий (UpsertImport).
+// Package feedsync — синхронизация фидов: загрузка по HTTP(S) и разбор.
+// type=generic — IOC-листы (plain text / CSV / JSON) с угадыванием типа
+// IOC и идемпотентным импортом в iocs (UpsertImport); type=et_open —
+// фид ПРАВИЛ Emerging Threats Open (.rules-файл) с импортом в репозиторий
+// rules (см. rulesfeed.go).
 //
 // Поддерживаемые форматы тела:
 //   - plain text: один IOC на строку, '#' и '//' — комментарии;
@@ -100,13 +102,20 @@ func (s *Syncer) Sync(ctx context.Context, feed store.Feed) (store.FeedRun, erro
 		return run, nil
 	}
 
-	if feed.Type != "generic" {
-		return fail(fmt.Sprintf("синхронизация типа %q не поддерживается (только generic IOC-фиды)", feed.Type))
+	switch feed.Type {
+	case "generic", "et_open":
+		// поддерживаемые коннекторы: generic — IOC-листы, et_open — фид правил.
+	default:
+		return fail(fmt.Sprintf("синхронизация типа %q не поддерживается (generic — IOC-фиды, et_open — фид правил ET Open)", feed.Type))
 	}
 
 	body, err := s.fetch(ctx, feed)
 	if err != nil {
 		return fail(err.Error())
+	}
+
+	if feed.Type == "et_open" {
+		return s.syncRules(ctx, feed, run, body, fail)
 	}
 
 	items, lineErrs := Parse(body)

@@ -8,12 +8,14 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/surifleet/surifleet/internal/feedsync"
 	"github.com/surifleet/surifleet/internal/store"
 )
 
 // feedTypes — допустимые типы фидов (CHECK в DDL + enum openapi).
-// Синхронизация (POST /feeds/{id}/sync) поддерживает только generic
-// (IOC-листы plain/CSV/JSON); остальные типы — под будущие коннекторы.
+// Синхронизация (POST /feeds/{id}/sync) поддерживает generic (IOC-листы
+// plain/CSV/JSON → таблица iocs) и et_open (.rules-файл ET Open →
+// репозиторий rules); остальные типы — под будущие коннекторы.
 var feedTypes = map[string]bool{
 	"et_open": true, "et_pro": true, "taxii": true,
 	"stix": true, "misp": true, "generic": true,
@@ -70,6 +72,10 @@ func (h *handlers) createFeed(w http.ResponseWriter, r *http.Request) {
 	var in store.FeedInput
 	if !decodeJSON(w, r, &in) {
 		return
+	}
+	// et_open без URL → дефолтный полный набор ET Open (чанк 21).
+	if in.Type == "et_open" && strings.TrimSpace(in.URL) == "" {
+		in.URL = feedsync.DefaultETOpenURL
 	}
 	fe := fieldErrors{}
 	validateFeedInput(fe, &in.Name, &in.URL, &in.Type)
@@ -149,9 +155,10 @@ type feedSyncResult struct {
 }
 
 // syncFeed — POST /api/v1/feeds/{id}/sync: синхронная синхронизация фида
-// (HTTP GET → разбор → UpsertImport). Ошибки загрузки/разбора — не 5xx,
-// а status=failed + error в теле (и last_error у фида). После успешного
-// импорта — автопрогон генерации правил из IOC (без деплоя).
+// (HTTP GET → разбор → импорт: generic → iocs, et_open → rules). Ошибки
+// загрузки/разбора — не 5xx, а status=failed + error в теле (и last_error у
+// фида). После успешного импорта generic-фида — автопрогон генерации
+// правил из IOC (без деплоя).
 func (h *handlers) syncFeed(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathUUID(w, chi.URLParam(r, "id"), "id")
 	if !ok {
@@ -174,9 +181,10 @@ func (h *handlers) syncFeed(w http.ResponseWriter, r *http.Request) {
 	}
 
 	res := feedSyncResult{FeedRun: run}
-	// Автопрогон генерации правил (без деплоя) — только если импорт что-то
-	// принёс. Ошибка генерации не валит ответ синка: логируем.
-	if run.Status == "success" && run.Imported+run.Updated > 0 {
+	// Автопрогон генерации правил из IOC (без деплоя) — только для generic
+	// (IOC-фиды) и только если импорт что-то принёс; et_open сам импортирует
+	// правила. Ошибка генерации не валит ответ синка: логируем.
+	if feed.Type == "generic" && run.Status == "success" && run.Imported+run.Updated > 0 {
 		gen := iocGenerateResult{Skipped: []iocSkip{}}
 		v, err := h.generateIocRulesCore(r.Context(), feed.OrganizationID, &gen)
 		if err != nil {
