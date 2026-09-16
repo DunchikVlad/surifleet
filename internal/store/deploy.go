@@ -32,6 +32,11 @@ func scanDeployment(row pgx.Row) (Deployment, error) {
 const taskColumns = `id, deployment_id, instance_id, wave, status, attempts, max_attempts,
 	result, error, started_at, finished_at, created_at, updated_at`
 
+// taskColumnsT — те же колонки с префиксом t. (для запросов с JOIN deployments/
+// instances/agents, где status/id/created_at неоднозначны).
+const taskColumnsT = `t.id, t.deployment_id, t.instance_id, t.wave, t.status, t.attempts, t.max_attempts,
+	t.result, t.error, t.started_at, t.finished_at, t.created_at, t.updated_at`
+
 func scanTask(row pgx.Row) (DeploymentTask, error) {
 	var t DeploymentTask
 	err := row.Scan(&t.ID, &t.DeploymentID, &t.InstanceID, &t.Wave, &t.Status,
@@ -341,7 +346,7 @@ func (r *DeploymentsRepo) ResetSentTasks(ctx context.Context) (int64, error) {
 // (подхват при подключении агента к хабу).
 func (r *DeploymentsRepo) PendingTasksForAgent(ctx context.Context, agentID uuid.UUID) ([]DeploymentTask, error) {
 	rows, err := r.pool.Query(ctx,
-		`SELECT t.`+taskColumns+` FROM deployment_tasks t
+		`SELECT `+taskColumnsT+` FROM deployment_tasks t
 		 JOIN deployments d ON d.id = t.deployment_id AND d.status = 'running'
 		 JOIN instances i ON i.id = t.instance_id
 		 JOIN agents a ON a.host_id = i.host_id

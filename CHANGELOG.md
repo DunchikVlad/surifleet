@@ -7,6 +7,25 @@
 
 ### Added
 
+- Чанк 20 (2026-09-16): исправлена ошибка «column reference "status" is
+  ambiguous» (SQLSTATE 42702) в подхвате pending-задач. Кореневая причина:
+  в `PendingTasksForAgent` (`internal/store/deploy.go`) список колонок
+  собирался как `SELECT t.`+taskColumns — префикс `t.` получала только
+  ПЕРВАЯ колонка, остальные (status и др.) были неоднозначны в JOIN с
+  deployments/instances/agents. Ошибка проявлялась при каждом
+  переподключении агента (hub.OnAgentOnline → оркестратор DispatchPending).
+  Фикс: новая константа `taskColumnsT` — все колонки с префиксом `t.`
+  (по образцу instanceColumnsI/hostColumnsH); регрессионный юнит-тест
+  `TestTaskColumnsTQualified` (`internal/store/deploy_test.go`) проверяет,
+  что taskColumnsT — это taskColumns с префиксом у каждой колонки. Остальные
+  JOIN-запросы проверены — квалификация в порядке. Проверено живьём на .28:
+  до фикса — 5 повторов ошибки в server.log при каждом подключении агента;
+  после переката — переподключение агента без ошибки (подхват отработал
+  молча, pending-задач не было), прямой прогон исправленного SQL в PG — 0
+  строк без ошибки; health ok, compliance in_sync 1/1. Полный e2e подхвата
+  с реальной pending-задачей пропущен — потребовал бы деплоя на инстанс
+  468c9c71. (server, db)
+
 - Чанк 19 (2026-09-16): отзыв IOC-правил при revoke/delete/expire
   источника. `internal/iocrules/revoke.go`: `RevokeForIoc(ctx, orgID,
   type, value, RuleStore)` — поиск правила тем же пробингом слотов sid,

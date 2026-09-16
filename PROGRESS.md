@@ -10,21 +10,35 @@
 
 ## Следующий шаг (конкретно)
 
-**После 19** (2026-09-16):
-1. ~~Визуально проверить React UI~~ — СДЕЛАНО: вкладки включая «Фиды»
-   чанка 18 проверены в браузере (по отметке координатора; субагенту
-   браузерный инструмент недоступен — только HTTP).
-2. IOC/TI, следующий срез (п. 5.2 FEATURES): коннекторы
-   et_open/et_pro/taxii/stix/misp и cron-расписания фидов (пока —
-   длительность Go). Либо auth/RBAC (DevAuth → токены, п. 8–9).
-3. **Аномалия (не блокер)**: из ssh `sudo rm` в /etc/suricata → Permission
+**После 20** (2026-09-16):
+1. IOC/TI, следующий срез (п. 5.2 FEATURES): коннекторы
+   et_open/et_pro/taxii/stix/misp и cron-расписания фидов. Либо auth/RBAC
+   (DevAuth → токены, п. 8–9).
+2. **Аномалия (не блокер)**: из ssh `sudo rm` в /etc/suricata → Permission
    denied при работающем touch; обход — агент от root правит сам (12a).
-4. **Аномалия (не блокер, старая)**: в логе сервера при старте
-   «подхват pending-задач» падает с «column reference "status" is
-   ambiguous» (SQLSTATE 42702) — наблюдалась и в чанке 19, на compliance
-   не влияет; разобрать отдельно.
 
-Чанк 19 ГОТОВ (2026-09-16, этот коммит): отзыв IOC-правил при
+Чанк 20 ГОТОВ (2026-09-16, этот коммит): фикс «column reference "status"
+is ambiguous» (SQLSTATE 42702) в подхвате pending-задач. Причина:
+`internal/store/deploy.go`, PendingTasksForAgent — `SELECT t.`+taskColumns
+ставил префикс `t.` только на первую колонку списка, остальные (status
+и др.) неоднозначны в JOIN deployments/instances/agents; ошибка стреляла
+при каждом переподключении агента (OnAgentOnline → DispatchPending) и
+значит при каждом рестарте сервера. Фикс: константа `taskColumnsT` (все
+колонки с `t.`, по образцу instanceColumnsI/hostColumnsH); регрессионный
+тест `TestTaskColumnsTQualified` (internal/store/deploy_test.go). Остальные
+JOIN-запросы (rulesets.go, matrix.go, agents.go, hosts.go, instances.go,
+deploy.go:450) проверены — квалификация корректна. Проверки: go build/
+vet/test зелёные, gofmt чисто. Перекат .28: до фикса — 5 повторов ошибки
+в server.log; после — health ok, переподключение агента без ошибки
+(подхват отработал молча — pending-задач не было), исправленный SQL
+прогнан напрямую в PG (0 строк, без ошибки), compliance in_sync 1/1.
+Полный e2e подхвата с реальной pending-задачей пропущен: требовал бы
+деплоя на инстанс 468c9c71 без необходимости.
+
+**Следующий шаг после 20**: коннекторы et_open/et_pro/taxii/stix/misp
+и cron-расписания фидов; либо auth/RBAC (п. 8–9).
+
+Чанк 19 ГОТОВ (2026-09-16, 38f00e2): отзыв IOC-правил при
 revoke/delete/expire источника. `internal/iocrules/revoke.go`:
 RevokeForIoc(ctx, orgID, type, value, RuleStore — минимальный
 интерфейс: GetBySid/Update, *store.RulesRepo удовлетворяет) — поиск
@@ -359,7 +373,8 @@ managed-файле (245 правил).
 | 13d | Матрица «правила × инстансы» (требование А): API GET /api/v1/matrix/rules (openapi get_rules_matrix) — независимые keyset-курсоры rule_cursor (по sid) / instance_cursor (по id), фильтры rule_status/category/sid/cluster_id/cell_status, limit ≤1000; ячейка loaded/failed/missing/extra из desired_state.computed_rules + actual_state (loaded/failed StateReport); store — `internal/store/matrix.go` (страницы осей + батч состояний 2 запросами), handler — `internal/httpapi/matrix.go`; тесты sid-курсора и cellStatusOf. UI — вкладка «Матрица» (строки sid+msg, столбцы hostname вертикально, цветные ячейки + легенда, фильтр по статусу ячейки, поиск по sid, дозагрузка по 50). Живой e2e: ?limit=5 → 200 с ячейками loaded для инстанса 468c9c71; пагинация/фильтры/400-валидация; кейс missing живьём (битое правило 9999991 отклонено агентом через suricata -T → desired без actual → missing, сводка 244 loaded + 1 missing); disable+ребилд+деплой → ячейка исчезла; стенд восстановлен (245/245 loaded). Ограничение MVP: cell_status фильтрует ячейки внутри текущей страницы оси правил | d868a9b |
 | 14 | React-фронтенд в `web/`: Vite 5 + React 18 + TS strict, без UI-китов (стили из webui/style.css); 7 экранов в паритете с ванильным MVP (Обзор/Инстансы/Правила/Ruleset'ы/Деплои/Логи/Матрица) + улучшение (вкладки не размонтируются — фильтры/пагинация сохраняются, сводка ячеек матрицы). Vite base=/app/, dev-proxy /api → .28:8080. Раздача из бинаря: `web/embed.go` (go:embed dist) + `internal/httpapi/reactui.go` (/app/*, SPA-fallback, заглушка когда dist не собран; placeholder.txt в git, postbuild восстанавливает). Старый UI на / не тронут. Проверки: npm install/build/dev чисто, go build/vet/test зелёные, перекат .28 — /app/ + ассеты + SPA-fallback + /api/v1/fleet/compliance 200; браузер недоступен — только HTTP | 96c777e |
 | 15 | Развитие React UI: конструктор ruleset'ов во вкладке «Ruleset'ы» (выбор правил чекбоксами с фильтром/поиском/дозагрузкой, накопление выбора между страницами, чипы/счётчик/снятие, сборка POST /rulesets с rule_ids, различение 201 «создан»/200 «уже существует» через новый apiPostEx); страница инстанса (требование А) — drill-down `pages/InstanceDetail.tsx`: параметры, compliance, desired/actual hash, loaded/failed, last_reload, failed-правила, diff missing/extra, история деплоев (существующий GET /instances/{id}/deploy_history), логи агента хоста. Проверки: npm build + go build/vet/test чисто, перекат .28 (health ok, /app/ 200, новый бандл отдаётся, deploy_history 200 с деплоями 09200803/102c688b), живой e2e конструктора: 3 sid → 201 ruleset 8ce1b381 (chunk15-e2e), повтор → 200 (идемпотентность); браузер недоступен — только HTTP | 0ccd7b2 |
-| 19 | Отзыв IOC-правил при revoke/delete/expire источника: `internal/iocrules/revoke.go` (RevokeForIoc — пробинг слота sid как у генератора, правило → disabled + тег ioc-revoked, msg нетронут); вызовы из PATCH (status→revoked)/DELETE /iocs/{id} и свипа expires (фоновый свипер + внутри /iocs/generate, ответ + revoked); SweepExpired RETURNING погашенные, IocForGeneration +OrganizationID; юнит-тесты revoke на фейке RuleStore; openapi + revoked/описания. Живой e2e: revoke → правило 8891280 disabled, delete → 8836534 disabled, повторный generate не воскрешает (ruleset ioc-current-1eccbd2c), свип expires → swept=1/revoked=1; compliance in_sync; тестовые IOC оставлены revoked/expired | (этот коммит) |
+| 20 | Фикс «column reference status is ambiguous» в подхвате pending-задач: в PendingTasksForAgent (`internal/store/deploy.go`) `SELECT t.`+taskColumns квалифицировал только первую колонку — остальные неоднозначны в JOIN deployments/instances/agents; ошибка при каждом (пере)подключении агента (DispatchPending). Добавлена константа taskColumnsT (все колонки с t.) + регрессионный тест TestTaskColumnsTQualified; остальные JOIN-запросы проверены. Перекат .28: ошибка в server.log исчезла (было 5 повторов), health ok, SQL прогнан в PG напрямую, compliance in_sync 1/1 | (этот коммит) |
+| 19 | Отзыв IOC-правил при revoke/delete/expire источника: `internal/iocrules/revoke.go` (RevokeForIoc — пробинг слота sid как у генератора, правило → disabled + тег ioc-revoked, msg нетронут); вызовы из PATCH (status→revoked)/DELETE /iocs/{id} и свипа expires (фоновый свипер + внутри /iocs/generate, ответ + revoked); SweepExpired RETURNING погашенные, IocForGeneration +OrganizationID; юнит-тесты revoke на фейке RuleStore; openapi + revoked/описания. Живой e2e: revoke → правило 8891280 disabled, delete → 8836534 disabled, повторный generate не воскрешает (ruleset ioc-current-1eccbd2c), свип expires → swept=1/revoked=1; compliance in_sync; тестовые IOC оставлены revoked/expired | 38f00e2 |
 | 18 | Фиды IOC: store `internal/store/feeds.go` (CRUD/keyset/MarkSync, feed_runs с композитным курсором), миграция 000005 (feeds.last_error + feed_runs), пакет `internal/feedsync` (HTTP GET 30s/32 МБ, plain/CSV/JSON, угадывание типа IOC, импорт через UpsertImport source=имя фида + feed_id), API GET/POST /feeds + GET/PATCH/DELETE /feeds/{id} + POST /feeds/{id}/sync (синхронно, failed — не 5xx) + GET /feeds/{id}/runs; автопрогон генерации правил после ручного синка (generateIocRulesCore, без деплоя); планировщик авто-синка по schedule-длительности Go (`server.feed_sync_interval`); React-вкладка «Фиды» (форма/таблица/синк с результатом/enabled/удаление, apiPatch). Живой e2e: imported=7/skipped=1 → повтор imported=0/updated=7 тот же ruleset; битый URL → failed + last_error; 409/400/404/204; runs-история. Вкладка «Фиды» проверена в браузере (чанк 19) | 4598d05 |
 | 16 | IOC / Threat Intel — вертикальный срез: таблица iocs была с миграции 000001, добавлены store (`internal/store/iocs.go` — Create/Get/Update/Delete/keyset-List с фильтрами type/status/source/q, UpsertImport без перетирания status) и REST (`internal/httpapi/iocs.go` — GET/POST /iocs, GET/PATCH/DELETE /iocs/{id}, POST /iocs/import с ImportResult; валидация значения по типу, score 0..100, дубль → 409); openapi приведён под факт (source в IocInput/IocUpdateInput, фикс $ref IocPage, убран text/csv из import). React UI — вкладка «IOC» (форма добавления с expires datetime-local, таблица со ссылками VirusTotal, фильтры тип/статус, поиск, удаление; apiDelete в api.ts). Проверки: npm build чисто, go build/vet/test зелёные; живой e2e на .28 — POST 201 → список/q-поиск → PATCH → дубль 409 → мусор 400 → import {imported:2, errors:[1]} → DELETE 204 → 404; тестовые IOC вычищены. Фиды, автогенерация правил из IOC и свипер expires_at — следующие чанки | 25de9f3 |
 
