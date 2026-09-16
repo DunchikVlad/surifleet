@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -71,19 +72,72 @@ func (h *handlers) generateIocRules(w http.ResponseWriter, r *http.Request) {
 	}
 
 	res := iocGenerateResult{Skipped: []iocSkip{}}
-
-	// Свип: просроченные active → expired, чтобы не попасть в генерацию.
-	swept, err := h.d.Store.Iocs.SweepExpired(r.Context())
+	v, err := h.generateIocRulesCore(r.Context(), orgID, &res)
 	if err != nil {
 		writeStoreError(w, err)
 		return
 	}
+
+	if v != nil && in.Deploy {
+		// Деплой — по общему конвейеру createDeployment (таргетинг из тела).
+		if in.BatchSize <= 0 {
+			in.BatchSize = 50
+		}
+		if in.Concurrency <= 0 {
+			in.Concurrency = 10
+		}
+		instanceIDs, ok := h.resolveTargets(w, r, orgID, in.Targeting)
+		if !ok {
+			return
+		}
+		if len(instanceIDs) == 0 {
+			writeError(w, http.StatusBadRequest, CodeValidation,
+				"таргетинг не выбрал ни одного инстанса", nil)
+			return
+		}
+		targetingRaw, _ := json.Marshal(in.Targeting)
+		d := store.Deployment{
+			OrganizationID:   orgID,
+			RulesetVersionID: v.ID,
+			Targeting:        targetingRaw,
+			BatchSize:        in.BatchSize,
+			Concurrency:      in.Concurrency,
+			CanarySize:       in.CanarySize,
+		}
+		waves := orchestrator.ComputeWaves(instanceIDs, in.CanarySize, in.BatchSize)
+		dep, err := h.d.Store.Deployments.Create(r.Context(), d, waves)
+		if err != nil {
+			writeStoreError(w, err)
+			return
+		}
+		computed := computedRulesFromManifest(v.Manifest)
+		for _, id := range instanceIDs {
+			if err := h.d.Store.DesiredState.Upsert(r.Context(), id, v.ID, computed); err != nil {
+				errLog.Error("desired_state upsert (ioc)", "instance_id", id, "err", err)
+			}
+		}
+		h.d.Orch.Start(dep.ID)
+		res.DeploymentID = &dep.ID
+	}
+
+	writeJSON(w, http.StatusOK, res)
+}
+
+// generateIocRulesCore — свип просроченных IOC → генерация правил →
+// сборка ruleset (без деплоя). Вызывается хендлером POST /iocs/generate
+// и автопрогоном после успешной синхронизации фида (чанк 18).
+// Возвращает версию ruleset (nil — ioc-правил нет, ruleset не собран).
+func (h *handlers) generateIocRulesCore(ctx context.Context, orgID uuid.UUID, res *iocGenerateResult) (*store.RulesetVersion, error) {
+	// Свип: просроченные active → expired, чтобы не попасть в генерацию.
+	swept, err := h.d.Store.Iocs.SweepExpired(ctx)
+	if err != nil {
+		return nil, err
+	}
 	res.SweptExpired = swept
 
-	iocs, err := h.d.Store.Iocs.ListActiveForGeneration(r.Context(), orgID)
+	iocs, err := h.d.Store.Iocs.ListActiveForGeneration(ctx, orgID)
 	if err != nil {
-		writeStoreError(w, err)
-		return
+		return nil, err
 	}
 	res.Active = len(iocs)
 
@@ -93,32 +147,29 @@ func (h *handlers) generateIocRules(w http.ResponseWriter, r *http.Request) {
 			res.Skipped = append(res.Skipped, iocSkip{ID: ioc.ID, Type: ioc.Type, Value: ioc.Value, Reason: reason})
 			continue
 		}
-		sid, err := h.resolveIocSID(r, orgID, ioc)
+		sid, err := h.resolveIocSID(ctx, orgID, ioc)
 		if err != nil {
-			writeStoreError(w, err)
-			return
+			return nil, err
 		}
 		raw, _, _ = iocrules.RuleWithSID(ioc.Type, ioc.Value, sid)
 
 		parsed, _ := json.Marshal(map[string]string{"ioc_id": ioc.ID.String(), "ioc_type": ioc.Type})
-		rule, outcome, err := h.d.Store.Rules.UpsertImport(r.Context(), orgID, store.ImportItem{
+		rule, outcome, err := h.d.Store.Rules.UpsertImport(ctx, orgID, store.ImportItem{
 			SID: sid, Rev: iocrules.FormatRev,
 			Msg:    iocrules.MsgFor(ioc.Type, ioc.Value),
 			Raw:    raw,
 			Parsed: parsed,
 		}, "ioc", "ioc")
 		if err != nil {
-			writeStoreError(w, err)
-			return
+			return nil, err
 		}
 		// IOC-правила сразу enabled (генерируются только из активных IOC);
 		// UpsertImport создаёт в under_review и тюнинг не перетирает.
 		if rule.Status != "enabled" {
 			enabled := "enabled"
-			rule, err = h.d.Store.Rules.Update(r.Context(), rule.ID, store.RulePatch{Status: &enabled})
+			rule, err = h.d.Store.Rules.Update(ctx, rule.ID, store.RulePatch{Status: &enabled})
 			if err != nil {
-				writeStoreError(w, err)
-				return
+				return nil, err
 			}
 		}
 		switch outcome {
@@ -133,20 +184,17 @@ func (h *handlers) generateIocRules(w http.ResponseWriter, r *http.Request) {
 
 	// Ruleset собираем всегда, когда в репозитории есть хоть одно enabled
 	// ioc-правило (могли остаться от ранее истёкших IOC — состав полный).
-	if err := h.buildIocRuleset(w, r, orgID, &res, in); err != nil {
-		return // buildIocRuleset уже записал ответ (ошибку или готово)
-	}
-	writeJSON(w, http.StatusOK, res)
+	return h.buildIocRuleset(ctx, orgID, res)
 }
 
 // resolveIocSID — sid для IOC с пробингом хэш-коллизий: слот считается
 // своим, если он свободен или занят правилом этого же IOC (msg + source=ioc);
 // иначе линейный пробинг внутри диапазона iocrules.
-func (h *handlers) resolveIocSID(r *http.Request, orgID uuid.UUID, ioc store.IocForGeneration) (int64, error) {
+func (h *handlers) resolveIocSID(ctx context.Context, orgID uuid.UUID, ioc store.IocForGeneration) (int64, error) {
 	sid := iocrules.SidFor(ioc.Type, ioc.Value)
 	want := iocrules.MsgFor(ioc.Type, ioc.Value)
 	for range iocrules.SidRange {
-		existing, err := h.d.Store.Rules.GetBySid(r.Context(), orgID, sid)
+		existing, err := h.d.Store.Rules.GetBySid(ctx, orgID, sid)
 		if err != nil {
 			if errors.Is(err, store.ErrNotFound) {
 				return sid, nil // свободный слот
@@ -162,17 +210,15 @@ func (h *handlers) resolveIocSID(r *http.Request, orgID uuid.UUID, ioc store.Ioc
 }
 
 // buildIocRuleset — сборка ruleset "ioc-current" из всех enabled ioc-правил
-// (content-addressed: тот же состав → та же версия, 200 без дублей) и,
-// при in.Deploy, запуск деплоя через общий конвейер. При ошибке пишет ответ
-// и возвращает её; при успехе заполняет res и возвращает nil.
-func (h *handlers) buildIocRuleset(w http.ResponseWriter, r *http.Request, orgID uuid.UUID, res *iocGenerateResult, in iocGenerateInput) error {
-	raw, err := h.d.Store.Rules.SelectRawForBuild(r.Context(), orgID, store.RuleFilter{Source: "ioc", Status: "enabled"})
+// (content-addressed: тот же состав → та же версия, без дублей). Возвращает
+// nil-версию, когда enabled ioc-правил нет (ruleset не собираем).
+func (h *handlers) buildIocRuleset(ctx context.Context, orgID uuid.UUID, res *iocGenerateResult) (*store.RulesetVersion, error) {
+	raw, err := h.d.Store.Rules.SelectRawForBuild(ctx, orgID, store.RuleFilter{Source: "ioc", Status: "enabled"})
 	if err != nil {
-		writeStoreError(w, err)
-		return err
+		return nil, err
 	}
 	if len(raw) == 0 {
-		return nil // правил нет — ruleset не собираем
+		return nil, nil // правил нет — ruleset не собираем
 	}
 
 	rules := make([]ruleset.RawRule, len(raw))
@@ -185,10 +231,9 @@ func (h *handlers) buildIocRuleset(w http.ResponseWriter, r *http.Request, orgID
 	sha := ruleset.SHA256(blob)
 	key := ruleset.BlobKey(sha)
 
-	if _, err := h.d.Blob.PutIfAbsent(r.Context(), key, blob); err != nil {
+	if _, err := h.d.Blob.PutIfAbsent(ctx, key, blob); err != nil {
 		errLog.Error("загрузка ioc ruleset-блоба в S3", "err", err)
-		writeError(w, http.StatusInternalServerError, CodeInternal, "загрузка блоба в хранилище", nil)
-		return err
+		return nil, fmt.Errorf("загрузка блоба в хранилище: %w", err)
 	}
 
 	manifest, _ := json.Marshal(map[string]any{
@@ -200,58 +245,13 @@ func (h *handlers) buildIocRuleset(w http.ResponseWriter, r *http.Request, orgID
 	// content-addressed ("ioc-current-<sha8>"), иначе повторная сборка с
 	// новым составом упёрлась бы в конфликт уникальности версии.
 	version := iocRulesetVersion + "-" + sha[:8]
-	v, created, err := h.d.Store.Rulesets.Create(r.Context(), orgID, version, sha, key, manifest, len(manifestRules))
+	v, created, err := h.d.Store.Rulesets.Create(ctx, orgID, version, sha, key, manifest, len(manifestRules))
 	if err != nil {
-		writeStoreError(w, err)
-		return err
+		return nil, err
 	}
 	res.RulesetID = &v.ID
 	res.RulesetVersion = v.Version
 	res.RulesetCreated = created
 	res.RulesCount = len(manifestRules)
-
-	if !in.Deploy {
-		return nil
-	}
-
-	// Деплой — по общему конвейеру createDeployment (таргетинг из тела).
-	if in.BatchSize <= 0 {
-		in.BatchSize = 50
-	}
-	if in.Concurrency <= 0 {
-		in.Concurrency = 10
-	}
-	instanceIDs, ok := h.resolveTargets(w, r, orgID, in.Targeting)
-	if !ok {
-		return errors.New("таргетинг не разрешился")
-	}
-	if len(instanceIDs) == 0 {
-		writeError(w, http.StatusBadRequest, CodeValidation,
-			"таргетинг не выбрал ни одного инстанса", nil)
-		return errors.New("пустой таргетинг")
-	}
-	targetingRaw, _ := json.Marshal(in.Targeting)
-	d := store.Deployment{
-		OrganizationID:   orgID,
-		RulesetVersionID: v.ID,
-		Targeting:        targetingRaw,
-		BatchSize:        in.BatchSize,
-		Concurrency:      in.Concurrency,
-		CanarySize:       in.CanarySize,
-	}
-	waves := orchestrator.ComputeWaves(instanceIDs, in.CanarySize, in.BatchSize)
-	dep, err := h.d.Store.Deployments.Create(r.Context(), d, waves)
-	if err != nil {
-		writeStoreError(w, err)
-		return err
-	}
-	computed := computedRulesFromManifest(v.Manifest)
-	for _, id := range instanceIDs {
-		if err := h.d.Store.DesiredState.Upsert(r.Context(), id, v.ID, computed); err != nil {
-			errLog.Error("desired_state upsert (ioc)", "instance_id", id, "err", err)
-		}
-	}
-	h.d.Orch.Start(dep.ID)
-	res.DeploymentID = &dep.ID
-	return nil
+	return &v, nil
 }

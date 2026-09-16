@@ -7,6 +7,51 @@
 
 ### Added
 
+- Чанк 18 (2026-09-16): фиды IOC — CRUD API, синхронизация и React-вкладка
+  «Фиды». Store `internal/store/feeds.go` (FeedsRepo: Create/Get/Update/
+  Delete/keyset-List с фильтром type, MarkSync, feed_runs CreateRun/
+  FinishRun/ListRuns с композитным keyset-курсором (started_at,id) DESC);
+  IocInput/IocPatch + feed_id (json:"-", проставляет только синк фида,
+  UpsertImport его сохраняет). Миграция 000005: `feeds.last_error`,
+  таблица `feed_runs` (status running/success/failed, счётчики
+  imported/updated/skipped, error). Пакет `internal/feedsync`: HTTP GET
+  (таймаут 30 с, лимит 32 МБ, креды из credentials_ref — "user:pass" →
+  Basic, иначе Bearer), разбор plain text (# // — комментарии), CSV
+  ("value,type" / "type,value") и JSON (массив строк или
+  {type,value,score}), угадывание типа (ip/CIDR, domain, url,
+  md5/sha1/sha256, email) с лёгкой валидацией; импорт через
+  UpsertImport (source = имя фида, feed_id = id фида, score 50);
+  ошибки строк не прерывают импорт (skipped + детали в error);
+  ошибки загрузки — run failed + last_error фида, HTTP 200 (не 5xx).
+  API: GET/POST /feeds, GET/PATCH/DELETE /feeds/{id}, POST
+  /feeds/{id}/sync (синхронно; ответ FeedRun + счётчики автопрогона
+  rules_created/updated/unchanged + ruleset_version), GET
+  /feeds/{id}/runs. После успешного ручного синка — автопрогон
+  генерации правил из активных IOC (generateIocRulesCore, выделен из
+  хендлера; без деплоя). Фоновый планировщик авто-синка (роль api|all,
+  `server.feed_sync_interval` default 60s): enabled-фиды с schedule —
+  длительностью Go ("1h", "30m"; cron — следующие чанки), синк при
+  last_sync_at + schedule <= now; плановый синк только импортирует IOC
+  (без автогенерации правил). Синхронизируются только фиды
+  type=generic — остальные типы получают понятный failed-запуск.
+  OpenAPI: sync 202 → 200 с расширенным описанием, FeedRun дополнен
+  skipped/rules_*/ruleset_version, Feed + last_error, schedule —
+  «длительность Go». React: вкладка «Фиды» (таблица с
+  enabled-переключателем, last sync/статус/ошибка, форма добавления,
+  кнопка «Синхронизировать» со строкой результата imported/updated/
+  skipped + итог автогенерации правил, удаление с confirm; apiPatch в
+  api.ts). Живой e2e на .28: тестовый фид (python3 http.server 8899,
+  9 строк: 8 IOC + мусор) → sync: imported=7, skipped=1,
+  rules_created=6 (md5 не маппится — skipped в генерации), ruleset
+  ioc-current-04161035; повторный sync — imported=0, updated=7, тот же
+  ruleset (идемпотентно, без дублей); фид с битым URL → failed,
+  last_error «загрузка фида: HTTP 404», сервер жив; PATCH enabled,
+  дубль имени 409, мусорный url 400, DELETE 204 → 404; GET
+  /feeds/{id}/runs — история обоих запусков свежими первыми.
+  Тестовый http.server остановлен; фид chunk18-e2e
+  (26329b8e-4d9d-4b23-b705-3eeff632457f) и его 7 IOC оставлены в БД.
+  (server, api, db, ui)
+
 - Чанк 17 (2026-09-16): генерация Suricata-правил из IOC + свипер
   expires. Новый пакет `internal/iocrules` — детерминированная
   генерация: sid = 8800000 + FNV-1a(type, value) % 100000 (диапазон

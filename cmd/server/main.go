@@ -19,6 +19,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/redis/go-redis/v9"
 	"google.golang.org/grpc"
@@ -28,6 +29,7 @@ import (
 	"github.com/surifleet/surifleet/internal/chlogs"
 	"github.com/surifleet/surifleet/internal/config"
 	"github.com/surifleet/surifleet/internal/enroll"
+	"github.com/surifleet/surifleet/internal/feedsync"
 	agentv1 "github.com/surifleet/surifleet/internal/gen/agent/v1"
 	"github.com/surifleet/surifleet/internal/httpapi"
 	"github.com/surifleet/surifleet/internal/hub"
@@ -169,7 +171,15 @@ func main() {
 		go runIocSweeper(ctx, db, cfg.IocSweepInterval.D(), log)
 	}
 
-	app := &App{cfg: cfg, log: log, db: db, ca: ca, rdb: rdb, hubID: hubID, blob: blobStore, orch: orch, chLogs: chLogs}
+	// Синхронизация IOC-фидов (чанк 18): syncer общий для HTTP-хендлера
+	// ручного синка и фонового планировщика (schedule у фида — длительность
+	// Go: "1h", "30m", ...; cron-формат — следующие чанки).
+	feedSync := &feedsync.Syncer{Store: db, Log: log}
+	if (cfg.Role == "api" || cfg.Role == "all") && cfg.FeedSyncInterval.D() > 0 {
+		go runFeedScheduler(ctx, feedSync, cfg.FeedSyncInterval.D(), log)
+	}
+
+	app := &App{cfg: cfg, log: log, db: db, ca: ca, rdb: rdb, hubID: hubID, blob: blobStore, orch: orch, chLogs: chLogs, feedSync: feedSync}
 
 	errCh := make(chan error, 4)
 
@@ -272,28 +282,30 @@ func main() {
 
 // App — корневой объект сервера: конфигурация, логер, БД, CA, Redis.
 type App struct {
-	cfg    *config.ServerConfig
-	log    *slog.Logger
-	db     *store.Store
-	ca     *pki.CA
-	rdb    *redis.Client
-	hubID  string
-	blob   *blob.Store
-	orch   *orchestrator.Orchestrator
-	chLogs *chlogs.Client
+	cfg      *config.ServerConfig
+	log      *slog.Logger
+	db       *store.Store
+	ca       *pki.CA
+	rdb      *redis.Client
+	hubID    string
+	blob     *blob.Store
+	orch     *orchestrator.Orchestrator
+	chLogs   *chlogs.Client
+	feedSync *feedsync.Syncer
 }
 
 // routes собирает HTTP-маршруты API v1 (реализация — internal/httpapi).
 func (a *App) routes() http.Handler {
 	return httpapi.NewRouter(httpapi.Deps{
-		Log:     a.log,
-		Version: version,
-		Commit:  commit,
-		Store:   a.db,
-		Blob:    a.blob,
-		Orch:    a.orch,
-		CHLogs:  a.chLogs,
-		PingDB:  a.db.Pool.Ping,
+		Log:      a.log,
+		Version:  version,
+		Commit:   commit,
+		Store:    a.db,
+		Blob:     a.blob,
+		Orch:     a.orch,
+		CHLogs:   a.chLogs,
+		FeedSync: a.feedSync,
+		PingDB:   a.db.Pool.Ping,
 	})
 }
 
@@ -323,6 +335,54 @@ func runIocSweeper(ctx context.Context, db *store.Store, interval time.Duration,
 				log.Error("IOC-свипер", "err", err)
 			} else if n > 0 {
 				log.Info("IOC-свипер: погашены просроченные", "expired", n)
+			}
+		}
+	}
+}
+
+// runFeedScheduler — фоновый авто-синк фидов (чанк 18): раз в interval
+// выбирает enabled-фиды с schedule (длительность Go: "1h", "30m") и синкает
+// те, у которых наступил срок (last_sync_at + schedule <= now() либо синка
+// ещё не было). Автопрогон генерации правил выполняет только ручной sync
+// (POST /feeds/{id}/sync); плановый — только импорт IOC.
+func runFeedScheduler(ctx context.Context, syncer *feedsync.Syncer, interval time.Duration, log *slog.Logger) {
+	log.Info("планировщик авто-синка фидов запущен", "interval", interval.String())
+	t := time.NewTicker(interval)
+	defer t.Stop()
+	// badSchedule — фиды с непарсящимся schedule, предупреждаем один раз.
+	badSchedule := map[uuid.UUID]bool{}
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			feeds, err := syncer.Store.Feeds.ListScheduled(ctx)
+			if err != nil {
+				log.Error("планировщик фидов: список", "err", err)
+				continue
+			}
+			for _, f := range feeds {
+				d, err := time.ParseDuration(*f.Schedule)
+				if err != nil || d <= 0 {
+					if !badSchedule[f.ID] {
+						badSchedule[f.ID] = true
+						log.Warn("планировщик фидов: schedule не длительность Go — авто-синк пропущен",
+							"feed_id", f.ID, "name", f.Name, "schedule", *f.Schedule)
+					}
+					continue
+				}
+				if f.LastSyncAt != nil && time.Since(*f.LastSyncAt) < d {
+					continue // ещё рано
+				}
+				syncCtx, cancel := context.WithTimeout(ctx, 3*time.Minute)
+				run, err := syncer.Sync(syncCtx, f)
+				cancel()
+				if err != nil {
+					log.Error("планировщик фидов: sync", "feed_id", f.ID, "err", err)
+				} else if run.Status == "failed" {
+					log.Warn("планировщик фидов: sync failed",
+						"feed_id", f.ID, "name", f.Name, "error", run.Error)
+				}
 			}
 		}
 	}

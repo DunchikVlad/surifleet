@@ -25,12 +25,13 @@ func scanIoc(row pgx.Row) (Ioc, error) {
 }
 
 // Create — ручное создание IOC (POST /iocs). Дубль (org, type, value) → ErrConflict.
+// in.FeedID проставляет только синхронизация фида (по API не приходит).
 func (r *IocsRepo) Create(ctx context.Context, orgID uuid.UUID, in IocInput) (Ioc, error) {
 	ioc, err := scanIoc(r.pool.QueryRow(ctx,
-		`INSERT INTO iocs (organization_id, type, value, score, source, expires_at)
-		 VALUES ($1, $2, $3, $4, $5, $6)
+		`INSERT INTO iocs (organization_id, type, value, score, source, expires_at, feed_id)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7)
 		 RETURNING `+iocColumns,
-		orgID, in.Type, in.Value, in.Score, in.Source, in.ExpiresAt))
+		orgID, in.Type, in.Value, in.Score, in.Source, in.ExpiresAt, in.FeedID))
 	if err != nil {
 		return Ioc{}, translate(err)
 	}
@@ -47,7 +48,7 @@ func (r *IocsRepo) Get(ctx context.Context, id uuid.UUID) (Ioc, error) {
 	return ioc, nil
 }
 
-// Update — частичное обновление (score/status/expires_at/source);
+// Update — частичное обновление (score/status/expires_at/source/feed_id);
 // nil-поле — «не менять». Нет записи → ErrNotFound.
 func (r *IocsRepo) Update(ctx context.Context, id uuid.UUID, p IocPatch) (Ioc, error) {
 	ioc, err := scanIoc(r.pool.QueryRow(ctx,
@@ -56,10 +57,11 @@ func (r *IocsRepo) Update(ctx context.Context, id uuid.UUID, p IocPatch) (Ioc, e
 		     status = COALESCE($3, status),
 		     source = COALESCE($4, source),
 		     expires_at = COALESCE($5, expires_at),
+		     feed_id = COALESCE($6, feed_id),
 		     updated_at = now()
 		 WHERE id = $1
 		 RETURNING `+iocColumns,
-		id, p.Score, p.Status, p.Source, p.ExpiresAt))
+		id, p.Score, p.Status, p.Source, p.ExpiresAt, p.FeedID))
 	if err != nil {
 		return Ioc{}, translate(err)
 	}
@@ -205,6 +207,6 @@ func (r *IocsRepo) UpsertImport(ctx context.Context, orgID uuid.UUID, in IocInpu
 		ioc, err := r.Create(ctx, orgID, in)
 		return ioc, true, err
 	}
-	ioc, err = r.Update(ctx, ioc.ID, IocPatch{Score: &in.Score, Source: in.Source, ExpiresAt: in.ExpiresAt})
+	ioc, err = r.Update(ctx, ioc.ID, IocPatch{Score: &in.Score, Source: in.Source, ExpiresAt: in.ExpiresAt, FeedID: in.FeedID})
 	return ioc, false, err
 }

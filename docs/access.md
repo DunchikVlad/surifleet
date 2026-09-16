@@ -223,7 +223,44 @@ default 50) и `cursor`; в ответе `next_cursor` (null — страниц 
   репозитория не удаляются автоматически (после revoke/delete IOC
   правило остаётся — отключение вручную через /rules/bulk).
 
-Не реализовано пока: API фидов (`/feeds*`) с автопрогоном генерации.
+### 4.8 Фиды IOC (чанк 18)
+- `GET /feeds` — список фидов с фильтром `type` (et_open/et_pro/taxii/
+  stix/misp/generic) и keyset-пагинацией.
+- `POST /feeds` — подключение: `{name, type, url, schedule?,
+  credentials?, enabled?}`; URL — абсолютный http(s), дубль (org, name)
+  → 409. `credentials` — writeOnly (в ответах не возвращается;
+  "user:pass" → Basic Auth, иначе Bearer-токен при загрузке фида).
+- `GET/PATCH/DELETE /feeds/{id}` — карточка, частичное изменение
+  (name/url/schedule/credentials/enabled), удаление (204;
+  импортированные IOC остаются — feed_id → NULL по FK, история
+  feed_runs удаляется каскадом).
+- `POST /feeds/{id}/sync` — СИНХРОННАЯ синхронизация: HTTP GET
+  (таймаут 30 с, лимит 32 МБ) → разбор (plain text: один IOC на строку,
+  `#`/`//` — комментарии; CSV `value,type`/`type,value`; JSON — массив
+  строк или `{type,value,score}`; тип угадывается: ip/CIDR, домен, URL,
+  md5/sha1/sha256, email) → идемпотентный импорт (upsert по
+  (org, type, value), source = имя фида, feed_id = id фида, score 50).
+  Поддерживается только `type=generic`. Ошибки загрузки/разбора — не
+  5xx, а `status=failed` + `error` в теле (дублируются в
+  `feeds.last_error`); мусорные строки не прерывают импорт (skipped).
+  Ответ — FeedRun `{status, imported, updated, skipped, error}` плюс,
+  при успехе, итог автопрогона генерации правил (`rules_created/
+  rules_updated/rules_unchanged`, `ruleset_version` — ruleset
+  ioc-current-*, БЕЗ деплоя).
+- `GET /feeds/{id}/runs` — история запусков (feed_runs, миграция
+  000005), свежие первыми, keyset по (started_at, id).
+- Планировщик авто-синка — фоновая горутина (роль api|all), интервал
+  `server.feed_sync_interval` (default 60s, 0 — выключен): enabled-фиды
+  с `schedule` в виде длительности Go ("1h", "30m"; cron — следующие
+  чанки) синкаются при `last_sync_at + schedule <= now()`; плановый
+  синк только импортирует IOC (автогенерация правил — у ручного синка).
+- React UI: вкладка «Фиды» (таблица, форма добавления, кнопка
+  «Синхронизировать» со строкой результата, переключатель enabled,
+  удаление).
+
+Не реализовано пока: коннекторы et_open/et_pro/taxii/stix/misp (синк
+возвращает failed с пояснением), cron-расписания, отзыв IOC-правил при
+revoke источника.
 
 ## 5. Сквозной сценарий «от нуля до задеплоенных правил»
 

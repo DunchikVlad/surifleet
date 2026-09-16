@@ -185,6 +185,57 @@ type RuleRevision struct {
 	CreatedAt time.Time       `json:"created_at"`
 }
 
+// Feed — фид IOC/правил (таблица feeds). CredentialsRef хранится в БД,
+// но наружу по API не отдаётся (credentials — writeOnly по openapi).
+type Feed struct {
+	ID             uuid.UUID  `json:"id"`
+	OrganizationID uuid.UUID  `json:"organization_id"`
+	Name           string     `json:"name"`
+	Type           string     `json:"type"`
+	URL            string     `json:"url"`
+	Schedule       *string    `json:"schedule"`
+	CredentialsRef *string    `json:"-"`
+	Enabled        bool       `json:"enabled"`
+	LastSyncAt     *time.Time `json:"last_sync_at"`
+	LastSyncStatus *string    `json:"last_sync_status"`
+	LastError      *string    `json:"last_error"`
+	CreatedAt      time.Time  `json:"created_at"`
+	UpdatedAt      time.Time  `json:"updated_at"`
+}
+
+// FeedInput — создание фида (openapi FeedInput). Enabled nil → true.
+type FeedInput struct {
+	Name        string  `json:"name"`
+	Type        string  `json:"type"`
+	URL         string  `json:"url"`
+	Schedule    *string `json:"schedule"`
+	Credentials *string `json:"credentials"`
+	Enabled     *bool   `json:"enabled"`
+}
+
+// FeedPatch — частичное обновление фида (openapi FeedUpdateInput):
+// nil-поле означает «не изменять».
+type FeedPatch struct {
+	Name        *string `json:"name"`
+	URL         *string `json:"url"`
+	Schedule    *string `json:"schedule"`
+	Credentials *string `json:"credentials"`
+	Enabled     *bool   `json:"enabled"`
+}
+
+// FeedRun — запуск синхронизации фида (таблица feed_runs, миграция 000005).
+type FeedRun struct {
+	ID         uuid.UUID  `json:"id"`
+	FeedID     uuid.UUID  `json:"feed_id"`
+	Status     string     `json:"status"`
+	StartedAt  time.Time  `json:"started_at"`
+	FinishedAt *time.Time `json:"finished_at"`
+	Imported   int        `json:"imported"`
+	Updated    int        `json:"updated"`
+	Skipped    int        `json:"skipped"`
+	Error      *string    `json:"error"`
+}
+
 // Ioc — индикатор компрометации (таблица iocs): тип/значение/скоринг,
 // источник (фид или ручной ввод), жизненный цикл status, автоистечение.
 type Ioc struct {
@@ -201,22 +252,26 @@ type Ioc struct {
 	UpdatedAt      time.Time  `json:"updated_at"`
 }
 
-// IocInput — создание/импорт IOC (openapi IocInput).
+// IocInput — создание/импорт IOC (openapi IocInput). FeedID не приходит
+// по API (json:"-") — его проставляет синхронизация фида (чанк 18).
 type IocInput struct {
 	Type      string     `json:"type"`
 	Value     string     `json:"value"`
 	Score     int        `json:"score"`
 	Source    *string    `json:"source"`
 	ExpiresAt *time.Time `json:"expires_at"`
+	FeedID    *uuid.UUID `json:"-"`
 }
 
 // IocPatch — частичное обновление IOC (openapi IocUpdateInput):
-// nil-поле означает «не изменять».
+// nil-поле означает «не изменять». FeedID — только для синхронизации
+// фида (по API не приходит).
 type IocPatch struct {
 	Score     *int       `json:"score"`
 	Status    *string    `json:"status"`
 	Source    *string    `json:"source"`
 	ExpiresAt *time.Time `json:"expires_at"`
+	FeedID    *uuid.UUID `json:"-"`
 }
 
 // RulesetVersion — версия ruleset (таблица ruleset_versions):

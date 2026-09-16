@@ -80,6 +80,10 @@ type ServerConfig struct {
 	// IocSweepInterval — интервал фонового свипера просроченных IOC
 	// (active с expires_at < now() → expired). 0 — свипер выключен.
 	IocSweepInterval Duration `yaml:"ioc_sweep_interval"`
+	// FeedSyncInterval — интервал фонового планировщика авто-синка фидов
+	// (фиды с enabled и schedule-длительностью, наступившей по last_sync_at).
+	// 0 — планировщик выключен.
+	FeedSyncInterval Duration `yaml:"feed_sync_interval"`
 	S3               S3Config `yaml:"s3"`
 	LogLevel         string   `yaml:"log_level"`
 }
@@ -96,6 +100,7 @@ func DefaultServer() *ServerConfig {
 		HubEndpoints:     []string{"localhost:8443"},
 		CertSANs:         []string{"localhost", "127.0.0.1", "::1"},
 		IocSweepInterval: Duration(time.Minute),
+		FeedSyncInterval: Duration(time.Minute),
 		LogLevel:         "info",
 		S3: S3Config{
 			Endpoint: "localhost:9000",

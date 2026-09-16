@@ -10,17 +10,61 @@
 
 ## Следующий шаг (конкретно)
 
-**После 17** (2026-09-16):
+**После 18** (2026-09-16):
 1. ~~Визуально проверить React UI~~ — СДЕЛАНО 16.09 ~16:50 через InAppBrowser
-   (см. ниже «Проверка UI в браузере»).
-2. IOC/TI, следующий срез (п. 5.2 FEATURES): фиды (таблица feeds есть,
-   API /feeds не реализован — CRUD + sync с автопрогоном /iocs/generate),
-   удаление/отзыв IOC-правил при revoke источника (сейчас правило живёт,
-   пока enabled). Либо auth/RBAC (DevAuth → токены, п. 8–9).
+   (вкладку «Фиды» чанка 18 браузером НЕ проверяли — субагенту инструмент
+   недоступен, только HTTP: бандл отдаётся с разметкой «Фиды»).
+2. IOC/TI, следующий срез (п. 5.2 FEATURES): отзыв/отключение IOC-правил
+   при revoke источника (сейчас правило живёт, пока enabled), коннекторы
+   et_open/et_pro/taxii/stix/misp и cron-расписания фидов (пока —
+   длительность Go). Либо auth/RBAC (DevAuth → токены, п. 8–9).
 3. **Аномалия (не блокер)**: из ssh `sudo rm` в /etc/suricata → Permission
    denied при работающем touch; обход — агент от root правит сам (12a).
 
-Чанк 17 ГОТОВ (2026-09-16, этот коммит): генерация Suricata-правил из
+Чанк 18 ГОТОВ (2026-09-16, этот коммит): фиды IOC — CRUD API + sync +
+React-вкладка «Фиды». Store `internal/store/feeds.go` (CRUD, keyset-List
+с фильтром type, MarkSync, feed_runs с композитным keyset-курсором
+(started_at,id) DESC); IocInput/IocPatch + feed_id (json:"-", проставляет
+только синк). Миграция 000005: feeds.last_error + таблица feed_runs
+(status/imported/updated/skipped/error) — применена при перекате
+(version 5). Пакет `internal/feedsync`: GET (30s, 32 МБ, credentials_ref
+"user:pass"→Basic/иначе Bearer), разбор plain text (# // комментарии) /
+CSV (value,type | type,value) / JSON (строки или {type,value,score}),
+угадывание типа ip/CIDR/domain/url/md5/sha1/sha256/email + лёгкая
+валидация; импорт через UpsertImport (source = имя фида, feed_id,
+score 50); мусорные строки — skipped, не прерывают; ошибки загрузки —
+run failed + last_error, HTTP 200. API: GET/POST /feeds,
+GET/PATCH/DELETE /feeds/{id}, POST /feeds/{id}/sync (синхронно; в ответе
+FeedRun + rules_created/updated/unchanged + ruleset_version), GET
+/feeds/{id}/runs. Синк только type=generic (остальные — понятный
+failed). После успешного ручного синка — автопрогон генерации правил
+(generateIocRulesCore выделен из хендлера iocs_generate; без деплоя).
+Планировщик авто-синка (api|all, `server.feed_sync_interval` default
+60s): schedule = длительность Go ("1h"); плановый синк — только импорт,
+без автогенерации. OpenAPI приведён под факт (sync 202→200, FeedRun
++skipped/rules_*/ruleset_version, Feed +last_error, schedule —
+длительность Go). React: вкладка «Фиды» (таблица, форма, «Синхронизировать»
+со строкой результата, enabled-переключатель, удаление; apiPatch в api.ts).
+Проверки: npm run build чисто (бандл 181.88 КБ index-CemYYVPX.js),
+go build/vet/test зелёные (feedsync — юнит-тесты GuessType/Parse);
+перекат .28: health ok, миграции → version 5, планировщик в логе.
+Живой e2e: http.server 8899 на .28 с feed-ch18.txt (9 строк: 8 IOC +
+мусор) → POST /feeds 201 → sync: imported=7, skipped=1,
+rules_created=6 (md5 не маппится), ruleset ioc-current-04161035;
+GET /iocs?source=chunk18-e2e — 7 шт с feed_id; повторный sync —
+imported=0, updated=7, тот же ruleset (идемпотентно, дублей нет);
+битый URL → failed, last_error «загрузка фида: HTTP 404», сервер жив;
+PATCH enabled, дубль 409, мусорный url 400, DELETE 204 → 404, runs —
+история. Тестовый http.server остановлен; фид chunk18-e2e
+(26329b8e-4d9d-4b23-b705-3eeff632457f) и его 7 IOC оставлены в БД.
+Браузерный инструмент недоступен субагенту — только HTTP-проверки
+(бандл в /app/ содержит «Фиды»/«Синхронизировать»).
+
+**Следующий шаг после 18**: отзыв/отключение IOC-правил при revoke
+источника (правило живёт, пока enabled); коннекторы et_open/et_pro/
+taxii/stix/misp и cron-расписания фидов; либо auth/RBAC (п. 8–9).
+
+Чанк 17 ГОТОВ (2026-09-16, 9e0694f): генерация Suricata-правил из
 IOC + свипер expires. Пакет `internal/iocrules`: sid = 8800000 +
 FNV-1a(type,value) % 100000 (диапазон 8800000..8899999; занятые —
 ET 2xxxxx, локальные ручные 9000xxx), rev = FormatRev (2; rev:1 был с
@@ -277,7 +321,8 @@ managed-файле (245 правил).
 | 13d | Матрица «правила × инстансы» (требование А): API GET /api/v1/matrix/rules (openapi get_rules_matrix) — независимые keyset-курсоры rule_cursor (по sid) / instance_cursor (по id), фильтры rule_status/category/sid/cluster_id/cell_status, limit ≤1000; ячейка loaded/failed/missing/extra из desired_state.computed_rules + actual_state (loaded/failed StateReport); store — `internal/store/matrix.go` (страницы осей + батч состояний 2 запросами), handler — `internal/httpapi/matrix.go`; тесты sid-курсора и cellStatusOf. UI — вкладка «Матрица» (строки sid+msg, столбцы hostname вертикально, цветные ячейки + легенда, фильтр по статусу ячейки, поиск по sid, дозагрузка по 50). Живой e2e: ?limit=5 → 200 с ячейками loaded для инстанса 468c9c71; пагинация/фильтры/400-валидация; кейс missing живьём (битое правило 9999991 отклонено агентом через suricata -T → desired без actual → missing, сводка 244 loaded + 1 missing); disable+ребилд+деплой → ячейка исчезла; стенд восстановлен (245/245 loaded). Ограничение MVP: cell_status фильтрует ячейки внутри текущей страницы оси правил | d868a9b |
 | 14 | React-фронтенд в `web/`: Vite 5 + React 18 + TS strict, без UI-китов (стили из webui/style.css); 7 экранов в паритете с ванильным MVP (Обзор/Инстансы/Правила/Ruleset'ы/Деплои/Логи/Матрица) + улучшение (вкладки не размонтируются — фильтры/пагинация сохраняются, сводка ячеек матрицы). Vite base=/app/, dev-proxy /api → .28:8080. Раздача из бинаря: `web/embed.go` (go:embed dist) + `internal/httpapi/reactui.go` (/app/*, SPA-fallback, заглушка когда dist не собран; placeholder.txt в git, postbuild восстанавливает). Старый UI на / не тронут. Проверки: npm install/build/dev чисто, go build/vet/test зелёные, перекат .28 — /app/ + ассеты + SPA-fallback + /api/v1/fleet/compliance 200; браузер недоступен — только HTTP | 96c777e |
 | 15 | Развитие React UI: конструктор ruleset'ов во вкладке «Ruleset'ы» (выбор правил чекбоксами с фильтром/поиском/дозагрузкой, накопление выбора между страницами, чипы/счётчик/снятие, сборка POST /rulesets с rule_ids, различение 201 «создан»/200 «уже существует» через новый apiPostEx); страница инстанса (требование А) — drill-down `pages/InstanceDetail.tsx`: параметры, compliance, desired/actual hash, loaded/failed, last_reload, failed-правила, diff missing/extra, история деплоев (существующий GET /instances/{id}/deploy_history), логи агента хоста. Проверки: npm build + go build/vet/test чисто, перекат .28 (health ok, /app/ 200, новый бандл отдаётся, deploy_history 200 с деплоями 09200803/102c688b), живой e2e конструктора: 3 sid → 201 ruleset 8ce1b381 (chunk15-e2e), повтор → 200 (идемпотентность); браузер недоступен — только HTTP | 0ccd7b2 |
-| 16 | IOC / Threat Intel — вертикальный срез: таблица iocs была с миграции 000001, добавлены store (`internal/store/iocs.go` — Create/Get/Update/Delete/keyset-List с фильтрами type/status/source/q, UpsertImport без перетирания status) и REST (`internal/httpapi/iocs.go` — GET/POST /iocs, GET/PATCH/DELETE /iocs/{id}, POST /iocs/import с ImportResult; валидация значения по типу, score 0..100, дубль → 409); openapi приведён под факт (source в IocInput/IocUpdateInput, фикс $ref IocPage, убран text/csv из import). React UI — вкладка «IOC» (форма добавления с expires datetime-local, таблица со ссылками VirusTotal, фильтры тип/статус, поиск, удаление; apiDelete в api.ts). Проверки: npm build чисто, go build/vet/test зелёные; живой e2e на .28 — POST 201 → список/q-поиск → PATCH → дубль 409 → мусор 400 → import {imported:2, errors:[1]} → DELETE 204 → 404; тестовые IOC вычищены. Фиды, автогенерация правил из IOC и свипер expires_at — следующие чанки | (этот коммит) |
+| 18 | Фиды IOC: store `internal/store/feeds.go` (CRUD/keyset/MarkSync, feed_runs с композитным курсором), миграция 000005 (feeds.last_error + feed_runs), пакет `internal/feedsync` (HTTP GET 30s/32 МБ, plain/CSV/JSON, угадывание типа IOC, импорт через UpsertImport source=имя фида + feed_id), API GET/POST /feeds + GET/PATCH/DELETE /feeds/{id} + POST /feeds/{id}/sync (синхронно, failed — не 5xx) + GET /feeds/{id}/runs; автопрогон генерации правил после ручного синка (generateIocRulesCore, без деплоя); планировщик авто-синка по schedule-длительности Go (`server.feed_sync_interval`); React-вкладка «Фиды» (форма/таблица/синк с результатом/enabled/удаление, apiPatch). Живой e2e: imported=7/skipped=1 → повтор imported=0/updated=7 тот же ruleset; битый URL → failed + last_error; 409/400/404/204; runs-история. Браузер недоступен — только HTTP | (этот коммит) |
+| 16 | IOC / Threat Intel — вертикальный срез: таблица iocs была с миграции 000001, добавлены store (`internal/store/iocs.go` — Create/Get/Update/Delete/keyset-List с фильтрами type/status/source/q, UpsertImport без перетирания status) и REST (`internal/httpapi/iocs.go` — GET/POST /iocs, GET/PATCH/DELETE /iocs/{id}, POST /iocs/import с ImportResult; валидация значения по типу, score 0..100, дубль → 409); openapi приведён под факт (source в IocInput/IocUpdateInput, фикс $ref IocPage, убран text/csv из import). React UI — вкладка «IOC» (форма добавления с expires datetime-local, таблица со ссылками VirusTotal, фильтры тип/статус, поиск, удаление; apiDelete в api.ts). Проверки: npm build чисто, go build/vet/test зелёные; живой e2e на .28 — POST 201 → список/q-поиск → PATCH → дубль 409 → мусор 400 → import {imported:2, errors:[1]} → DELETE 204 → 404; тестовые IOC вычищены. Фиды, автогенерация правил из IOC и свипер expires_at — следующие чанки | 25de9f3 |
 
 ## Тестовая среда (добавлена в ТЗ п. 13)
 

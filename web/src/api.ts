@@ -25,6 +25,14 @@ export const apiPost = <T,>(path: string, body?: unknown) =>
     body: body !== undefined ? JSON.stringify(body) : null,
   });
 
+// apiPatch — PATCH с JSON-телом (частичное обновление).
+export const apiPatch = <T,>(path: string, body: unknown) =>
+  request<T>(path, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+
 // apiDelete — DELETE без тела; 204 (без контента) → undefined.
 export const apiDelete = async (path: string) => {
   const r = await fetch(API + path, { method: "DELETE" });
@@ -204,4 +212,36 @@ export interface IocGenerateResult {
   ruleset_created?: boolean;
   rules_count?: number;
   deployment_id?: string | null;
+}
+
+// Feed — фид IOC (GET /feeds, openapi Feed).
+export interface Feed {
+  id: string;
+  name: string;
+  type: string;
+  url: string;
+  schedule?: string | null;
+  enabled: boolean;
+  last_sync_at?: string | null;
+  last_sync_status?: string | null;
+  last_error?: string | null;
+  created_at?: string;
+}
+
+// FeedRun — запуск синхронизации фида (openapi FeedRun; счётчики
+// rules_* и ruleset_version — только в ответе POST /feeds/{id}/sync).
+export interface FeedRun {
+  id: string;
+  feed_id: string;
+  status: string;
+  started_at?: string;
+  finished_at?: string | null;
+  imported: number;
+  updated: number;
+  skipped: number;
+  error?: string | null;
+  rules_created?: number;
+  rules_updated?: number;
+  rules_unchanged?: number;
+  ruleset_version?: string;
 }

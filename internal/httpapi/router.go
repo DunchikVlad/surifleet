@@ -13,6 +13,7 @@ import (
 
 	"github.com/surifleet/surifleet/internal/blob"
 	"github.com/surifleet/surifleet/internal/chlogs"
+	"github.com/surifleet/surifleet/internal/feedsync"
 	"github.com/surifleet/surifleet/internal/orchestrator"
 	"github.com/surifleet/surifleet/internal/store"
 )
@@ -32,6 +33,9 @@ type Deps struct {
 
 	// CHLogs — чтение логов агентов из ClickHouse (chunk 13c; nil — 503).
 	CHLogs *chlogs.Client
+
+	// FeedSync — синхронизация IOC-фидов (chunk 18; nil — sync возвращает 503).
+	FeedSync *feedsync.Syncer
 
 	// PingDB проверяет живость PostgreSQL для /health (nil — проверка выкл.).
 	PingDB func(ctx context.Context) error
@@ -141,6 +145,18 @@ func NewRouter(d Deps) http.Handler {
 				r.Get("/", h.getIoc)
 				r.Patch("/", h.updateIoc)
 				r.Delete("/", h.deleteIoc)
+			})
+		})
+
+		r.Route("/feeds", func(r chi.Router) {
+			r.Get("/", h.listFeeds)
+			r.Post("/", h.createFeed)
+			r.Route("/{id}", func(r chi.Router) {
+				r.Get("/", h.getFeed)
+				r.Patch("/", h.updateFeed)
+				r.Delete("/", h.deleteFeed)
+				r.Post("/sync", h.syncFeed)
+				r.Get("/runs", h.listFeedRuns)
 			})
 		})
 

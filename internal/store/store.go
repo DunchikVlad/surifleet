@@ -23,6 +23,7 @@ type Store struct {
 	Instances     *InstancesRepo
 	Rules         *RulesRepo
 	Iocs          *IocsRepo
+	Feeds         *FeedsRepo
 	Rulesets      *RulesetsRepo
 	Deployments   *DeploymentsRepo
 	DesiredState  *DesiredStateRepo
@@ -64,6 +65,7 @@ func Connect(ctx context.Context, dsn string) (*Store, error) {
 	s.Instances = &InstancesRepo{pool: pool}
 	s.Rules = &RulesRepo{pool: pool}
 	s.Iocs = &IocsRepo{pool: pool}
+	s.Feeds = &FeedsRepo{pool: pool}
 	s.Rulesets = &RulesetsRepo{pool: pool}
 	s.Deployments = &DeploymentsRepo{pool: pool}
 	s.DesiredState = &DesiredStateRepo{pool: pool}
