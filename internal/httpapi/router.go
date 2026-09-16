@@ -12,6 +12,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 
 	"github.com/surifleet/surifleet/internal/blob"
+	"github.com/surifleet/surifleet/internal/chlogs"
 	"github.com/surifleet/surifleet/internal/orchestrator"
 	"github.com/surifleet/surifleet/internal/store"
 )
@@ -28,6 +29,9 @@ type Deps struct {
 	Blob *blob.Store
 	// Orch — оркестратор волновых деплоев (chunk 11).
 	Orch *orchestrator.Orchestrator
+
+	// CHLogs — чтение логов агентов из ClickHouse (chunk 13c; nil — 503).
+	CHLogs *chlogs.Client
 
 	// PingDB проверяет живость PostgreSQL для /health (nil — проверка выкл.).
 	PingDB func(ctx context.Context) error
@@ -139,6 +143,11 @@ func NewRouter(d Deps) http.Handler {
 		})
 
 		r.Get("/fleet/compliance", h.getFleetCompliance)
+
+		r.Route("/agents", func(r chi.Router) {
+			r.Get("/", h.listAgents)
+			r.Get("/{id}/logs", h.getAgentLogs)
+		})
 	})
 
 	return r

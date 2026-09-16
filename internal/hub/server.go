@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
@@ -27,6 +28,7 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	"github.com/surifleet/surifleet/internal/chlogs"
 	agentv1 "github.com/surifleet/surifleet/internal/gen/agent/v1"
 	"github.com/surifleet/surifleet/internal/store"
 )
@@ -56,6 +58,9 @@ type Server struct {
 	version string
 	log     *slog.Logger
 
+	// chLogs — приёмник логов агентов в ClickHouse (nil — запись выключена).
+	chLogs *chlogs.Client
+
 	// streams — реестр подключённых стримов (agentID → *streamHandle),
 	// in-process доставка задач (chunk 11).
 	streams sync.Map
@@ -70,6 +75,9 @@ type Server struct {
 func NewServer(db *store.Store, rdb *redis.Client, hubID, version string, log *slog.Logger) *Server {
 	return &Server{db: db, rdb: rdb, hubID: hubID, version: version, log: log}
 }
+
+// SetLogWriter подключает приёмник логов агентов (ClickHouse); nil — выкл.
+func (s *Server) SetLogWriter(c *chlogs.Client) { s.chLogs = c }
 
 // Channel — основной стрим агента (см. контракт agent.proto).
 func (s *Server) Channel(stream grpc.BidiStreamingServer[agentv1.AgentMessage, agentv1.ServerMessage]) error {
@@ -277,8 +285,7 @@ func (s *Server) handleMessage(ctx context.Context, log *slog.Logger, agentID uu
 		s.handleRuleLoadReport(ctx, log, p.RuleLoadReport)
 
 	case *agentv1.AgentMessage_LogBatch:
-		log.Debug("LogBatch", "entries", len(p.LogBatch.GetEntries()))
-		// TODO(chunk 9+): доставка логов (NATS/ClickHouse).
+		s.handleLogBatch(ctx, log, agentID, p.LogBatch)
 
 	case *agentv1.AgentMessage_MetricsBatch:
 		log.Debug("MetricsBatch", "points", len(p.MetricsBatch.GetPoints()))
@@ -321,6 +328,41 @@ func (s *Server) handleDiscoveryReport(ctx context.Context, log *slog.Logger, ag
 	log.Info("DiscoveryReport сохранён",
 		"host_id", host.ID, "instances", len(rep.GetInstances()),
 		"binary", rep.GetBinary().GetPath(), "suricata_version", rep.GetBinary().GetVersion())
+}
+
+// handleLogBatch пишет батч операционных логов агента в ClickHouse
+// (surifleet.agent_logs, chunk 13c). Ошибка вставки логируется, батч
+// теряется (логи — best-effort; локальный файл агента — источник истины).
+// Атрибуты slog при наличии добавляются к message компактным JSON.
+func (s *Server) handleLogBatch(ctx context.Context, log *slog.Logger, agentID uuid.UUID, batch *agentv1.LogBatch) {
+	entries := batch.GetEntries()
+	if s.chLogs == nil || len(entries) == 0 {
+		return
+	}
+	rows := make([]chlogs.AgentLogRow, 0, len(entries))
+	for _, e := range entries {
+		ts := time.Now().UTC()
+		if e.GetTs() != nil {
+			ts = e.GetTs().AsTime()
+		}
+		msg := e.GetMsg()
+		if len(e.GetAttrs()) > 0 {
+			if raw, err := json.Marshal(e.GetAttrs()); err == nil {
+				msg = msg + " " + string(raw)
+			}
+		}
+		rows = append(rows, chlogs.AgentLogRow{
+			AgentID: agentID.String(),
+			Ts:      chlogs.FormatTS(ts),
+			Level:   strings.ToLower(e.GetLevel()),
+			Message: msg,
+		})
+	}
+	if err := s.chLogs.InsertAgentLogs(ctx, rows); err != nil {
+		log.Error("LogBatch: вставка в ClickHouse", "entries", len(rows), "err", err)
+		return
+	}
+	log.Debug("LogBatch записан в ClickHouse", "entries", len(rows))
 }
 
 // setPresence регистрирует стрим: stream:{agent_id} → presence (TTL 120 с),

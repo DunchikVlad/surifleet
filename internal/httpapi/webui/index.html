@@ -21,6 +21,7 @@
   <button class="tab" data-tab="rules">Правила</button>
   <button class="tab" data-tab="rulesets">Ruleset'ы</button>
   <button class="tab" data-tab="deployments">Деплои</button>
+  <button class="tab" data-tab="logs">Логи</button>
 </nav>
 
 <main>
@@ -73,6 +74,21 @@
       <span id="dep-result" class="muted"></span>
     </div>
     <div id="deployments-list"></div>
+  </section>
+
+  <section id="tab-logs" class="page">
+    <h2>Логи агентов <button class="btn" id="logs-refresh">Обновить</button></h2>
+    <div class="toolbar">
+      <select id="logs-agent"></select>
+      <select id="logs-limit">
+        <option value="100">100 записей</option>
+        <option value="200" selected>200 записей</option>
+        <option value="500">500 записей</option>
+      </select>
+      <label class="muted"><input type="checkbox" id="logs-auto" checked> автообновление (10 с)</label>
+      <span id="logs-status" class="muted"></span>
+    </div>
+    <div id="logs-list"></div>
   </section>
 </main>
 

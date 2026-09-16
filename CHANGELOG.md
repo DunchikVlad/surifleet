@@ -7,6 +7,20 @@
 
 ### Added
 
+- Чанк 13c (2026-09-16): доставка логов агента на сервер и просмотр в UI.
+  Агент: captureHandler поверх slog складывает записи в ring buffer 500
+  (переживает reconnect), shipper шлёт LogBatch каждые 30 с по стриму.
+  Hub пишет батчи в ClickHouse (HTTP, `internal/chlogs`, таблица
+  `surifleet.agent_logs`, CREATE TABLE IF NOT EXISTS при старте сервера;
+  DSN `server.clickhouse_dsn`, native `clickhouse://` конвертируется в
+  HTTP 8123). API: `GET /api/v1/agents` (список агентов с hostname),
+  `GET /api/v1/agents/{id}/logs?limit=200` (≤1000, ts DESC).
+  UI: вкладка «Логи» — выбор агента, лимит, ручное обновление и
+  автообновление 10 с. (agent, server, api, ui)
+- infra: ClickHouse на стенде — persistent-фикс доступа default без
+  пароля из LAN (compose маунтит `zz_allow_network.xml` в users.d;
+  официальный entrypoint без кредами сам режет default до localhost,
+  из-за чего HTTP был 403). (infra)
 - Чанк 13b (2026-09-16): управление из UI. Деплои: создание (выбор
   ruleset+инстанс), pause / resume / cancel кнопками. Правила: вкл/откл
   кнопкой (bulk). Ruleset'ы: сборка из enabled-правил из UI. Живой e2e

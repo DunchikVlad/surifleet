@@ -44,7 +44,7 @@ document.querySelectorAll(".tab").forEach(btn => {
 
 function loadTab(name) {
   ({ overview: loadOverview, instances: loadInstances, rules: loadRules,
-     rulesets: loadRulesets, deployments: loadDeployments })[name]?.();
+     rulesets: loadRulesets, deployments: loadDeployments, logs: loadLogs })[name]?.();
 }
 
 // --- шапка: health + version ---
@@ -287,6 +287,40 @@ async function toggleTasks(id) {
   } catch (e) { cell.innerHTML = `<div class="error-box">${esc(e.message)}</div>`; }
 }
 
+// --- Логи агентов (chunk 13c) ---
+async function fillLogsAgents() {
+  const sel = document.getElementById("logs-agent");
+  const prev = sel.value;
+  try {
+    const d = await api("/agents");
+    sel.innerHTML = (d.items || []).map(a =>
+      `<option value="${a.id}">${esc(a.hostname || short(a.host_id))} · ${esc(a.status)} · ${short(a.id)}</option>`).join("");
+    if (prev && [...sel.options].some(o => o.value === prev)) sel.value = prev;
+  } catch {}
+}
+
+async function loadLogs() {
+  const box = document.getElementById("logs-list");
+  const status = document.getElementById("logs-status");
+  if (!document.getElementById("logs-agent").options.length) await fillLogsAgents();
+  const agentId = document.getElementById("logs-agent").value;
+  if (!agentId) { box.innerHTML = '<p class="muted">Агентов нет.</p>'; return; }
+  const limit = document.getElementById("logs-limit").value;
+  try {
+    const d = await api(`/agents/${agentId}/logs?limit=${limit}`);
+    const items = d.items || [];
+    status.textContent = "обновлено " + new Date().toLocaleTimeString("ru-RU");
+    if (!items.length) { box.innerHTML = '<p class="muted">Записей нет — агент шлёт логи раз в 30 с.</p>'; return; }
+    box.innerHTML = `<table><thead><tr>
+      <th>Время</th><th>Уровень</th><th>Сообщение</th></tr></thead>
+      <tbody>${items.map(e => `<tr>
+        <td class="muted" style="white-space:nowrap">${fmtTime(e.ts)}</td>
+        <td>${badge(e.level)}</td>
+        <td style="word-break:break-all">${esc(e.message)}</td>
+      </tr>`).join("")}</tbody></table>`;
+  } catch (e) { box.innerHTML = `<div class="error-box">${esc(e.message)}</div>`; }
+}
+
 // --- init ---
 document.getElementById("refresh-overview").addEventListener("click", loadOverview);
 document.getElementById("rules-search").addEventListener("click", () => loadRules(false));
@@ -294,6 +328,9 @@ document.getElementById("rules-more").addEventListener("click", () => loadRules(
 document.getElementById("rules-q").addEventListener("keydown", e => { if (e.key === "Enter") loadRules(false); });
 document.getElementById("rs-build").addEventListener("click", buildRuleset);
 document.getElementById("dep-create").addEventListener("click", createDeployment);
+document.getElementById("logs-refresh").addEventListener("click", loadLogs);
+document.getElementById("logs-agent").addEventListener("change", loadLogs);
+document.getElementById("logs-limit").addEventListener("change", loadLogs);
 
 loadHeader();
 loadOverview();
@@ -301,3 +338,8 @@ setInterval(() => {
   if (document.getElementById("tab-overview").classList.contains("active")) loadOverview();
   loadHeader();
 }, 15000);
+// Логи — чаще (10 с), чтобы было ближе к «живому» хвосту.
+setInterval(() => {
+  if (document.getElementById("tab-logs").classList.contains("active")
+      && document.getElementById("logs-auto").checked) loadLogs();
+}, 10000);

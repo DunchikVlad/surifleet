@@ -61,7 +61,13 @@ func main() {
 	levelVar := &slog.LevelVar{}
 	levelVar.Set(level)
 	// Локальный файл — источник истины при потере связи; stdout — для journald/отладки.
-	log := slog.New(slog.NewJSONHandler(io.MultiWriter(os.Stdout, rotator), &slog.HandlerOptions{Level: levelVar}))
+	// captureHandler дополнительно складывает записи в logBuf — буфер
+	// доставки логов на сервер (chunk 13c); переживает разрывы сессий.
+	logBuf := newLogBuffer()
+	log := slog.New(&captureHandler{
+		next: slog.NewJSONHandler(io.MultiWriter(os.Stdout, rotator), &slog.HandlerOptions{Level: levelVar}),
+		buf:  logBuf,
+	})
 	slog.SetDefault(log)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -82,17 +88,17 @@ func main() {
 		fatal(err)
 	}
 
-	connectLoop(ctx, cfg, id, levelVar, log)
+	connectLoop(ctx, cfg, id, levelVar, log, logBuf)
 	log.Info("агент остановлен")
 }
 
 // connectLoop — цикл переподключения к Hub: exponential backoff
 // (backoff_min → ×2 → backoff_max) с полным jitter (защита от
 // reconnect-штормов, см. docs/architecture.md §4.7).
-func connectLoop(ctx context.Context, cfg *config.AgentConfig, id *identity, levelVar *slog.LevelVar, log *slog.Logger) {
+func connectLoop(ctx context.Context, cfg *config.AgentConfig, id *identity, levelVar *slog.LevelVar, log *slog.Logger, logBuf *logBuffer) {
 	backoff := cfg.BackoffMin.D()
 	for {
-		err := runSession(ctx, cfg, id, levelVar, log)
+		err := runSession(ctx, cfg, id, levelVar, log, logBuf)
 		if ctx.Err() != nil {
 			return // остановка по сигналу
 		}

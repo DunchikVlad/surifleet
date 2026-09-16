@@ -25,6 +25,7 @@ import (
 	"google.golang.org/grpc/credentials"
 
 	"github.com/surifleet/surifleet/internal/blob"
+	"github.com/surifleet/surifleet/internal/chlogs"
 	"github.com/surifleet/surifleet/internal/config"
 	"github.com/surifleet/surifleet/internal/enroll"
 	agentv1 "github.com/surifleet/surifleet/internal/gen/agent/v1"
@@ -133,6 +134,28 @@ func main() {
 	log.Info("S3 подключено", "endpoint", cfg.S3.Endpoint, "bucket", cfg.S3.Bucket)
 
 	hubSrv := hub.NewServer(db, rdb, hubID, version, log)
+
+	// ClickHouse — приёмник логов агентов (chunk 13c). Пустой DSN — выключено.
+	// Ошибка создания таблицы не фатальна: вставка будет ретраиться на каждом
+	// LogBatch, а API логов вернёт 503.
+	var chLogs *chlogs.Client
+	if cfg.ClickHouseDSN != "" {
+		chLogs, err = chlogs.New(cfg.ClickHouseDSN)
+		if err != nil {
+			fatal(fmt.Errorf("clickhouse: %w", err))
+		}
+		ensureCtx, ensureCancel := context.WithTimeout(ctx, 15*time.Second)
+		if err := chLogs.EnsureTable(ensureCtx); err != nil {
+			log.Error("ClickHouse: таблица agent_logs не создана (ретрай при вставке)", "err", err)
+		} else {
+			log.Info("ClickHouse подключён", "dsn", cfg.ClickHouseDSN)
+		}
+		ensureCancel()
+		hubSrv.SetLogWriter(chLogs)
+	} else {
+		log.Info("ClickHouse не настроен (server.clickhouse_dsn пуст) — логи агентов не сохраняются")
+	}
+
 	orch := orchestrator.New(db, blobStore, hubSrv, log)
 	hubSrv.OnTaskResult = orch.HandleTaskResult
 	hubSrv.OnAgentOnline = orch.DispatchPending
@@ -140,7 +163,7 @@ func main() {
 		log.Error("восстановление оркестратора", "err", err)
 	}
 
-	app := &App{cfg: cfg, log: log, db: db, ca: ca, rdb: rdb, hubID: hubID, blob: blobStore, orch: orch}
+	app := &App{cfg: cfg, log: log, db: db, ca: ca, rdb: rdb, hubID: hubID, blob: blobStore, orch: orch, chLogs: chLogs}
 
 	errCh := make(chan error, 4)
 
@@ -243,14 +266,15 @@ func main() {
 
 // App — корневой объект сервера: конфигурация, логер, БД, CA, Redis.
 type App struct {
-	cfg   *config.ServerConfig
-	log   *slog.Logger
-	db    *store.Store
-	ca    *pki.CA
-	rdb   *redis.Client
-	hubID string
-	blob  *blob.Store
-	orch  *orchestrator.Orchestrator
+	cfg    *config.ServerConfig
+	log    *slog.Logger
+	db     *store.Store
+	ca     *pki.CA
+	rdb    *redis.Client
+	hubID  string
+	blob   *blob.Store
+	orch   *orchestrator.Orchestrator
+	chLogs *chlogs.Client
 }
 
 // routes собирает HTTP-маршруты API v1 (реализация — internal/httpapi).
@@ -262,6 +286,7 @@ func (a *App) routes() http.Handler {
 		Store:   a.db,
 		Blob:    a.blob,
 		Orch:    a.orch,
+		CHLogs:  a.chLogs,
 		PingDB:  a.db.Pool.Ping,
 	})
 }

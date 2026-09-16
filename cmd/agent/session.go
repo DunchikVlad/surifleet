@@ -28,7 +28,7 @@ const protocolMajor = 1
 // runSession — одна сессия стрима агента: mTLS-подключение к Hub,
 // Hello → HelloAck → heartbeat'ы + приём серверных сообщений.
 // Возвращает ошибку разрыва (по ней connectLoop уходит в backoff).
-func runSession(ctx context.Context, cfg *config.AgentConfig, id *identity, levelVar *slog.LevelVar, log *slog.Logger) error {
+func runSession(ctx context.Context, cfg *config.AgentConfig, id *identity, levelVar *slog.LevelVar, log *slog.Logger, logBuf *logBuffer) error {
 	cert, err := tls.X509KeyPair(id.certPEM, id.keyPEM)
 	if err != nil {
 		return fmt.Errorf("сертификат агента: %w", err)
@@ -195,6 +195,41 @@ func runSession(ctx context.Context, cfg *config.AgentConfig, id *identity, leve
 		}
 	}()
 	defer wg.Wait()
+
+	// Доставка логов агента на сервер (chunk 13c): каждые 30 с сливаем
+	// очередь logBuf одним LogBatch. При ошибке отправки записи
+	// возвращаются в голову очереди (уедут после переподключения).
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		t := time.NewTicker(30 * time.Second)
+		defer t.Stop()
+		for {
+			select {
+			case <-hbCtx.Done():
+				return
+			case <-t.C:
+				entries := logBuf.drain(logBufferMax)
+				if len(entries) == 0 {
+					continue
+				}
+				batch := &agentv1.LogBatch{Entries: make([]*agentv1.LogEntry, 0, len(entries))}
+				for _, e := range entries {
+					batch.Entries = append(batch.Entries, &agentv1.LogEntry{
+						Seq:   e.seq,
+						Ts:    timestamppb.New(e.ts),
+						Level: e.level,
+						Msg:   e.msg,
+						Attrs: e.attrs,
+					})
+				}
+				if err := send(&agentv1.AgentMessage{Payload: &agentv1.AgentMessage_LogBatch{LogBatch: batch}}); err != nil {
+					logBuf.requeueFront(entries)
+					log.Warn("LogBatch не отправлен", "entries", len(entries), "err", err)
+				}
+			}
+		}
+	}()
 
 	// Приём серверных сообщений до разрыва.
 	for {

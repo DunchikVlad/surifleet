@@ -10,12 +10,32 @@
 
 ## Следующий шаг (конкретно)
 
-**Чанк 13c** (после 13b, 2026-09-16):
-1. Логи агента на сервер: LogBatch → ClickHouse (просмотр в UI).
-2. Матрица правила×хосты (требование А, UI-часть).
-3. React-фронтенд в web/ — когда MVP упрётся в пределы ванильного JS.
-4. **Аномалия (не блокер)**: из ssh `sudo rm` в /etc/suricata → Permission
+**Чанк 13d** (после 13c, 2026-09-16):
+1. Матрица правила×хосты (требование А, UI-часть).
+2. React-фронтенд в web/ — когда MVP упрётся в пределы ванильного JS.
+3. **Аномалия (не блокер)**: из ssh `sudo rm` в /etc/suricata → Permission
    denied при работающем touch; обход — агент от root правит сам (12a).
+
+Чанк 13c ГОТОВ (2026-09-16): доставка логов агента на сервер и просмотр
+в UI. Агент: slog captureHandler → ring buffer 500 (переживает reconnect)
+→ LogBatch по стриму каждые 30 с. Сервер: `internal/chlogs` (ClickHouse
+по HTTP :8123, DSN `server.clickhouse_dsn`, clickhouse://9900 → :8123),
+таблица surifleet.agent_logs создаётся при старте; hub пишет батчи.
+API: GET /api/v1/agents, GET /api/v1/agents/{id}/logs?limit=N (≤1000).
+UI: вкладка «Логи» (выбор агента, лимит, автообновление 10 с).
+Infra: ClickHouse на .28 — default без пароля из LAN через маунт
+`zz_allow_network.xml` в users.d (docker-compose.yml на .28 изменён:
+entrypoint официального образа без кредами сам ограничивает default
+localhost'ом → HTTP 403 AUTHENTICATION_FAILED, несмотря на комментарий
+«без пароля» в compose).
+Живой e2e: после переката агента первый LogBatch принёс 30 записей
+(включая накопленный за разрыв warn — доставка при reconnect работает),
+SELECT count() = 30 > 0, SELECT … LIMIT 5 — свежие записи агента
+97885671-36c1-46aa-b597-e0f1aa59c2af; API /agents/…/logs?limit=5 — 200
+с JSON (ts RFC3339); /api/v1/agents — 200; /ui/app.js — 200, «logs»
+встречается 13 раз; go build/vet/test + node --check чисто.
+ВАЖНО (как и раньше): UI в реальном браузере не открывался — вкладку
+«Логи» проверить руками при первом открытии.
 
 Чанк 13b ГОТОВ (2026-09-16): управление из UI — создание деплоя
 (выбор ruleset+инстанс), pause/resume/cancel, вкл/откл правил (bulk),
@@ -107,7 +127,8 @@ managed-файле (245 правил).
 | 12c-1 | instance_id агенту при подключении: proto HelloAck.bound_instances (InstanceBinding: instance_id/name/config_path/rules_dir/log_dir), сервер — instanceBindings (инстансы хоста агента), агент — лог привязки + data_dir/bound_instances.json (0600, атомарно). Регенерация proto через scripts/gen-proto.sh. Живой e2e: при Hello агент получил instance_id 468c9c71…, файл записан | 660caf5 |
 | 12c-2 | Watchdog автоотката после деплоя: +90 с после успеха агент проверяет живость движка (systemctl is-active / suricatasc uptime), при смерти — откат managed-файла + systemctl restart + перепроверка. Живой e2e: движок остановлен сразу после деплоя → watchdog детектировал → за 6 с откат + рестарт → active, managed-файл откачен (245 правил вместо 2) | 18f449b |
 | 13 | MVP Web UI в сервере (`internal/httpapi/webui`, go:embed; index.html+app.js+style.css; ванильный JS поверх /api/v1): Обзор (compliance-карточки, активные деплои, автообновление 15 с), Инстансы (+state/diff), Правила (фильтр/поиск/пагинация), Ruleset'ы, Деплои (+задачи). Раздача с / и /ui/* на :8080. Проверено с Windows: все эндпоинты 200, node --check app.js; фикс зацикливания FileServer на index.html | 431f345 |
-| 13b | Управление из UI: кнопки pause/resume/cancel у деплоев (dep-act), вкл/откл правил (rule-toggle → POST /rules/bulk), форма сборки ruleset (rs-build → POST /rulesets с rule_filter status=enabled), форма нового деплоя (dep-create). apiPOST-хелпер. Живой e2e через API как из UI: сборка ruleset 200 (идемпотентный 245 правил), деплой 102c688b create→pause→resume→completed 1/1, bulk enable/disable affected:1 туда-обратно; node --check app.js; сервер перекачен, app.js отдаётся с новыми функциями | (этот коммит) |
+| 13b | Управление из UI: кнопки pause/resume/cancel у деплоев (dep-act), вкл/откл правил (rule-toggle → POST /rules/bulk), форма сборки ruleset (rs-build → POST /rulesets с rule_filter status=enabled), форма нового деплоя (dep-create). apiPOST-хелпер. Живой e2e через API как из UI: сборка ruleset 200 (идемпотентный 245 правил), деплой 102c688b create→pause→resume→completed 1/1, bulk enable/disable affected:1 туда-обратно; node --check app.js; сервер перекачен, app.js отдаётся с новыми функциями | c046466 |
+| 13c | Логи агента на сервер и в UI: агент — captureHandler поверх slog → ring buffer 500 (переживает reconnect) → LogBatch каждые 30 с по стриму (`cmd/agent/logship.go`); сервер — `internal/chlogs` (ClickHouse по HTTP; native-DSN clickhouse://host:9900 конвертируется в http :8123), таблица surifleet.agent_logs (CREATE IF NOT EXISTS при старте), запись батчей в hub.handleLogBatch; API: GET /api/v1/agents (список с hostname), GET /api/v1/agents/{id}/logs?limit=200 (≤1000, ts DESC, ts→RFC3339); UI — вкладка «Логи» (селектор агента, лимит, обновить, авто 10 с). Infra-фикс: ClickHouse default без пароля из LAN через маунт zz_allow_network.xml в users.d (entrypoint без кредами сам резал default до localhost → 403). Живой e2e: 30 записей за первый батч (включая warn о разрыве — буфер дождался reconnect), SELECT count()>0, API 200 с записями, app.js содержит logs, go build/vet/test/node --check чисто | (этот коммит) |
 
 ## Тестовая среда (добавлена в ТЗ п. 13)
 

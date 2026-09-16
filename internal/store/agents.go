@@ -49,6 +49,37 @@ func (r *AgentsRepo) GetByID(ctx context.Context, id uuid.UUID) (Agent, error) {
 	return a, nil
 }
 
+// AgentListItem — агент с hostname хоста (списки в UI/API, chunk 13c).
+type AgentListItem struct {
+	Agent
+	Hostname string `json:"hostname"`
+}
+
+// List возвращает всех агентов (с hostname хоста), свежие первыми.
+func (r *AgentsRepo) List(ctx context.Context) ([]AgentListItem, error) {
+	rows, err := r.pool.Query(ctx,
+		`SELECT a.id, a.host_id, a.agent_version, a.protocol_version, a.status, a.last_seen_at,
+		        a.cert_serial, a.cert_expires_at, a.enrolled_at, a.created_at, a.updated_at,
+		        h.hostname
+		 FROM agents a JOIN hosts h ON h.id = a.host_id
+		 ORDER BY a.last_seen_at DESC NULLS LAST`)
+	if err != nil {
+		return nil, translate(err)
+	}
+	defer rows.Close()
+	var out []AgentListItem
+	for rows.Next() {
+		var it AgentListItem
+		if err := rows.Scan(&it.ID, &it.HostID, &it.AgentVersion, &it.ProtocolVersion, &it.Status,
+			&it.LastSeenAt, &it.CertSerial, &it.CertExpiresAt, &it.EnrolledAt, &it.CreatedAt, &it.UpdatedAt,
+			&it.Hostname); err != nil {
+			return nil, translate(err)
+		}
+		out = append(out, it)
+	}
+	return out, translate(rows.Err())
+}
+
 // GetByHostID возвращает агента хоста (1:1). Нет записи → ErrNotFound.
 func (r *AgentsRepo) GetByHostID(ctx context.Context, tx pgx.Tx, hostID uuid.UUID) (Agent, error) {
 	var a Agent
