@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SuriFleet — управление флотом Suricata</title>
+<link rel="stylesheet" href="/ui/style.css">
+</head>
+<body>
+<header>
+  <div class="brand">Suri<span>Fleet</span></div>
+  <div class="hdr-status">
+    <span id="health" class="badge badge-muted">…</span>
+    <span id="version" class="muted"></span>
+  </div>
+</header>
+
+<nav>
+  <button class="tab active" data-tab="overview">Обзор</button>
+  <button class="tab" data-tab="instances">Инстансы</button>
+  <button class="tab" data-tab="rules">Правила</button>
+  <button class="tab" data-tab="rulesets">Ruleset'ы</button>
+  <button class="tab" data-tab="deployments">Деплои</button>
+</nav>
+
+<main>
+  <section id="tab-overview" class="page active">
+    <h2>Compliance флота <button class="btn" id="refresh-overview">Обновить</button></h2>
+    <div id="compliance-cards" class="cards"></div>
+    <h3>Активные деплои</h3>
+    <div id="active-deployments"></div>
+  </section>
+
+  <section id="tab-instances" class="page">
+    <h2>Инстансы Suricata</h2>
+    <div id="instances-list"></div>
+    <div id="instance-detail" class="detail hidden"></div>
+  </section>
+
+  <section id="tab-rules" class="page">
+    <h2>Репозиторий правил</h2>
+    <div class="toolbar">
+      <select id="rules-status">
+        <option value="">все статусы</option>
+        <option value="enabled" selected>enabled</option>
+        <option value="disabled">disabled</option>
+        <option value="under_review">under_review</option>
+      </select>
+      <input id="rules-q" type="search" placeholder="поиск (msg / sid)…">
+      <button class="btn" id="rules-search">Найти</button>
+    </div>
+    <div id="rules-list"></div>
+    <button class="btn hidden" id="rules-more">Загрузить ещё</button>
+  </section>
+
+  <section id="tab-rulesets" class="page">
+    <h2>Версии ruleset'ов</h2>
+    <div id="rulesets-list"></div>
+  </section>
+
+  <section id="tab-deployments" class="page">
+    <h2>Деплои</h2>
+    <div id="deployments-list"></div>
+  </section>
+</main>
+
+<footer class="muted">SuriFleet MVP UI · данные — /api/v1 · автообновление обзора 15 с</footer>
+<script src="/ui/app.js"></script>
+</body>
+</html>

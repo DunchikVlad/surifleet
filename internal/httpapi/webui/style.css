@@ -1,0 +1,105 @@
+:root {
+  --bg: #0f141b;
+  --panel: #171e28;
+  --panel2: #1d2634;
+  --border: #2a3546;
+  --text: #dbe4ee;
+  --muted: #8595a8;
+  --accent: #4da3ff;
+  --ok: #3fb97a;
+  --warn: #e0a93e;
+  --err: #e05e5e;
+  --partial: #c9a0e8;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 14px/1.5 "Segoe UI", system-ui, sans-serif;
+}
+header {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 12px 20px; background: var(--panel); border-bottom: 1px solid var(--border);
+}
+.brand { font-size: 20px; font-weight: 700; letter-spacing: .5px; }
+.brand span { color: var(--accent); }
+.hdr-status { display: flex; gap: 10px; align-items: center; }
+.muted { color: var(--muted); }
+
+nav {
+  display: flex; gap: 4px; padding: 8px 20px 0;
+  background: var(--panel); border-bottom: 1px solid var(--border);
+}
+.tab {
+  background: none; border: none; color: var(--muted);
+  padding: 8px 16px; cursor: pointer; font-size: 14px;
+  border-bottom: 2px solid transparent;
+}
+.tab:hover { color: var(--text); }
+.tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+main { padding: 20px; max-width: 1200px; margin: 0 auto; }
+.page { display: none; }
+.page.active { display: block; }
+h2 { font-size: 17px; margin: 0 0 14px; display: flex; align-items: center; gap: 12px; }
+h3 { font-size: 14px; color: var(--muted); margin: 22px 0 10px; }
+
+.cards { display: flex; flex-wrap: wrap; gap: 12px; }
+.card {
+  background: var(--panel); border: 1px solid var(--border);
+  border-radius: 8px; padding: 14px 18px; min-width: 130px;
+}
+.card .num { font-size: 26px; font-weight: 700; }
+.card .lbl { color: var(--muted); font-size: 12px; text-transform: uppercase; }
+.card.ok .num { color: var(--ok); }
+.card.warn .num { color: var(--warn); }
+.card.err .num { color: var(--err); }
+.card.partial .num { color: var(--partial); }
+
+table { width: 100%; border-collapse: collapse; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--border); }
+th { background: var(--panel2); color: var(--muted); font-size: 12px; text-transform: uppercase; }
+tr:last-child td { border-bottom: none; }
+tbody tr:hover { background: var(--panel2); }
+tr.clickable { cursor: pointer; }
+
+.badge {
+  display: inline-block; padding: 2px 10px; border-radius: 12px;
+  font-size: 12px; font-weight: 600;
+}
+.badge-ok, .badge-in_sync, .badge-succeeded, .badge-completed, .badge-online { background: rgba(63,185,122,.15); color: var(--ok); }
+.badge-warn, .badge-pending, .badge-paused, .badge-running, .badge-sent, .badge-degraded { background: rgba(224,169,62,.15); color: var(--warn); }
+.badge-err, .badge-failed, .badge-drift, .badge-offline, .badge-cancelled { background: rgba(224,94,94,.15); color: var(--err); }
+.badge-partial, .badge-stale { background: rgba(201,160,232,.15); color: var(--partial); }
+.badge-muted { background: var(--panel2); color: var(--muted); }
+.badge-enabled { background: rgba(63,185,122,.15); color: var(--ok); }
+.badge-disabled { background: var(--panel2); color: var(--muted); }
+.badge-under_review { background: rgba(77,163,255,.15); color: var(--accent); }
+
+.btn {
+  background: var(--panel2); color: var(--text); border: 1px solid var(--border);
+  border-radius: 6px; padding: 5px 14px; cursor: pointer; font-size: 13px;
+}
+.btn:hover { border-color: var(--accent); color: var(--accent); }
+.toolbar { display: flex; gap: 10px; margin-bottom: 14px; }
+.toolbar select, .toolbar input {
+  background: var(--panel); color: var(--text); border: 1px solid var(--border);
+  border-radius: 6px; padding: 6px 10px; font-size: 13px;
+}
+.toolbar input { flex: 1; max-width: 340px; }
+
+.detail {
+  margin-top: 16px; background: var(--panel); border: 1px solid var(--border);
+  border-radius: 8px; padding: 16px;
+}
+.detail pre {
+  background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+  padding: 12px; overflow: auto; font-size: 12px; color: var(--muted);
+}
+.hidden { display: none; }
+.error-box { color: var(--err); padding: 10px 0; }
+.progress { display: inline-block; min-width: 160px; height: 8px; background: var(--panel2); border-radius: 4px; overflow: hidden; vertical-align: middle; }
+.progress > i { display: block; height: 100%; background: var(--ok); }
+.progress > i.has-failed { background: var(--err); }
+footer { padding: 16px 20px; text-align: center; font-size: 12px; }

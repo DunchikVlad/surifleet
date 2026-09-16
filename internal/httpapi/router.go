@@ -54,6 +54,9 @@ func NewRouter(d Deps) http.Handler {
 		writeError(w, http.StatusMethodNotAllowed, CodeNotFound, "метод не поддерживается", nil)
 	})
 
+	// Встроенный Web UI (MVP): / и /ui/* — статика из embed.
+	mountWebUI(r)
+
 	r.Route("/api/v1", func(r chi.Router) {
 		r.Get("/health", h.health)
 		r.Get("/version", h.version)
