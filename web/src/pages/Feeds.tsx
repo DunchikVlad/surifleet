@@ -101,7 +101,7 @@ export default function Feeds({ active }: { active: boolean }) {
           style={{ minWidth: "24em" }}
         />
         <select value={fType} onChange={e => setFType(e.target.value)}
-          title="синхронизируются только generic (IOC-листы plain/CSV/JSON)">
+          title="синхронизируются: generic (IOC-листы plain/CSV/JSON), et_open/et_pro (фиды правил ET; для et_pro URL можно не задавать — укажите код подписки в credentials через API)">
           {TYPES.map(t => <option key={t} value={t}>{t}</option>)}
         </select>
         <input
@@ -192,7 +192,9 @@ export default function Feeds({ active }: { active: boolean }) {
       <p className="muted">
         Импортированные фидом IOC — на вкладке «IOC» (источник = имя фида).
         После успешного ручного синка правила из активных IOC пересобираются
-        автоматически (ruleset ioc-current-*, без деплоя).
+        автоматически (ruleset ioc-current-*, без деплоя). Фиды et_open/et_pro
+        импортируют правила в репозиторий «Правила»; для et_pro без URL код
+        подписки задаётся в поле credentials (через API, просто код).
       </p>
     </>
   );

@@ -1,8 +1,8 @@
 // Package feedsync — синхронизация фидов: загрузка по HTTP(S) и разбор.
 // type=generic — IOC-листы (plain text / CSV / JSON) с угадыванием типа
-// IOC и идемпотентным импортом в iocs (UpsertImport); type=et_open —
-// фид ПРАВИЛ Emerging Threats Open (.rules-файл) с импортом в репозиторий
-// rules (см. rulesfeed.go).
+// IOC и идемпотентным импортом в iocs (UpsertImport); type=et_open/et_pro —
+// фиды ПРАВИЛ Emerging Threats Open/Pro (.rules-файл) с импортом в
+// репозиторий rules (см. rulesfeed.go).
 //
 // Поддерживаемые форматы тела:
 //   - plain text: один IOC на строку, '#' и '//' — комментарии;
@@ -103,10 +103,20 @@ func (s *Syncer) Sync(ctx context.Context, feed store.Feed) (store.FeedRun, erro
 	}
 
 	switch feed.Type {
-	case "generic", "et_open":
-		// поддерживаемые коннекторы: generic — IOC-листы, et_open — фид правил.
+	case "generic", "et_open", "et_pro":
+		// поддерживаемые коннекторы: generic — IOC-листы,
+		// et_open/et_pro — фиды правил ET.
 	default:
-		return fail(fmt.Sprintf("синхронизация типа %q не поддерживается (generic — IOC-фиды, et_open — фид правил ET Open)", feed.Type))
+		return fail(fmt.Sprintf("синхронизация типа %q не поддерживается (generic — IOC-фиды, et_open/et_pro — фиды правил ET)", feed.Type))
+	}
+
+	// et_pro: код подписки — из credentials; пустой URL строится из кода.
+	if feed.Type == "et_pro" {
+		u, err := etProURL(feed)
+		if err != nil {
+			return fail(err.Error())
+		}
+		feed.URL = u
 	}
 
 	body, err := s.fetch(ctx, feed)
@@ -114,8 +124,8 @@ func (s *Syncer) Sync(ctx context.Context, feed store.Feed) (store.FeedRun, erro
 		return fail(err.Error())
 	}
 
-	if feed.Type == "et_open" {
-		return s.syncRules(ctx, feed, run, body, fail)
+	if feed.Type == "et_open" || feed.Type == "et_pro" {
+		return s.syncRules(ctx, feed, run, body, feed.Type, fail)
 	}
 
 	items, lineErrs := Parse(body)
@@ -181,8 +191,9 @@ func (s *Syncer) fetch(ctx context.Context, feed store.Feed) ([]byte, error) {
 		return nil, fmt.Errorf("некорректный URL фида: %w", err)
 	}
 	// Креды фида (MVP: plaintext в credentials_ref): "user:pass" → Basic Auth,
-	// иначе — Bearer-токен.
-	if feed.CredentialsRef != nil && *feed.CredentialsRef != "" {
+	// иначе — Bearer-токен. Для et_pro credentials — код подписки, он уже
+	// в URL (см. etProURL), auth-заголовок не нужен.
+	if feed.Type != "et_pro" && feed.CredentialsRef != nil && *feed.CredentialsRef != "" {
 		if u, p, ok := strings.Cut(*feed.CredentialsRef, ":"); ok {
 			req.SetBasicAuth(u, p)
 		} else {

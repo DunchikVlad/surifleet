@@ -3,6 +3,8 @@ package feedsync
 import (
 	"strings"
 	"testing"
+
+	"github.com/surifleet/surifleet/internal/store"
 )
 
 func TestParseRules(t *testing.T) {
@@ -72,5 +74,31 @@ func TestParseRulesNoTrailingNewline(t *testing.T) {
 	r, e := ParseRules([]byte(`alert ip any any -> any any (msg:"ET TEST Tail"; sid:9930004; rev:2;)`))
 	if len(e) != 0 || len(r) != 1 || r[0].SID != 9930004 || r[0].Rev != 2 {
 		t.Errorf("rules=%+v errs=%+v", r, e)
+	}
+}
+
+func TestETProURL(t *testing.T) {
+	strptr := func(s string) *string { return &s }
+
+	// Без credentials — понятная ошибка.
+	if _, err := etProURL(store.Feed{Type: "et_pro"}); err == nil ||
+		!strings.Contains(err.Error(), "код подписки в поле credentials") {
+		t.Errorf("без credentials: err = %v, want про код подписки", err)
+	}
+	// credentials в формате user:pass — НЕ et_pro формат.
+	if _, err := etProURL(store.Feed{Type: "et_pro", CredentialsRef: strptr("user:pass")}); err == nil ||
+		!strings.Contains(err.Error(), "код подписки в поле credentials") {
+		t.Errorf("user:pass: err = %v, want про код подписки", err)
+	}
+	// Пустой URL → шаблон с кодом.
+	u, err := etProURL(store.Feed{Type: "et_pro", CredentialsRef: strptr("my-code-123")})
+	if err != nil || u != "https://rules.emergingthreatspro.com/my-code-123/suricata/rules/etpro-all.rules" {
+		t.Errorf("URL из кода = %q, err = %v", u, err)
+	}
+	// Явный URL используется как есть (код всё равно обязателен).
+	u, err = etProURL(store.Feed{Type: "et_pro", URL: "http://localhost:8899/feed.rules",
+		CredentialsRef: strptr("my-code-123")})
+	if err != nil || u != "http://localhost:8899/feed.rules" {
+		t.Errorf("явный URL = %q, err = %v", u, err)
 	}
 }

@@ -666,7 +666,7 @@ paths:
         - {name: status, in: query, schema: {type: string, enum: [enabled, disabled, expired, under_review, deleted]}}
         - {name: category, in: query, schema: {type: string}}
         - {name: tag, in: query, schema: {type: string}}
-        - {name: source, in: query, description: 'Источник: file | feed | ioc | et_open', schema: {type: string, enum: [file, feed, ioc, et_open]}}
+        - {name: source, in: query, description: 'Источник: file | feed | ioc | et_open | et_pro', schema: {type: string, enum: [file, feed, ioc, et_open, et_pro]}}
         - {name: sid, in: query, schema: {type: integer, format: int64}}
         - {name: q, in: query, description: Поиск по msg, schema: {type: string}}
       responses:
@@ -941,12 +941,16 @@ paths:
         feed_id фида; выключенные в фиде правила («#alert ...») создаются со
         status=disabled, активные — under_review; тюнинг аналитика
         (status/priority/threshold/tags) и первичный source_type/feed_id
-        существующих правил импорт не перетирает. Прочие типы — failed с
+        существующих правил импорт не перетирает. type=et_pro — то же для
+        ET Pro: код подписки берётся из credentials (просто код, без
+        user:pass; без кода — failed с пояснением), пустой URL строится как
+        https://rules.emergingthreatspro.com/<code>/suricata/rules/etpro-all.rules,
+        source_type=et_pro. Прочие типы — failed с
         пояснением. Ошибки загрузки/разбора — не 5xx, а status=failed + error
         в теле (дублируются в last_error фида). После успешного импорта
         generic-фида — автопрогон генерации Suricata-правил из активных IOC
-        (ruleset ioc-current-*, БЕЗ деплоя; счётчики rules_*); для et_open
-        автопрогон не выполняется (фид сам импортирует правила).
+        (ruleset ioc-current-*, БЕЗ деплоя; счётчики rules_*); для
+        et_open/et_pro автопрогон не выполняется (фид сам импортирует правила).
       parameters:
         - {$ref: '#/components/parameters/PathId'}
       responses:
@@ -2657,7 +2661,7 @@ components:
         status: {type: string, enum: [enabled, disabled, expired, under_review, deleted]}
         priority: {type: integer, nullable: true, description: Тюнинг аналитика}
         threshold: {type: object, nullable: true, description: Тюнинг аналитика (threshold/suppress)}
-        source_type: {type: string, enum: [file, feed, ioc, et_open]}
+        source_type: {type: string, enum: [file, feed, ioc, et_open, et_pro]}
         feed_id: {type: string, format: uuid, nullable: true}
         created_at: {type: string, format: date-time}
         updated_at: {type: string, format: date-time}
@@ -2767,9 +2771,9 @@ components:
       properties:
         name: {type: string}
         type: {type: string, enum: [et_open, et_pro, taxii, stix, misp, generic]}
-        url: {type: string, description: 'Абсолютный URL http(s). Для et_open может быть пустой строкой — подставляется дефолт https://rules.emergingthreats.net/open/suricata/rules/emerging-all.rules (или URL отдельной категории/свой .rules-файл)'}
+        url: {type: string, description: 'Абсолютный URL http(s). Для et_open может быть пустой строкой — подставляется дефолт https://rules.emergingthreats.net/open/suricata/rules/emerging-all.rules (или URL отдельной категории/свой .rules-файл). Для et_pro тоже может быть пустой — URL строится при синке из кода подписки (credentials): https://rules.emergingthreatspro.com/<code>/suricata/rules/etpro-all.rules'}
         schedule: {type: string, description: 'Интервал авто-синка (MVP: длительность Go, напр. "1h"; cron — следующие чанки)'}
-        credentials: {type: string, writeOnly: true, description: Креды доступа (токен/логин-пароль); хранятся шифрованно}
+        credentials: {type: string, writeOnly: true, description: 'Креды доступа: "user:pass" → Basic Auth, иначе Bearer-токен; для et_pro — код подписки ET Pro (просто код, без user:pass), подставляется в URL. Хранятся шифрованно'}
         enabled: {type: boolean, default: true}
 
     FeedUpdateInput:
@@ -2783,7 +2787,7 @@ components:
 
     FeedRun:
       type: object
-      description: 'Запуск синхронизации фида. Поля rules_* и ruleset_version — только в ответе POST /feeds/{id}/sync (итог автопрогона генерации правил из IOC; выполняется лишь для generic-фидов), в истории runs не хранятся. Для et_open счётчики imported/updated/skipped относятся к правилам (новые sid / изменившийся raw / битые строки); правила без изменений в счётчики не входят, их число — в error-сообщении при успехе.'
+      description: 'Запуск синхронизации фида. Поля rules_* и ruleset_version — только в ответе POST /feeds/{id}/sync (итог автопрогона генерации правил из IOC; выполняется лишь для generic-фидов), в истории runs не хранятся. Для et_open/et_pro счётчики imported/updated/skipped относятся к правилам (новые sid / изменившийся raw / битые строки); правила без изменений в счётчики не входят, их число — в error-сообщении при успехе.'
       properties:
         id: {type: string, format: uuid}
         feed_id: {type: string, format: uuid}

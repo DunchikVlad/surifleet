@@ -7,6 +7,25 @@
 
 ### Added
 
+- Чанк 22 (2026-09-16): коннектор et_pro — фиды ПРАВИЛ Emerging Threats
+  Pro. Тот же .rules-коннектор, что et_open (`syncRules` теперь
+  принимает sourceType = тип фида), но код подписки ET Pro берётся из
+  поля `credentials` фида (просто код; формат "user:pass" для et_pro не
+  подходит — sync завершится failed с пояснением). Пустой `url` при
+  создании et_pro-фида теперь допустим: URL строится при синке по
+  шаблону `https://rules.emergingthreatspro.com/<code>/suricata/rules/etpro-all.rules`;
+  явно заданный url используется как есть. Для et_pro auth-заголовок
+  при загрузке не выставляется (код уже в URL). Миграция 000007
+  расширяет CHECK rules.source_type значением 'et_pro' (+зеркало в
+  internal/store/migrations; применена на .28 — version 7). Без
+  credentials sync — failed «для et_pro укажите код подписки в поле
+  credentials (просто код, без user:pass)». GET /rules source-фильтр
+  + et_pro. Юнит-тест `TestETProURL` (ошибка без кода и при user:pass,
+  построение URL из кода, явный URL как есть). OpenAPI приведён под
+  факт (et_pro поддержан, смысл credentials для et_pro, дефолтный URL).
+  React-вкладка «Фиды»: подсказки про et_pro (credentials = код
+  подписки, URL можно не задавать).
+
 - Чанк 21 (2026-09-16): коннектор et_open — фиды ПРАВИЛ Emerging Threats
   Open. В отличие от generic (IOC), фид type=et_open при sync скачивает
   .rules-файл и импортирует правила в мастер-репозиторий rules (НЕ в iocs).

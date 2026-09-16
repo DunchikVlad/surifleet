@@ -229,16 +229,19 @@ default 50) и `cursor`; в ответе `next_cursor` (null — страниц 
   `ioc-revoked` (чанк 19); повторная генерация отозванное правило не
   включает, пока IOC не вернулся в active.
 
-### 4.8 Фиды IOC и правил (чанки 18, 21)
+### 4.8 Фиды IOC и правил (чанки 18, 21, 22)
 - `GET /feeds` — список фидов с фильтром `type` (et_open/et_pro/taxii/
   stix/misp/generic) и keyset-пагинацией.
 - `POST /feeds` — подключение: `{name, type, url, schedule?,
   credentials?, enabled?}`; URL — абсолютный http(s), дубль (org, name)
   → 409. Для `type=et_open` пустой `url` → дефолт
   `https://rules.emergingthreats.net/open/suricata/rules/emerging-all.rules`
-  (можно URL отдельной категории ET или свой .rules-файл).
+  (можно URL отдельной категории ET или свой .rules-файл). Для
+  `type=et_pro` пустой `url` допустим — URL строится при синке из кода
+  подписки: `https://rules.emergingthreatspro.com/<code>/suricata/rules/etpro-all.rules`.
   `credentials` — writeOnly (в ответах не возвращается;
-  "user:pass" → Basic Auth, иначе Bearer-токен при загрузке фида).
+  "user:pass" → Basic Auth, иначе Bearer-токен при загрузке фида;
+  для `et_pro` — код подписки ET Pro, просто код без "user:pass").
 - `GET/PATCH/DELETE /feeds/{id}` — карточка, частичное изменение
   (name/url/schedule/credentials/enabled), удаление (204;
   импортированные IOC/правила остаются — feed_id → NULL по FK, история
@@ -266,7 +269,14 @@ default 50) и `cursor`; в ответе `next_cursor` (null — страниц 
     изменившийся raw (новая ревизия), skipped — битые строки; правила без
     изменений в счётчики не входят («без изменений N» — в error при
     success).
-  Остальные типы (et_pro/taxii/stix/misp) — failed с пояснением.
+  - `type=et_pro` (чанк 22) — тот же коннектор фида правил, что et_open,
+    но для ET Pro: код подписки берётся из `credentials` (просто код;
+    формат "user:pass" не подходит — будет failed с пояснением). Пустой
+    `url` → `https://rules.emergingthreatspro.com/<code>/suricata/rules/etpro-all.rules`;
+    явно заданный url используется как есть. Правила — с
+    `source_type=et_pro` (миграция 000007). Без credentials sync —
+    failed «для et_pro укажите код подписки в поле credentials».
+  Остальные типы (taxii/stix/misp) — failed с пояснением.
   Ошибки загрузки/разбора — не 5xx, а `status=failed` + `error` в теле
   (дублируются в `feeds.last_error`); мусорные строки не прерывают импорт.
   Ответ — FeedRun `{status, imported, updated, skipped, error}` плюс для
@@ -279,12 +289,12 @@ default 50) и `cursor`; в ответе `next_cursor` (null — страниц 
   с `schedule` в виде длительности Go ("1h", "30m"; cron — следующие
   чанки) синкаются при `last_sync_at + schedule <= now()`; плановый
   синк только импортирует (автогенерация правил — у ручного синка
-  generic-фида). Работает для обоих коннекторов (generic и et_open).
+  generic-фида). Работает для всех коннекторов (generic, et_open, et_pro).
 - React UI: вкладка «Фиды» (таблица, форма добавления, кнопка
   «Синхронизировать» со строкой результата, переключатель enabled,
   удаление).
 
-Не реализовано пока: коннекторы et_pro/taxii/stix/misp (синк возвращает
+Не реализовано пока: коннекторы taxii/stix/misp (синк возвращает
 failed с пояснением), cron-расписания.
 
 ## 5. Сквозной сценарий «от нуля до задеплоенных правил»

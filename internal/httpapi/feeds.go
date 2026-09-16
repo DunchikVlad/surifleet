@@ -78,7 +78,13 @@ func (h *handlers) createFeed(w http.ResponseWriter, r *http.Request) {
 		in.URL = feedsync.DefaultETOpenURL
 	}
 	fe := fieldErrors{}
-	validateFeedInput(fe, &in.Name, &in.URL, &in.Type)
+	// et_pro без URL — допустимо: URL строится из кода подписки
+	// (credentials) при синке (чанк 22).
+	if in.Type == "et_pro" && strings.TrimSpace(in.URL) == "" {
+		validateFeedInput(fe, &in.Name, nil, &in.Type)
+	} else {
+		validateFeedInput(fe, &in.Name, &in.URL, &in.Type)
+	}
 	if fe.any() {
 		writeValidation(w, fe)
 		return

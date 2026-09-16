@@ -10,14 +10,48 @@
 
 ## Следующий шаг (конкретно)
 
-**После 21** (2026-09-16):
-1. IOC/TI, следующий срез (п. 5.2 FEATURES): коннекторы et_pro (URL с кодом
-   подписки — тот же коннектор, что et_open, плюс credentials), taxii/stix/
-   misp и cron-расписания фидов. Либо auth/RBAC (DevAuth → токены, п. 8–9).
+**После 22** (2026-09-16):
+1. IOC/TI, следующий срез (п. 5.2 FEATURES): коннекторы taxii/stix/misp
+   и cron-расписания фидов. Либо auth/RBAC (DevAuth → токены, п. 8–9).
 2. **Аномалия (не блокер)**: из ssh `sudo rm` в /etc/suricata → Permission
    denied при работающем touch; обход — агент от root правит сам (12a).
 
-Чанк 21 ГОТОВ (2026-09-16, этот коммит): коннектор et_open — фиды ПРАВИЛ
+Чанк 22 ГОТОВ (2026-09-16, этот коммит): коннектор et_pro — фиды ПРАВИЛ
+ET Pro. Тот же .rules-коннектор, что et_open: `syncRules` принимает
+sourceType (= тип фида), upsert в rules по (org,sid) с source_type=
+'et_pro' + feed_id. Код подписки — из поля credentials фида (просто
+код; credentials с ':' — НЕ et_pro формат → failed). `etProURL`:
+пустой url → шаблон https://rules.emergingthreatspro.com/<code>/
+suricata/rules/etpro-all.rules; явный url — как есть; без credentials —
+понятный failed «для et_pro укажите код подписки в поле credentials
+(просто код, без user:pass)». Для et_pro auth-заголовок при загрузке
+не выставляется (код уже в URL). Создание et_pro-фида с пустым url
+разрешено (валидация в createFeed). Миграция 000007: rules.source_type
++ 'et_pro' (+ зеркало internal/store/migrations; применена на .28 —
+version 7). GET /rules source-фильтр + et_pro. OpenAPI под факт
+(et_pro поддержан, смысл credentials, дефолтный URL). React-вкладка
+«Фиды»: подсказки про et_pro (credentials = код, url можно не
+задавать — через API). Юнит-тест TestETProURL (нет кода / user:pass →
+ошибка; URL из кода; явный URL). Проверки: go build/vet/test зелёные,
+npm build чисто (бандл 182.14 КБ index-DlUJlw4j.js). Перекат .28:
+health ok, миграции → version 7, CHECK содержит et_pro. Живой e2e:
+фид et_pro БЕЗ credentials → sync failed с понятным текстом, last_error
+в БД; фид с credentials=test-code и явным url=http://localhost:8899/
+feed.rules (http.server на .28, 2 правила + мусор) → sync success,
+imported=2/skipped=1, правила 9940001 (under_review) и 9940002
+(disabled) с source_type='et_pro' и feed_id; фид без url с
+credentials=test-code → запрос ушёл на rules.emergingthreatspro.com →
+HTTP 404 (дефолтный URL строится из кода). Реального кода ET Pro нет —
+настоящий синк с production-фидом не проверялся. Тестовые фиды удалены
+(chunk22-e2e-nocred, chunk22-e2e-pro, chunk22-e2e-defurl); правила
+9940001/9940002 оставлены в БД (feed_id → NULL по FK). http.server
+8899 остановлен, /tmp/ch22 удалён. Деплоев на инстанс не было,
+compliance in_sync 1/1.
+
+**Следующий шаг после 22**: коннекторы taxii/stix/misp и
+cron-расписания фидов; либо auth/RBAC (п. 8–9).
+
+Чанк 21 ГОТОВ (2026-09-16, 4b81139): коннектор et_open — фиды ПРАВИЛ
 ET Open. Фид type=et_open при sync скачивает .rules-файл и импортирует
 правила в репозиторий rules (НЕ в iocs). `internal/feedsync/rulesfeed.go`:
 ParseRules (комментарии пропускаются; выключенные ET-правила «#alert ...» —
@@ -410,7 +444,8 @@ managed-файле (245 правил).
 | 14 | React-фронтенд в `web/`: Vite 5 + React 18 + TS strict, без UI-китов (стили из webui/style.css); 7 экранов в паритете с ванильным MVP (Обзор/Инстансы/Правила/Ruleset'ы/Деплои/Логи/Матрица) + улучшение (вкладки не размонтируются — фильтры/пагинация сохраняются, сводка ячеек матрицы). Vite base=/app/, dev-proxy /api → .28:8080. Раздача из бинаря: `web/embed.go` (go:embed dist) + `internal/httpapi/reactui.go` (/app/*, SPA-fallback, заглушка когда dist не собран; placeholder.txt в git, postbuild восстанавливает). Старый UI на / не тронут. Проверки: npm install/build/dev чисто, go build/vet/test зелёные, перекат .28 — /app/ + ассеты + SPA-fallback + /api/v1/fleet/compliance 200; браузер недоступен — только HTTP | 96c777e |
 | 15 | Развитие React UI: конструктор ruleset'ов во вкладке «Ruleset'ы» (выбор правил чекбоксами с фильтром/поиском/дозагрузкой, накопление выбора между страницами, чипы/счётчик/снятие, сборка POST /rulesets с rule_ids, различение 201 «создан»/200 «уже существует» через новый apiPostEx); страница инстанса (требование А) — drill-down `pages/InstanceDetail.tsx`: параметры, compliance, desired/actual hash, loaded/failed, last_reload, failed-правила, diff missing/extra, история деплоев (существующий GET /instances/{id}/deploy_history), логи агента хоста. Проверки: npm build + go build/vet/test чисто, перекат .28 (health ok, /app/ 200, новый бандл отдаётся, deploy_history 200 с деплоями 09200803/102c688b), живой e2e конструктора: 3 sid → 201 ruleset 8ce1b381 (chunk15-e2e), повтор → 200 (идемпотентность); браузер недоступен — только HTTP | 0ccd7b2 |
 | 20 | Фикс «column reference status is ambiguous» в подхвате pending-задач: в PendingTasksForAgent (`internal/store/deploy.go`) `SELECT t.`+taskColumns квалифицировал только первую колонку — остальные неоднозначны в JOIN deployments/instances/agents; ошибка при каждом (пере)подключении агента (DispatchPending). Добавлена константа taskColumnsT (все колонки с t.) + регрессионный тест TestTaskColumnsTQualified; остальные JOIN-запросы проверены. Перекат .28: ошибка в server.log исчезла (было 5 повторов), health ok, SQL прогнан в PG напрямую, compliance in_sync 1/1 | bee8248 |
-| 21 | Коннектор et_open — фиды ПРАВИЛ ET Open: `internal/feedsync/rulesfeed.go` (ParseRules — активные + выключенные «#alert …» → status=disabled при создании; syncRules — upsert в rules по (org,sid), source_type='et_open' + feed_id); миграция 000006 (rules.source_type + 'et_open'); ImportItem +FeedID/InitialStatus (тюнинг и первичный источник существующих правил не перетираются); дефолтный URL emerging-all.rules; автопрогон IOC-генерации после sync — только generic; GET /rules source + et_open; openapi под факт. Живой e2e: imported=5/skipped=1 → повтор «без изменений 5» без дублей → правка фида updated=1 с новой ревизией; et_pro — failed; compliance in_sync 1/1 | (этот коммит) |
+| 22 | Коннектор et_pro — фиды ПРАВИЛ ET Pro: тот же .rules-коннектор, что et_open (syncRules + параметр sourceType), код подписки из credentials (просто код, не user:pass — иначе failed с пояснением); пустой url → https://rules.emergingthreatspro.com/<code>/suricata/rules/etpro-all.rules (явный url — как есть); миграция 000007 (rules.source_type + 'et_pro'); создание et_pro-фида с пустым url разрешено; GET /rules source + et_pro; openapi/UI-подсказки под факт; юнит-тест TestETProURL. Живой e2e: без credentials → failed с понятным текстом (last_error в БД); credentials=test-code + явный url (http.server 8899) → imported=2/skipped=1, правила source_type='et_pro' under_review/disabled; без url → запрос на emergingthreatspro.com → 404 (URL из кода). Реального кода ET Pro нет — production-синк не проверен. Тестовые фиды удалены, правила 9940001/9940002 оставлены; compliance in_sync 1/1 | (этот коммит) |
+| 21 | Коннектор et_open — фиды ПРАВИЛ ET Open: `internal/feedsync/rulesfeed.go` (ParseRules — активные + выключенные «#alert …» → status=disabled при создании; syncRules — upsert в rules по (org,sid), source_type='et_open' + feed_id); миграция 000006 (rules.source_type + 'et_open'); ImportItem +FeedID/InitialStatus (тюнинг и первичный источник существующих правил не перетираются); дефолтный URL emerging-all.rules; автопрогон IOC-генерации после sync — только generic; GET /rules source + et_open; openapi под факт. Живой e2e: imported=5/skipped=1 → повтор «без изменений 5» без дублей → правка фида updated=1 с новой ревизией; et_pro — failed; compliance in_sync 1/1 | 4b81139 |
 | 19 | Отзыв IOC-правил при revoke/delete/expire источника: `internal/iocrules/revoke.go` (RevokeForIoc — пробинг слота sid как у генератора, правило → disabled + тег ioc-revoked, msg нетронут); вызовы из PATCH (status→revoked)/DELETE /iocs/{id} и свипа expires (фоновый свипер + внутри /iocs/generate, ответ + revoked); SweepExpired RETURNING погашенные, IocForGeneration +OrganizationID; юнит-тесты revoke на фейке RuleStore; openapi + revoked/описания. Живой e2e: revoke → правило 8891280 disabled, delete → 8836534 disabled, повторный generate не воскрешает (ruleset ioc-current-1eccbd2c), свип expires → swept=1/revoked=1; compliance in_sync; тестовые IOC оставлены revoked/expired | 38f00e2 |
 | 18 | Фиды IOC: store `internal/store/feeds.go` (CRUD/keyset/MarkSync, feed_runs с композитным курсором), миграция 000005 (feeds.last_error + feed_runs), пакет `internal/feedsync` (HTTP GET 30s/32 МБ, plain/CSV/JSON, угадывание типа IOC, импорт через UpsertImport source=имя фида + feed_id), API GET/POST /feeds + GET/PATCH/DELETE /feeds/{id} + POST /feeds/{id}/sync (синхронно, failed — не 5xx) + GET /feeds/{id}/runs; автопрогон генерации правил после ручного синка (generateIocRulesCore, без деплоя); планировщик авто-синка по schedule-длительности Go (`server.feed_sync_interval`); React-вкладка «Фиды» (форма/таблица/синк с результатом/enabled/удаление, apiPatch). Живой e2e: imported=7/skipped=1 → повтор imported=0/updated=7 тот же ruleset; битый URL → failed + last_error; 409/400/404/204; runs-история. Вкладка «Фиды» проверена в браузере (чанк 19) | 4598d05 |
 | 16 | IOC / Threat Intel — вертикальный срез: таблица iocs была с миграции 000001, добавлены store (`internal/store/iocs.go` — Create/Get/Update/Delete/keyset-List с фильтрами type/status/source/q, UpsertImport без перетирания status) и REST (`internal/httpapi/iocs.go` — GET/POST /iocs, GET/PATCH/DELETE /iocs/{id}, POST /iocs/import с ImportResult; валидация значения по типу, score 0..100, дубль → 409); openapi приведён под факт (source в IocInput/IocUpdateInput, фикс $ref IocPage, убран text/csv из import). React UI — вкладка «IOC» (форма добавления с expires datetime-local, таблица со ссылками VirusTotal, фильтры тип/статус, поиск, удаление; apiDelete в api.ts). Проверки: npm build чисто, go build/vet/test зелёные; живой e2e на .28 — POST 201 → список/q-поиск → PATCH → дубль 409 → мусор 400 → import {imported:2, errors:[1]} → DELETE 204 → 404; тестовые IOC вычищены. Фиды, автогенерация правил из IOC и свипер expires_at — следующие чанки | 25de9f3 |

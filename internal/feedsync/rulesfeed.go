@@ -1,8 +1,8 @@
-// Коннектор фидов ПРАВИЛ Emerging Threats (чанк 21): type=et_open.
-// В отличие от generic (IOC), фид et_open импортирует Suricata-правила
-// в мастер-репозиторий rules (НЕ в iocs): HTTP GET .rules-файла → разбор
-// (парсер internal/rules) → идемпотентный upsert по (org, sid) с
-// source_type='et_open' и feed_id фида.
+// Коннектор фидов ПРАВИЛ Emerging Threats (чанки 21-22): type=et_open
+// и type=et_pro. В отличие от generic (IOC), фид правил импортирует
+// Suricata-правила в мастер-репозиторий rules (НЕ в iocs): HTTP GET
+// .rules-файла → разбор (парсер internal/rules) → идемпотентный upsert
+// по (org, sid) с source_type='et_open'/'et_pro' и feed_id фида.
 //
 // Выключенные в фиде правила ET (строки "#alert ..." — комментарий без
 // пробела перед action) импортируются со статусом disabled (только при
@@ -11,8 +11,10 @@
 //
 // URL по умолчанию (подставляется HTTP-слоем при создании фида без URL) —
 // DefaultETOpenURL; поддерживается любой URL на .rules-файл (отдельные
-// категории ET, свой файл и т.п.). et_pro отличается только URL с кодом
-// подписки и пока не включён (останется failed до отдельного решения).
+// категории ET, свой файл и т.п.). Для et_pro код подписки берётся из поля
+// credentials фида (просто код, НЕ "user:pass"); URL по умолчанию строится
+// из кода по шаблону defaultETProURLFormat при синке (см. etProURL), явно
+// заданный URL используется как есть.
 package feedsync
 
 import (
@@ -29,6 +31,27 @@ import (
 
 // DefaultETOpenURL — полный набор правил ET Open (~30k правил).
 const DefaultETOpenURL = "https://rules.emergingthreats.net/open/suricata/rules/emerging-all.rules"
+
+// defaultETProURLFormat — шаблон URL полного набора правил ET Pro;
+// %s — код подписки (поле credentials фида).
+const defaultETProURLFormat = "https://rules.emergingthreatspro.com/%s/suricata/rules/etpro-all.rules"
+
+// etProURL — URL синка et_pro-фида: явно заданный URL используется как
+// есть, пустой — строится из кода подписки. Код берётся из credentials;
+// формат "user:pass" (с ':') для et_pro не подходит — это просто код.
+func etProURL(feed store.Feed) (string, error) {
+	code := ""
+	if feed.CredentialsRef != nil {
+		code = strings.TrimSpace(*feed.CredentialsRef)
+	}
+	if code == "" || strings.Contains(code, ":") {
+		return "", fmt.Errorf("для et_pro укажите код подписки в поле credentials (просто код, без user:pass)")
+	}
+	if u := strings.TrimSpace(feed.URL); u != "" {
+		return u, nil
+	}
+	return fmt.Sprintf(defaultETProURLFormat, code), nil
+}
 
 // ParsedRule — правило из .rules-фида с признаком «выключено в фиде».
 type ParsedRule struct {
@@ -96,13 +119,14 @@ func ParseRules(body []byte) ([]ParsedRule, []rules.LineError) {
 	return out, errs
 }
 
-// syncRules — ветка синхронизации фида правил (type=et_open): разбор
-// .rules-тела и upsert в репозиторий rules. Счётчики run: imported —
-// новые sid, updated — изменившийся raw (новая ревизия), skipped —
-// битые строки и ошибки БД; совпавшие без изменений не входят в счётчики,
-// их число фиксируется в error-сообщении частичного/полного успеха.
+// syncRules — ветка синхронизации фида правил (type=et_open/et_pro): разбор
+// .rules-тела и upsert в репозиторий rules (sourceType = тип фида).
+// Счётчики run: imported — новые sid, updated — изменившийся raw (новая
+// ревизия), skipped — битые строки и ошибки БД; совпавшие без изменений не
+// входят в счётчики, их число фиксируется в error-сообщении
+// частичного/полного успеха.
 func (s *Syncer) syncRules(ctx context.Context, feed store.Feed, run store.FeedRun, body []byte,
-	fail func(string) (store.FeedRun, error)) (store.FeedRun, error) {
+	sourceType string, fail func(string) (store.FeedRun, error)) (store.FeedRun, error) {
 	log := s.log()
 
 	parsed, lineErrs := ParseRules(body)
@@ -133,7 +157,7 @@ func (s *Syncer) syncRules(ctx context.Context, feed store.Feed, run store.FeedR
 			SID: pr.SID, Rev: pr.Rev, Msg: pr.Msg, Classtype: pr.Classtype,
 			Raw: pr.Raw, Parsed: parsedJSON,
 			FeedID: &feed.ID, InitialStatus: initialStatus,
-		}, "", "et_open")
+		}, "", sourceType)
 		if err != nil {
 			skipped++
 			if firstErr == "" {
