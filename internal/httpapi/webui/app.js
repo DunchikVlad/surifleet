@@ -11,6 +11,20 @@ async function api(path) {
   return r.json();
 }
 
+async function apiPOST(path, body) {
+  const r = await fetch(API + path, {
+    method: "POST",
+    headers: body ? { "Content-Type": "application/json" } : {},
+    body: body ? JSON.stringify(body) : null,
+  });
+  if (!r.ok) {
+    let msg = "HTTP " + r.status;
+    try { const j = await r.json(); if (j.error) msg += ": " + j.error.message; } catch {}
+    throw new Error(msg);
+  }
+  return r.json();
+}
+
 const esc = s => String(s ?? "").replace(/[&<>"']/g,
   c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const short = id => (id || "").slice(0, 8);
@@ -122,11 +136,20 @@ async function loadRules(append) {
     const rows = (d.items || []).map(r => `<tr>
       <td>${r.sid}</td><td>${esc(r.msg || "")}</td>
       <td>${badge(r.status)}</td><td class="muted">${esc(r.category || "—")}</td>
-      <td class="muted">${esc(r.source_type)}</td></tr>`).join("");
+      <td class="muted">${esc(r.source_type)}</td>
+      <td>${r.status === "enabled"
+        ? `<button class="btn rule-toggle" data-id="${r.id}" data-to="disable">откл.</button>`
+        : r.status === "disabled"
+          ? `<button class="btn rule-toggle" data-id="${r.id}" data-to="enable">вкл.</button>`
+          : ""}</td></tr>`).join("");
     if (append) box.querySelector("tbody")?.insertAdjacentHTML("beforeend", rows);
     else box.innerHTML = `<table><thead><tr>
-      <th>SID</th><th>Сообщение</th><th>Статус</th><th>Категория</th><th>Источник</th>
+      <th>SID</th><th>Сообщение</th><th>Статус</th><th>Категория</th><th>Источник</th><th></th>
       </tr></thead><tbody>${rows}</tbody></table>`;
+    box.querySelectorAll(".rule-toggle:not([data-bound])").forEach(b => {
+      b.dataset.bound = "1";
+      b.addEventListener("click", () => ruleToggle(b.dataset.id, b.dataset.to));
+    });
     rulesCursor = d.next_cursor;
     more.classList.toggle("hidden", !rulesCursor);
   } catch (e) { box.innerHTML = `<div class="error-box">${esc(e.message)}</div>`; }
@@ -149,8 +172,15 @@ async function loadRulesets() {
 
 // --- Деплои ---
 function renderDeployments(items) {
+  const actions = d => {
+    const b = [];
+    if (d.status === "running") b.push(`<button class="btn dep-act" data-id="${d.id}" data-act="pause">пауза</button>`);
+    if (d.status === "paused" || d.status === "failed") b.push(`<button class="btn dep-act" data-id="${d.id}" data-act="resume">resume</button>`);
+    if (["pending", "running", "paused"].includes(d.status)) b.push(`<button class="btn dep-act" data-id="${d.id}" data-act="cancel">отмена</button>`);
+    return b.join(" ");
+  };
   return `<table><thead><tr>
-    <th>ID</th><th>Ruleset</th><th>Статус</th><th>Прогресс</th><th>Создан</th></tr></thead>
+    <th>ID</th><th>Ruleset</th><th>Статус</th><th>Прогресс</th><th>Создан</th><th>Действия</th></tr></thead>
     <tbody>${items.map(d => {
       const p = d.progress || {};
       const pct = p.total ? Math.round(100 * (p.succeeded || 0) / p.total) : 0;
@@ -159,8 +189,9 @@ function renderDeployments(items) {
         <td>${badge(d.status)}</td>
         <td><span class="progress"><i class="${p.failed ? "has-failed" : ""}" style="width:${pct}%"></i></span>
             <span class="muted"> ${p.succeeded || 0}/${p.total || 0}${p.failed ? " · failed " + p.failed : ""}</span></td>
-        <td class="muted">${fmtTime(d.created_at)}</td></tr>
-        <tr class="hidden tasks" id="tasks-${d.id}"><td colspan="5"></td></tr>`;
+        <td class="muted">${fmtTime(d.created_at)}</td>
+        <td>${actions(d)}</td></tr>
+        <tr class="hidden tasks" id="tasks-${d.id}"><td colspan="6"></td></tr>`;
     }).join("")}</tbody></table>`;
 }
 
@@ -168,11 +199,74 @@ async function loadDeployments() {
   const box = document.getElementById("deployments-list");
   try {
     const d = await api("/deployments?limit=50");
-    if (!d.items?.length) { box.innerHTML = '<p class="muted">Деплоев нет.</p>'; return; }
-    box.innerHTML = renderDeployments(d.items);
+    box.innerHTML = d.items?.length
+      ? renderDeployments(d.items) : '<p class="muted">Деплоев нет.</p>';
     box.querySelectorAll("tr.dep").forEach(tr =>
       tr.addEventListener("click", () => toggleTasks(tr.dataset.id)));
+    box.querySelectorAll(".dep-act").forEach(b =>
+      b.addEventListener("click", async ev => {
+        ev.stopPropagation();
+        await deploymentAction(b.dataset.id, b.dataset.act);
+      }));
   } catch (e) { box.innerHTML = `<div class="error-box">${esc(e.message)}</div>`; }
+  fillDeploymentForm();
+}
+
+async function deploymentAction(id, act) {
+  if (act === "cancel" && !confirm("Отменить деплой " + short(id) + "?")) return;
+  try {
+    await apiPOST(`/deployments/${id}/${act}`);
+    loadDeployments();
+  } catch (e) { alert("Действие не выполнено: " + e.message); }
+}
+
+async function fillDeploymentForm() {
+  const rsSel = document.getElementById("dep-ruleset");
+  const inSel = document.getElementById("dep-instance");
+  try {
+    const [rs, ins] = await Promise.all([
+      api("/rulesets?limit=50"), api("/instances?limit=100")]);
+    rsSel.innerHTML = (rs.items || []).map(v =>
+      `<option value="${v.id}">${esc(v.version)} · ${v.rule_count} правил</option>`).join("");
+    inSel.innerHTML = (ins.items || []).map(i =>
+      `<option value="${i.id}">${esc(i.name)} · ${short(i.id)}</option>`).join("");
+  } catch {}
+}
+
+async function createDeployment() {
+  const out = document.getElementById("dep-result");
+  const rulesetId = document.getElementById("dep-ruleset").value;
+  const instanceId = document.getElementById("dep-instance").value;
+  if (!rulesetId || !instanceId) { out.textContent = "выберите ruleset и инстанс"; return; }
+  try {
+    const d = await apiPOST("/deployments", {
+      ruleset_id: rulesetId,
+      targeting: { mode: "specific_instances", instance_ids: [instanceId] },
+      wave: { batch_size: 10, canary: false },
+    });
+    out.textContent = "деплой " + short(d.id) + " создан";
+    loadDeployments();
+  } catch (e) { out.textContent = e.message; }
+}
+
+async function buildRuleset() {
+  const out = document.getElementById("rs-result");
+  const version = document.getElementById("rs-version").value.trim();
+  const note = document.getElementById("rs-note").value.trim();
+  if (!version) { out.textContent = "укажите версию"; return; }
+  try {
+    const v = await apiPOST("/rulesets", {
+      version, note, rule_filter: { status: "enabled" } });
+    out.textContent = `ruleset ${v.version}: ${v.rule_count} правил (${short(v.id)})`;
+    loadRulesets();
+  } catch (e) { out.textContent = e.message; }
+}
+
+async function ruleToggle(id, action) {
+  try {
+    await apiPOST("/rules/bulk", { ids: [id], action });
+    loadRules(false);
+  } catch (e) { alert("Операция не выполнена: " + e.message); }
 }
 
 async function toggleTasks(id) {
@@ -198,6 +292,8 @@ document.getElementById("refresh-overview").addEventListener("click", loadOvervi
 document.getElementById("rules-search").addEventListener("click", () => loadRules(false));
 document.getElementById("rules-more").addEventListener("click", () => loadRules(true));
 document.getElementById("rules-q").addEventListener("keydown", e => { if (e.key === "Enter") loadRules(false); });
+document.getElementById("rs-build").addEventListener("click", buildRuleset);
+document.getElementById("dep-create").addEventListener("click", createDeployment);
 
 loadHeader();
 loadOverview();

@@ -55,11 +55,23 @@
 
   <section id="tab-rulesets" class="page">
     <h2>Версии ruleset'ов</h2>
+    <div class="toolbar">
+      <input id="rs-version" type="text" placeholder="версия (напр. 2.1)">
+      <input id="rs-note" type="text" placeholder="комментарий (необязательно)">
+      <button class="btn" id="rs-build">Собрать из enabled</button>
+      <span id="rs-result" class="muted"></span>
+    </div>
     <div id="rulesets-list"></div>
   </section>
 
   <section id="tab-deployments" class="page">
     <h2>Деплои</h2>
+    <div class="toolbar">
+      <select id="dep-ruleset"></select>
+      <select id="dep-instance"></select>
+      <button class="btn" id="dep-create">Новый деплой</button>
+      <span id="dep-result" class="muted"></span>
+    </div>
     <div id="deployments-list"></div>
   </section>
 </main>

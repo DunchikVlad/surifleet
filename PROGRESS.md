@@ -10,14 +10,19 @@
 
 ## Следующий шаг (конкретно)
 
-**Чанк 13b** (после MVP UI, 2026-09-16):
+**Чанк 13c** (после 13b, 2026-09-16):
 1. Логи агента на сервер: LogBatch → ClickHouse (просмотр в UI).
-2. Управление из UI: pause/resume/cancel деплоев, enable/disable правил,
-   сборка ruleset (кнопки → те же API).
-3. Матрица правила×хосты (требование А, UI-часть).
-4. React-фронтенд в web/ — когда MVP упрётся в пределы ванильного JS.
-5. **Аномалия (не блокер)**: из ssh `sudo rm` в /etc/suricata → Permission
+2. Матрица правила×хосты (требование А, UI-часть).
+3. React-фронтенд в web/ — когда MVP упрётся в пределы ванильного JS.
+4. **Аномалия (не блокер)**: из ssh `sudo rm` в /etc/suricata → Permission
    denied при работающем touch; обход — агент от root правит сам (12a).
+
+Чанк 13b ГОТОВ (2026-09-16): управление из UI — создание деплоя
+(выбор ruleset+инстанс), pause/resume/cancel, вкл/откл правил (bulk),
+сборка ruleset из UI. Живой e2e: ruleset (идемпотентный возврат 245) →
+деплой 102c688b → pause → resume → completed 1/1; bulk affected:1.
+UI визуально в браузере так и не проверен (InAppBrowser недоступен в
+ходе) — проверить руками при первом открытии.
 
 Чанк 13 ГОТОВ (2026-09-16): MVP Web UI встроен в сервер (go:embed,
 internal/httpapi/webui: index.html + app.js + style.css), раздаётся с
@@ -101,7 +106,8 @@ managed-файле (245 правил).
 | 12b | Фикс resume failed-деплоев end-to-end: сервер — resume допустим из финального failed (раньше 409); агент — failed-результаты больше не пишутся в журнал идемпотентности processed_tasks.jsonl (раньше повторная доставка проигрывала устаревший закэшированный провал — кореневая причина бага; журналируется только succeeded). Живой e2e: деплой 1b8fbcf5 → resume → задача перевыполнена (attempts=3) → succeeded (245/0), деплой completed, fleet in_sync | bdad386 |
 | 12c-1 | instance_id агенту при подключении: proto HelloAck.bound_instances (InstanceBinding: instance_id/name/config_path/rules_dir/log_dir), сервер — instanceBindings (инстансы хоста агента), агент — лог привязки + data_dir/bound_instances.json (0600, атомарно). Регенерация proto через scripts/gen-proto.sh. Живой e2e: при Hello агент получил instance_id 468c9c71…, файл записан | 660caf5 |
 | 12c-2 | Watchdog автоотката после деплоя: +90 с после успеха агент проверяет живость движка (systemctl is-active / suricatasc uptime), при смерти — откат managed-файла + systemctl restart + перепроверка. Живой e2e: движок остановлен сразу после деплоя → watchdog детектировал → за 6 с откат + рестарт → active, managed-файл откачен (245 правил вместо 2) | 18f449b |
-| 13 | MVP Web UI в сервере (`internal/httpapi/webui`, go:embed; index.html+app.js+style.css; ванильный JS поверх /api/v1): Обзор (compliance-карточки, активные деплои, автообновление 15 с), Инстансы (+state/diff), Правила (фильтр/поиск/пагинация), Ruleset'ы, Деплои (+задачи). Раздача с / и /ui/* на :8080. Проверено с Windows: все эндпоинты 200, node --check app.js; фикс зацикливания FileServer на index.html | (этот коммит) |
+| 13 | MVP Web UI в сервере (`internal/httpapi/webui`, go:embed; index.html+app.js+style.css; ванильный JS поверх /api/v1): Обзор (compliance-карточки, активные деплои, автообновление 15 с), Инстансы (+state/diff), Правила (фильтр/поиск/пагинация), Ruleset'ы, Деплои (+задачи). Раздача с / и /ui/* на :8080. Проверено с Windows: все эндпоинты 200, node --check app.js; фикс зацикливания FileServer на index.html | 431f345 |
+| 13b | Управление из UI: кнопки pause/resume/cancel у деплоев (dep-act), вкл/откл правил (rule-toggle → POST /rules/bulk), форма сборки ruleset (rs-build → POST /rulesets с rule_filter status=enabled), форма нового деплоя (dep-create). apiPOST-хелпер. Живой e2e через API как из UI: сборка ruleset 200 (идемпотентный 245 правил), деплой 102c688b create→pause→resume→completed 1/1, bulk enable/disable affected:1 туда-обратно; node --check app.js; сервер перекачен, app.js отдаётся с новыми функциями | (этот коммит) |
 
 ## Тестовая среда (добавлена в ТЗ п. 13)
 
