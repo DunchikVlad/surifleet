@@ -37,6 +37,10 @@ const (
 	downloadTimeout   = 60 * time.Second
 	validateTimeout   = 120 * time.Second
 	suricatascTimeout = 30 * time.Second
+	// reloadTimeout — отдельный большой таймаут для reload-rules: движок
+	// отвечает на команду только после фактической перезагрузки правил,
+	// на нагруженном сенсоре это занимает десятки секунд (на стенде ~70 с).
+	reloadTimeout = 240 * time.Second
 	// reloadSettleDelay — пауза после reload-rules перед опросом
 	// ruleset-failed-rules (движок догружает правила асинхронно).
 	reloadSettleDelay = 3 * time.Second
@@ -193,7 +197,7 @@ func (e *taskExecutor) executeDeploy(task *agentv1.Task, dr *agentv1.DeployRules
 	socket := commandSocket(dr.GetConfigPath())
 	reloadOK := true
 	reloadMsg := ""
-	if out, err := suricatasc(socket, "reload-rules"); err != nil {
+	if out, err := suricatasc(socket, "reload-rules", reloadTimeout); err != nil {
 		reloadOK = false
 		reloadMsg = "reload-rules: " + err.Error() + "; вывод: " + tail(out, 5)
 		log.Warn("reload-rules неуспешен", "err", err)
@@ -550,8 +554,8 @@ func commandSocket(configPath string) string {
 }
 
 // suricatasc — вызов команды через unix-command сокет, возврат сырого вывода.
-func suricatasc(socket, command string) (string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), suricatascTimeout)
+func suricatasc(socket, command string, timeout time.Duration) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "suricatasc", "-c", command, socket)
 	out, err := cmd.CombinedOutput()
@@ -594,7 +598,7 @@ type failedRule struct {
 // failedRules — список не загрузившихся правил по ruleset-failed-rules.
 // Формат message парсится защитно: массив объектов {sid, error} либо map.
 func failedRules(socket string) ([]failedRule, error) {
-	out, err := suricatasc(socket, "ruleset-failed-rules")
+	out, err := suricatasc(socket, "ruleset-failed-rules", suricatascTimeout)
 	if err != nil {
 		return nil, fmt.Errorf("suricatasc: %w; вывод: %s", err, tail(out, 5))
 	}

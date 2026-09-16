@@ -105,6 +105,37 @@ type RuleRawForBuild struct {
 	Raw string
 }
 
+// SelectRawByIDs — выборка правил по явному списку id (для rule_ids в
+// RulesetBuildInput); порядок — по sid для детерминизма рендера.
+// Правила со status='deleted' исключаются.
+func (r *RulesRepo) SelectRawByIDs(ctx context.Context, orgID uuid.UUID, ids []uuid.UUID) ([]RuleRawForBuild, error) {
+	rows, err := r.pool.Query(ctx,
+		`SELECT r.sid, rv.revision, rv.raw
+		 FROM rules r
+		 JOIN LATERAL (
+		     SELECT revision, raw FROM rule_revisions
+		     WHERE rule_id = r.id
+		     ORDER BY revision DESC, created_at DESC LIMIT 1
+		 ) rv ON true
+		 WHERE r.organization_id = $1 AND r.id = ANY ($2) AND r.status <> 'deleted'
+		 ORDER BY r.sid`,
+		orgID, ids)
+	if err != nil {
+		return nil, translate(err)
+	}
+	defer rows.Close()
+
+	items := []RuleRawForBuild{}
+	for rows.Next() {
+		var it RuleRawForBuild
+		if err := rows.Scan(&it.SID, &it.Rev, &it.Raw); err != nil {
+			return nil, translate(err)
+		}
+		items = append(items, it)
+	}
+	return items, translate(rows.Err())
+}
+
 // SelectRawForBuild — выборка правил организации для сборки ruleset
 // (последняя ревизия каждого правила, фильтры как в Rules.List, но без
 // пагинации — ruleset собирается целиком).

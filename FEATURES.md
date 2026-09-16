@@ -17,10 +17,10 @@
 
 | Пункт ТЗ | Статус | Где реализовано | Чанк |
 |---|---|---|---|
-| Desired state (версии, хэш ruleset) | 🚧 | `internal/ruleset`, `internal/store` rulesets/deploy, desired_state; код готов, живая проверка не пройдена | чанк 11 |
-| Actual state (отчёты агента, кэш Redis, история PG) | 🚧 | `cmd/agent/deploy.go` (RuleLoadReport/StateReport), actual_state + кэш Redis; код готов, живая проверка не пройдена | чанк 11 |
-| Drift detection (In sync / Pending / Partial / Drift / Stale) | 🚧 | `internal/compliance`, таблица instance_compliance, GET /fleet/compliance, /instances/{id}/state; код готов, живая проверка не пройдена | чанк 11 |
-| Подтверждение деплоя по факту загрузки движком | 🚧 | `cmd/agent/deploy.go`: suricata -T → reload-rules → ruleset-failed-rules через unix-сокет; код готов, живая проверка не пройдена | чанк 11 |
+| Desired state (версии, хэш ruleset) | 🧪 | `internal/ruleset`, `internal/store` rulesets/deploy, desired_state; проверено живьём: деплой feeba40d → desired hash записан | чанк 11 |
+| Actual state (отчёты агента, кэш Redis, история PG) | 🧪 | `cmd/agent/deploy.go` (RuleLoadReport/StateReport), actual_state + кэш Redis; проверено: actual.ruleset_hash == desired, loaded=2/failed=0 | чанк 11 |
+| Drift detection (In sync / Pending / Partial / Drift / Stale) | 🧪 | `internal/compliance`, таблица instance_compliance, GET /fleet/compliance, /instances/{id}/state; проверено: in_sync на живом стенде (остальные статусы — в чанке 12+) | чанк 11 |
+| Подтверждение деплоя по факту загрузки движком | 🧪 | `cmd/agent/deploy.go`: suricata -T → reload-rules → ruleset-failed-rules через unix-сокет; проверено в обе стороны (откат при битых правилах, успех на валидных) | чанк 11 |
 | UI: матрица правила×хосты, страница инстанса, сводка флота | ⬜ | — | — |
 
 ## 7. Ключевое требование Б: проблемы с агентами

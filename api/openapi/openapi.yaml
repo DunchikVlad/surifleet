@@ -2848,6 +2848,7 @@ components:
       properties:
         version: {type: string, description: Человекочитаемая версия (semver или метка)}
         rule_filter: {$ref: '#/components/schemas/RuleFilter', description: По умолчанию — все enabled правила}
+        rule_ids: {type: array, items: {type: string, format: uuid}, description: Явный список id правил; имеет приоритет над rule_filter (фильтр при этом не применяется)}
         note: {type: string}
 
     Deployment:

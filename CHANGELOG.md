@@ -7,37 +7,40 @@
 
 ### Added
 
+- Верификация чанка 11, заход 3 (2026-09-16): **позитивный сценарий пройден
+  полностью** — ruleset smoke2 (2 кастомных правила sid 9000020/9000021)
+  задеплоен волной на инстанс: задача succeeded (loaded=2, failed=0),
+  /instances/{id}/state → compliance in_sync (desired == actual, hash
+  4813c308…), /fleet/compliance → in_sync:1, движок ruleset-stats
+  52743 loaded / 0 failed. (server, agent)
+- POST /rulesets принимает rule_ids — явный список id правил с приоритетом
+  над rule_filter; при частичном mismatch → 400 requested/found.
+  Поле добавлено в openapi RulesetBuildInput. (api, server)
 - Верификация чанка 11, заход 2 (2026-09-15): **негативный сценарий пройден
   полностью** — бэкап suricata.yaml → запись managed-файла → `suricata -T`
   поймал ошибки → автоматический откат (Suricata не пострадала) → TaskResult
   failed с текстами парсера Suricata. Агент переведён на запуск от root
   (тестовый стенд). (agent, server)
 
-### Known issues (выявлены верификацией, заход 2)
-
-- Позитивный сценарий блокируется тестовыми данными: деплой подмножества
-  ET Open конфликтует со штатным suricata.rules (Duplicate signature) —
-  по дизайну SuriFleet при capability 'rules' должен сам управлять
-  rule-files (чанк 12).
-- БАГ: POST /rulesets с rule_ids игнорирует список (собрал 245 вместо 2).
-- Аномалия на .67: из ssh `sudo rm` в /etc/suricata → Permission denied
-  (touch проходит, агент от root писал туда бэкап успешно) — расследовать.
-  ruleset через API (243 правила, SHA-256, блоб в MinIO), создание деплоя,
-  доставка DeployRulesTask агенту через стрим, скачивание блоба агентом —
-  работают. (server, agent)
-
 ### Fixed
 
+- БАГ: POST /rulesets с rule_ids игнорировал список и собирал ruleset по
+  фильтру (245 правил вместо 2). (server)
+- Таймаут reload-rules 30 с → 240 с (агент): на нагруженном сенсоре движок
+  отвечает на команду только после фактической перезагрузки (~70 с на
+  стенде); раньше suricatasc убивался по таймауту, reload при этом
+  завершался успешно, но задача уходила в failed. (agent)
+- s3 access_key/secret_key/public_endpoint перенесены в
+  deploy/config/server.example.yaml (dev-стенд). (infra)
 - Presigned URL для скачивания ruleset генерировался с внутренним endpoint
   (localhost:9000) вместо публичного — на стенде добавлен
-  `s3.public_endpoint: 192.168.31.28:9000` в server.yaml на .28 (в
-  example-конфиг репозитория перенести при следующем чанке). (server)
+  `s3.public_endpoint: 192.168.31.28:9000` в server.yaml на .28. (server)
 
-### Known issues (выявлены верификацией)
+### Known issues (выявлены верификацией, заход 2)
 
-- Деплой падает на бэкапе /etc/suricata/suricata.yaml: агент работает от
-  непривилегированного пользователя — требуется модель прав (root/sudo/
-  управляемый каталог) — следующий шаг в PROGRESS.md.
+- Деплой подмножества ET Open конфликтует со штатным suricata.rules
+  (Duplicate signature) — по дизайну SuriFleet при capability 'rules'
+  должен сам управлять rule-files (чанк 12).
 - POST /deployments/{id}/resume не перезапускает failed-задачи. (server)
 
 ### Added (ранее)

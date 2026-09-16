@@ -3,6 +3,7 @@ package httpapi
 import (
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -16,6 +17,7 @@ import (
 type rulesetBuildInput struct {
 	Version    string          `json:"version"`
 	RuleFilter ruleFilterInput `json:"rule_filter"`
+	RuleIDs    []string        `json:"rule_ids"`
 	Note       string          `json:"note"`
 }
 
@@ -69,7 +71,35 @@ func (h *handlers) buildRuleset(w http.ResponseWriter, r *http.Request) {
 		filter.Status = "enabled"
 	}
 
-	raw, err := h.d.Store.Rules.SelectRawForBuild(r.Context(), orgID, filter)
+	var raw []store.RuleRawForBuild
+	var err error
+	if len(in.RuleIDs) > 0 {
+		// Явный список id имеет приоритет над фильтром; фильтр при этом
+		// не применяется (манифест фиксирует rule_ids).
+		ids := make([]uuid.UUID, 0, len(in.RuleIDs))
+		for i, s := range in.RuleIDs {
+			id, err := uuid.Parse(s)
+			if err != nil {
+				fe.add("rule_ids", "невалидный uuid на позиции "+strconv.Itoa(i))
+				break
+			}
+			ids = append(ids, id)
+		}
+		if fe.any() {
+			writeValidation(w, fe)
+			return
+		}
+		raw, err = h.d.Store.Rules.SelectRawByIDs(r.Context(), orgID, ids)
+		if err == nil && len(raw) != len(ids) {
+			err = nil // не ошибка БД, а неполная выборка — сообщим клиенту
+			writeError(w, http.StatusBadRequest, CodeValidation,
+				"часть правил не найдена или удалена", map[string]any{
+					"requested": len(ids), "found": len(raw)})
+			return
+		}
+	} else {
+		raw, err = h.d.Store.Rules.SelectRawForBuild(r.Context(), orgID, filter)
+	}
 	if err != nil {
 		writeStoreError(w, err)
 		return

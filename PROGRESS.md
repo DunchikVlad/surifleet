@@ -10,41 +10,42 @@
 
 ## Следующий шаг (конкретно)
 
-Доверификация чанка 11 (второй заход, 2026-09-15, тайм-бокс):
-1. **Пройден негативный сценарий полностью**: бэкап suricata.yaml → запись
-   managed-файла → `suricata -T` ПОЙМАЛ ошибки → откат (файл удалён,
-   Suricata не пострадала) → TaskResult failed с текстами парсера Suricata.
-   Механика деплоя работает целиком.
-2. **Позитивный сценарий НЕ пройден** — мешают тестовые данные: деплой
-   подмножества ET Open конфликтует со штатным /var/lib/suricata/rules/
-   suricata.rules (Duplicate signature — те же sid уже загружены движком).
-   Решение по дизайну: при выдаче capability 'rules' SuriFleet должен сам
-   управлять списком rule-files (убирать штатный файл) — реализовать в
-   чанке 12 (агент правит rule-files при первом деплое: оставляет только
-   managed-файл; попытка ручной правки — см. п.4).
-3. **БАГ**: POST /rulesets с rule_ids игнорирует список — собрал 245 правил
-   вместо 2 (собирает по фильтру/все enabled). Исправить в
-   internal/httpapi/rulesets.go или internal/store/rulesets.go.
-4. **ЗАГАДКА на .67**: из ssh-сессии `sudo rm` в /etc/suricata → Permission
-   denied (при том что touch прошёл и агент от root успешно создал там
-   бэкап ранее). lsattr чистый. Похоже на аномалию sudo-сессии/LSM —
-   расследовать; обход: агент сам правит rule-files (ему удавалось).
-5. После п.2–4: повторить деплой ruleset d44182a6 (245 правил, вкл. 2
-   кастомных 9000020/9000021) → ожидается in_sync; проверить /instances/
-   {id}/state и /fleet/compliance. Отдельно проверить правило sid 2045706
-   (dns.query+dotprefix) — убедиться, что его ошибка была каскадом от
-   дубликатов, а не несовместимостью с 8.0.3.
-6. **БАГ (с прошлого захода)**: resume не перезапускает failed-задачи.
+**Чанк 12** (после успешной верификации чанка 11, 2026-09-16):
+1. instance_id агенту (ConfigPush/HelloAck) — сейчас agent не знает свой
+   instance_id до задачи.
+2. Управление rule-files при capability rules: агент при первом деплое сам
+   убирает штатный /var/lib/suricata/rules/suricata.rules из rule-files
+   (иначе Duplicate signature с ET-правилами из деплоя — подтверждено
+   живьём). Ручная правка yaml из ssh НЕ нужна.
+3. Автооткат при падении сервиса Suricata после деплоя (watchdog).
+4. Логи агента на сервер: LogBatch → ClickHouse.
+5. **БАГ (отложен)**: resume деплоя не перезапускает failed-задачи.
+6. **Аномалия (не блокер)**: из ssh `sudo rm` в /etc/suricata → Permission
+   denied при работающем touch; обход — агент от root правит сам.
+7. Проверить sid 2045706 (dns.query+dotprefix) отдельно — была ли ошибка
+   каскадом от дубликатов.
 
-Состояние стенда: агент на .67 запущен от root (PID был 2262; способ —
-/tmp/start-agent.sh через sudo); /etc/suricata/suricata.yaml.manual-bak —
-ручной бэкап; rule-files пока НЕ изменён (sed не удался из-за п.4).
-В БД: ruleset 6ca65f0f (243 ET), d44182a6 (245), кастомные правила
-9000020/9000021, деплои e7ac5424/951d91bf/7ad065b6/1b8fbcf5 (failed).
+Верификация чанка 11 ПРОЙДЕНА (2026-09-16): ruleset smoke2 (2 кастомных
+правила sid 9000020/9000021, version 2.0, id 9e3f67f5) → деплой
+feeba40d → задача succeeded (loaded=2, failed=0) → /instances/{id}/state:
+compliance in_sync, desired==actual hash 4813c308… → /fleet/compliance:
+in_sync:1 → движок: ruleset-stats 52743 loaded / 0 failed. Попутно
+исправлены: баг игнора rule_ids в POST /rulesets (400 при частичном
+mismatch requested/found) и таймаут reload-rules 30с→240с (на стенде
+reload занимает ~70 с — движок отвечает только после фактической
+перезагрузки).
 
-Далее чанк 12: instance_id агенту (ConfigPush/HelloAck), управление
-rule-files при capability rules, автооткат при падении сервиса после
-деплоя, логи агента на сервер (LogBatch → ClickHouse).
+Состояние стенда: сервер .28 (пересобран с rule_ids, в deploy/config/
+server.example.yaml перенесены s3 access_key/secret_key/public_endpoint);
+агент .67 — /home/test/surifleet/start-agent.sh (лежит в ~/surifleet,
+не в /tmp), запуск от root через `python .tools/ssh.py 67 sudo
+"bash -c 'cd /home/test/surifleet && setsid ./start-agent.sh >/dev/null
+2>&1 </dev/null &'"`. ВНИМАНИЕ: ssh.py sudo оборачивает команду как
+`sudo -S <cmd>` без bash — для составных команд всегда `bash -c '...'`;
+pkill на .67 НЕ установлен (использовать kill $(pgrep -x …)).
+В БД: ruleset'ы 6ca65f0f (243 ET), d44182a6 (245), 9e3f67f5 (2,
+задеплоен); деплои e7ac5424/951d91bf/7ad065b6/1b8fbcf5/dc6a460d failed,
+feeba40d — succeeded.
 
 ## Сделано (продолжение)
 
@@ -55,7 +56,7 @@ rule-files при capability rules, автооткат при падении с�
 | 8 | gRPC Hub + агент end-to-end: миграция 000002 join_tokens; `internal/pki` (встроенный CA ECDSA P-256, SignCSR CN=agent_id 90 дней, серверный сертификат с SAN); `internal/enroll` (Enroll: проверка токена, атомарный расход в tx, создание host+agent, AlreadyExists при повторе без расхода токена); `internal/hub` (mTLS-сверка CN↔agent_id, Hello timeout, HelloAck 30/300/60, presence Redis stream:{agent_id} TTL 120 + hub:{id}:agents, seq replay-защита, clock-skew warn, offline в defer, agent_state_history при сменах); API POST/GET /clusters/{id}/join_tokens (токен один раз, в БД хэш); агент: enrollment (ключи/CSR, сохранение 0600) + mTLS-стрим + heartbeat-горутина. Живой e2e: enrollment с .67 → heartbeat → online в PG/Redis; kill → offline; рестарт → online без повторного enrollment | b6ecad4 |
 | 9 | Suricata 8.0.3 на .67 (apt, сервис active/enabled, конфиг на enp0s3, ET Open 45 МБ через suricata-update); миграция 000003 (hosts.discovery jsonb + discovered_at); агент: discovery (бинарь/yaml/юнит/интерфейсы, свой лёгкий парсер yaml), DiscoveryReport после HelloAck, heartbeat с ResourceSummary (/proc) и статусами сервисов; сервер: сохранение discovery в PG, GET /hosts/{id}/discovery, POST confirm_discovery (идемпотентный upsert в instances), полный CRUD /instances. Живой e2e: discovery → confirm → инстанс с реальными путями в БД. Запущено: сервер .28 PID 64741, агент .67 PID 5404 | c07b8c4 |
 | 10 | Репозиторий правил: `internal/rules` парсер (без зависимостей, ~430k правил/с, заголовок+опции с кавычками/экранированием, continuation-строки, action-набор + rejectsrc/dst/both, ошибки по строкам без остановки импорта); `internal/store` RulesRepo (upsert по (org,sid) в tx, sha256 raw → imported/updated/unchanged, тюнинг аналитика status/priority/threshold/tags НИКОГДА не перетирается импортом, keyset-ревизии по номеру); API /rules: import (multipart/text, source), CRUD (soft-delete, список скрывает deleted), bulk (enable/disable/delete/set_priority/add_tag по ids или фильтру, защита от пустой цели → 400), revisions. Живьём: 2000 строк ET Open → 1209 imported, повтор → unchanged, битый файл → errors со строками, bulk по категории 241 affected, тюнинг пережил реимпорт. Исправлен баг ANY-плейсхолдера в Bulk по ids. Сервер .28 PID 83802 | 68c3c74 |
-| 11 | Волновой деплой (требование А) — **КОД ГОТОВ, ЖИВАЯ ПРОВЕРКА НЕ ВЫПОЛНЕНА**: `internal/blob` (MinIO, content-addressed по SHA-256, presigned GET); `internal/ruleset` (детерминированный рендер ruleset из выбранных правил); `internal/store` rulesets/deploy/capabilities; `internal/orchestrator` (волны canary+batch, Recover при рестарте, DispatchPending при Hello, HandleTaskResult, auto-pause при провале canary, deploy_events); `internal/hub/tasks.go` (in-process реестр стримов, SendTask); `internal/compliance` (расчёт in_sync/pending/partial/drift/stale по событиям); `cmd/agent/deploy.go` (скачивание блоба + проверка SHA-256, бэкап, атомарная запись, suricata -T с откатом, reload-rules через сокет, верификация ruleset-failed-rules, журнал обработанных task_id для идемпотентности); API: /rulesets, /deployments (+pause/resume/cancel/tasks), /instances/{id}/state, /instances/{id}/deploy_history, /fleet/compliance, capabilities. build/vet/gofmt/test зелёные | (этот коммит) |
+| 11 | Волновой деплой (требование А) — **ГОТОВО И ПРОВЕРЕНО ЖИВЬЁМ**: `internal/blob` (MinIO, content-addressed по SHA-256, presigned GET); `internal/ruleset` (детерминированный рендер ruleset из выбранных правил); `internal/store` rulesets/deploy/capabilities; `internal/orchestrator` (волны canary+batch, Recover при рестарте, DispatchPending при Hello, HandleTaskResult, auto-pause при провале canary, deploy_events); `internal/hub/tasks.go` (in-process реестр стримов, SendTask); `internal/compliance` (расчёт in_sync/pending/partial/drift/stale по событиям); `cmd/agent/deploy.go` (скачивание блоба + проверка SHA-256, бэкап, атомарная запись, suricata -T с откатом, reload-rules через сокет, верификация ruleset-failed-rules, журнал обработанных task_id для идемпотентности); API: /rulesets, /deployments (+pause/resume/cancel/tasks), /instances/{id}/state, /instances/{id}/deploy_history, /fleet/compliance, capabilities. Живой e2e (2026-09-16): негатив (битые правила → suricata -T → откат → failed с текстом парсера) и позитив (ruleset из 2 кастомных правил → succeeded, loaded=2/failed=0, compliance in_sync, движок 52743 loaded/0 failed). Исправлены: игнор rule_ids в POST /rulesets, таймаут reload-rules 30→240 с, s3.public_endpoint в example-конфиге | (этот коммит) |
 
 ## Тестовая среда (добавлена в ТЗ п. 13)
 

@@ -37,9 +37,14 @@ server:
     endpoint: "192.168.31.28:9000"
     bucket: "surifleet-rulesets"
     use_ssl: false
-    # Ключи ТОЛЬКО через env (в репозиторий не кладём):
-    #   SURIFLEET_SERVER_S3_ACCESS_KEY=minioadmin
-    #   SURIFLEET_SERVER_S3_SECRET_KEY=minioadmin
+    # Адрес, который сервер подставляет в presigned URL для агентов
+    # (агенты ходят в MinIO напрямую, а не через localhost сервера):
+    public_endpoint: "192.168.31.28:9000"
+    # Ключи предпочтительно через env (в прод-репозиторий не кладём):
+    #   SURIFLEET_SERVER_S3_ACCESS_KEY / SURIFLEET_SERVER_S3_SECRET_KEY
+    # Для локального dev-стенда допустимо и в конфиге:
+    #   access_key: surifleet
+    #   secret_key: surifleet_dev_minio
 
   # debug | info | warn | error
   log_level: info
