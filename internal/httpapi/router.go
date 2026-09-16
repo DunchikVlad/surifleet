@@ -60,6 +60,8 @@ func NewRouter(d Deps) http.Handler {
 
 	// Встроенный Web UI (MVP): / и /ui/* — статика из embed.
 	mountWebUI(r)
+	// React-фронтенд (чанк 14): /app/* из embed web/dist (или заглушка).
+	mountReactUI(r)
 
 	r.Route("/api/v1", func(r chi.Router) {
 		r.Get("/health", h.health)

@@ -11,8 +11,10 @@ coverage.*
 
 # Node / фронтенд
 node_modules/
-web/dist/
 web/node_modules/
+# dist не коммитим, кроме placeholder — он нужен go:embed на чистом клоне
+web/dist/*
+!web/dist/placeholder.txt
 
 # Локальные данные и секреты
 *.local

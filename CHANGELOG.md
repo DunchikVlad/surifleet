@@ -7,6 +7,32 @@
 
 ### Added
 
+- Чанк 14 (2026-09-16): React-фронтенд в `web/` (Vite + React 18 +
+  TypeScript, без UI-китов; стили портированы из ванильного MVP).
+  Паритет экранов с MVP + мелкие улучшения: Обзор (compliance-карточки,
+  активные деплои, автообновление 15 с), Инстансы (+state/diff по клику),
+  Правила (фильтр/поиск/keyset-дозагрузка, вкл/откл с оптимистичным
+  обновлением строки), Ruleset'ы (+форма сборки), Деплои (+задачи по
+  клику, pause/resume/cancel, форма создания), Логи (селектор агента,
+  лимит, авто 10 с), Матрица (цветные ячейки loaded/failed/missing/extra,
+  легенда, фильтры, сводка по ячейкам страницы, keyset-дозагрузка).
+  Вкладки не размонтируются при переключении — фильтры и пагинация
+  сохраняются. Vite: `base=/app/`, dev-proxy `/api` →
+  `http://192.168.31.28:8080` (переопределяется `VITE_API_TARGET`).
+  Раздача: сервер монтирует `/app/*` (internal/httpapi/reactui.go) из
+  `go:embed web/dist` (пакет `web`, embed.go) с SPA-fallback на
+  index.html; если dist не собран (закоммичен только
+  `web/dist/placeholder.txt`) — `/app/` отдаёт страницу-заглушку, а
+  `go build` всегда работает на чистом клоне. Ванильный MVP UI остаётся
+  на `/` без изменений. `npm run build` = `tsc --noEmit` + `vite build`;
+  `postbuild` восстанавливает placeholder.txt после очистки dist.
+  Проверено: npm install/build чисто, dev-сервер стартует (VITE ready,
+  Local: http://localhost:7100/app/), go build/vet/test зелёные, перекат
+  на .28 — /health ok, /app/ отдаёт React index.html, JS/CSS-ассеты 200,
+  SPA-fallback 200, старый UI на / 200, /api/v1/fleet/compliance 200.
+  Браузер недоступен — проверки только по HTTP, визуально проверить
+  руками при первом открытии. (ui, server)
+
 - Чанк 13d (2026-09-16): матрица «правила × инстансы» (требование А).
   API `GET /api/v1/matrix/rules` (openapi get_rules_matrix): две
   независимые keyset-оси — `rule_cursor` (по sid) и `instance_cursor`

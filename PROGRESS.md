@@ -10,11 +10,39 @@
 
 ## Следующий шаг (конкретно)
 
-**После 13d** (2026-09-16):
-1. React-фронтенд в web/ — MVP уперся в пределы ванильного JS
-   (матрица/деплои/логи уже просят SPA-каркас).
-2. **Аномалия (не блокер)**: из ssh `sudo rm` в /etc/suricata → Permission
+**После 14** (2026-09-16):
+1. Визуально проверить React UI (/app/) в браузере при первом открытии —
+   все проверки были только HTTP.
+2. Развитие React UI: конструктор ruleset'ов (выбор правил чекбоксами),
+   страница инстанса, IOC; затем auth/RBAC (DevAuth → токены).
+3. **Аномалия (не блокер)**: из ssh `sudo rm` в /etc/suricata → Permission
    denied при работающем touch; обход — агент от root правит сам (12a).
+
+Чанк 14 ГОТОВ (2026-09-16): React-фронтенд в `web/` (Vite 5 + React 18 +
+TS strict, без UI-китов; стили портированы из webui/style.css). Экраны в
+паритете с ванильным MVP: Обзор (compliance + активные деплои, авто 15 с),
+Инстансы (+state/diff), Правила (фильтр/поиск/пагинация, вкл/откл),
+Ruleset'ы (+сборка), Деплои (+задачи, pause/resume/cancel, создание),
+Логи (агент, авто 10 с), Матрица (легенда, фильтры, сводка ячеек
+страницы, дозагрузка по 50). Улучшение над MVP: вкладки не
+размонтируются — состояние фильтров/пагинации живёт между переключениями.
+Vite `base=/app/`, dev-proxy /api → 192.168.31.28:8080 (VITE_API_TARGET).
+Раздача из бинаря: `web/embed.go` (go:embed dist) +
+`internal/httpapi/reactui.go` — /app/* со SPA-fallback на index.html;
+если dist не собран — страница-заглушка (go build всегда работает с
+чистого клона: закоммичен web/dist/placeholder.txt, postbuild его
+восстанавливает после vite build). Старый UI на / не тронут.
+Проверки: npm install 68 пакетов (сеть флапает — ECONNRESET лечится
+повтором), `npm run build` чисто (tsc --noEmit + vite, bundle
+~162 КБ js / ~5 КБ css), `npm run dev -- --host 0.0.0.0 --port 7100`
+стартовал (VITE ready 454 мс, остановлен по таймауту, в фоне не
+оставлен); go build/vet/test зелёные. Перекат .28: health ok,
+/app/ → React index.html (200), /app/assets/*.js 200 text/javascript
+163 КБ, *.css 200, SPA-fallback /app/some/route 200, / (старый UI) 200,
+/api/v1/fleet/compliance 200 (in_sync:1). Браузер недоступен — только
+HTTP-проверки, UI проверить руками при первом открытии.
+Нюанс среды: npm в Git Bash вызывается через shim .tools/bin/npm →
+npm.cmd рантайма Kimi (системного node нет, node v24.15.0).
 
 Чанк 13d ГОТОВ (2026-09-16): матрица «правила × инстансы» (требование А).
 API GET /api/v1/matrix/rules по openapi (RulesMatrix): keyset-курсоры
@@ -157,7 +185,8 @@ managed-файле (245 правил).
 | 13 | MVP Web UI в сервере (`internal/httpapi/webui`, go:embed; index.html+app.js+style.css; ванильный JS поверх /api/v1): Обзор (compliance-карточки, активные деплои, автообновление 15 с), Инстансы (+state/diff), Правила (фильтр/поиск/пагинация), Ruleset'ы, Деплои (+задачи). Раздача с / и /ui/* на :8080. Проверено с Windows: все эндпоинты 200, node --check app.js; фикс зацикливания FileServer на index.html | 431f345 |
 | 13b | Управление из UI: кнопки pause/resume/cancel у деплоев (dep-act), вкл/откл правил (rule-toggle → POST /rules/bulk), форма сборки ruleset (rs-build → POST /rulesets с rule_filter status=enabled), форма нового деплоя (dep-create). apiPOST-хелпер. Живой e2e через API как из UI: сборка ruleset 200 (идемпотентный 245 правил), деплой 102c688b create→pause→resume→completed 1/1, bulk enable/disable affected:1 туда-обратно; node --check app.js; сервер перекачен, app.js отдаётся с новыми функциями | c046466 |
 | 13c | Логи агента на сервер и в UI: агент — captureHandler поверх slog → ring buffer 500 (переживает reconnect) → LogBatch каждые 30 с по стриму (`cmd/agent/logship.go`); сервер — `internal/chlogs` (ClickHouse по HTTP; native-DSN clickhouse://host:9900 конвертируется в http :8123), таблица surifleet.agent_logs (CREATE IF NOT EXISTS при старте), запись батчей в hub.handleLogBatch; API: GET /api/v1/agents (список с hostname), GET /api/v1/agents/{id}/logs?limit=200 (≤1000, ts DESC, ts→RFC3339); UI — вкладка «Логи» (селектор агента, лимит, обновить, авто 10 с). Infra-фикс: ClickHouse default без пароля из LAN через маунт zz_allow_network.xml в users.d (entrypoint без кредами сам резал default до localhost → 403). Живой e2e: 30 записей за первый батч (включая warn о разрыве — буфер дождался reconnect), SELECT count()>0, API 200 с записями, app.js содержит logs, go build/vet/test/node --check чисто | 500fb50 |
-| 13d | Матрица «правила × инстансы» (требование А): API GET /api/v1/matrix/rules (openapi get_rules_matrix) — независимые keyset-курсоры rule_cursor (по sid) / instance_cursor (по id), фильтры rule_status/category/sid/cluster_id/cell_status, limit ≤1000; ячейка loaded/failed/missing/extra из desired_state.computed_rules + actual_state (loaded/failed StateReport); store — `internal/store/matrix.go` (страницы осей + батч состояний 2 запросами), handler — `internal/httpapi/matrix.go`; тесты sid-курсора и cellStatusOf. UI — вкладка «Матрица» (строки sid+msg, столбцы hostname вертикально, цветные ячейки + легенда, фильтр по статусу ячейки, поиск по sid, дозагрузка по 50). Живой e2e: ?limit=5 → 200 с ячейками loaded для инстанса 468c9c71; пагинация/фильтры/400-валидация; кейс missing живьём (битое правило 9999991 отклонено агентом через suricata -T → desired без actual → missing, сводка 244 loaded + 1 missing); disable+ребилд+деплой → ячейка исчезла; стенд восстановлен (245/245 loaded). Ограничение MVP: cell_status фильтрует ячейки внутри текущей страницы оси правил | (этот коммит) |
+| 13d | Матрица «правила × инстансы» (требование А): API GET /api/v1/matrix/rules (openapi get_rules_matrix) — независимые keyset-курсоры rule_cursor (по sid) / instance_cursor (по id), фильтры rule_status/category/sid/cluster_id/cell_status, limit ≤1000; ячейка loaded/failed/missing/extra из desired_state.computed_rules + actual_state (loaded/failed StateReport); store — `internal/store/matrix.go` (страницы осей + батч состояний 2 запросами), handler — `internal/httpapi/matrix.go`; тесты sid-курсора и cellStatusOf. UI — вкладка «Матрица» (строки sid+msg, столбцы hostname вертикально, цветные ячейки + легенда, фильтр по статусу ячейки, поиск по sid, дозагрузка по 50). Живой e2e: ?limit=5 → 200 с ячейками loaded для инстанса 468c9c71; пагинация/фильтры/400-валидация; кейс missing живьём (битое правило 9999991 отклонено агентом через suricata -T → desired без actual → missing, сводка 244 loaded + 1 missing); disable+ребилд+деплой → ячейка исчезла; стенд восстановлен (245/245 loaded). Ограничение MVP: cell_status фильтрует ячейки внутри текущей страницы оси правил | d868a9b |
+| 14 | React-фронтенд в `web/`: Vite 5 + React 18 + TS strict, без UI-китов (стили из webui/style.css); 7 экранов в паритете с ванильным MVP (Обзор/Инстансы/Правила/Ruleset'ы/Деплои/Логи/Матрица) + улучшение (вкладки не размонтируются — фильтры/пагинация сохраняются, сводка ячеек матрицы). Vite base=/app/, dev-proxy /api → .28:8080. Раздача из бинаря: `web/embed.go` (go:embed dist) + `internal/httpapi/reactui.go` (/app/*, SPA-fallback, заглушка когда dist не собран; placeholder.txt в git, postbuild восстанавливает). Старый UI на / не тронут. Проверки: npm install/build/dev чисто, go build/vet/test зелёные, перекат .28 — /app/ + ассеты + SPA-fallback + /api/v1/fleet/compliance 200; браузер недоступен — только HTTP | (этот коммит) |
 
 ## Тестовая среда (добавлена в ТЗ п. 13)
 
