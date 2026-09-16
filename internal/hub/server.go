@@ -150,6 +150,7 @@ func (s *Server) Channel(stream grpc.BidiStreamingServer[agentv1.AgentMessage, a
 	// HelloAck — параметры сессии и начальная конфигурация (включая
 	// включённые capability хоста: host → cluster → дефолт monitoring).
 	caps := s.hostCapabilities(ctx, log, agentID)
+	bindings := s.instanceBindings(ctx, log, agentID)
 	if err := stream.Send(&agentv1.ServerMessage{
 		MsgId:  uuid.New().String(),
 		Seq:    1,
@@ -162,6 +163,7 @@ func (s *Server) Channel(stream grpc.BidiStreamingServer[agentv1.AgentMessage, a
 			MetricsIntervalSeconds:     60,
 			LogLevel:                   "info",
 			Config:                     &agentv1.AgentConfig{LogLevel: "info", Capabilities: caps},
+			BoundInstances:             bindings,
 		}},
 	}); err != nil {
 		return fmt.Errorf("отправка HelloAck: %w", err)

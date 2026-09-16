@@ -3,10 +3,12 @@ package main
 import (
 	"context"
 	"crypto/tls"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -91,6 +93,21 @@ func runSession(ctx context.Context, cfg *config.AgentConfig, id *identity, leve
 		"heartbeat_s", ack.GetHeartbeatIntervalSeconds(), "log_level", ack.GetLogLevel(),
 		"capabilities", ack.GetConfig().GetCapabilities())
 	applyLogLevel(levelVar, ack.GetLogLevel(), log)
+
+	// Привязка к зарегистрированным инстансам (chunk 12c): сервер сообщает
+	// instance_id при подключении — агент знает их до первой задачи.
+	// Сохраняем в data_dir/bound_instances.json для остальных компонентов.
+	if bindings := ack.GetBoundInstances(); len(bindings) > 0 {
+		for _, b := range bindings {
+			log.Info("инстанс привязан", "instance_id", b.GetInstanceId(),
+				"name", b.GetName(), "config", b.GetConfigPath())
+		}
+		if err := saveBoundInstances(cfg.DataDir, bindings); err != nil {
+			log.Warn("сохранение bound_instances.json", "err", err)
+		}
+	} else {
+		log.Info("привязанных инстансов нет (ожидается confirm_discovery)")
+	}
 
 	// Исполнитель задач сервера (chunk 11): capability из HelloAck.Config,
 	// журнал обработанных task_id в data_dir (идемпотентность).
@@ -229,3 +246,38 @@ func applyLogLevel(levelVar *slog.LevelVar, level string, log *slog.Logger) {
 
 // osHostname — обёртка для тестируемости.
 var osHostname = func() (string, error) { return os.Hostname() }
+
+// saveBoundInstances сохраняет привязку агент→инстансы из HelloAck в
+// data_dir/bound_instances.json (атомарно): источник instance_id для
+// компонентов агента вне задач деплоя.
+func saveBoundInstances(dataDir string, bindings []*agentv1.InstanceBinding) error {
+	type binding struct {
+		InstanceID string `json:"instance_id"`
+		Name       string `json:"name"`
+		ConfigPath string `json:"config_path"`
+		RulesDir   string `json:"rules_dir"`
+		LogDir     string `json:"log_dir"`
+	}
+	out := make([]binding, 0, len(bindings))
+	for _, b := range bindings {
+		out = append(out, binding{
+			InstanceID: b.GetInstanceId(),
+			Name:       b.GetName(),
+			ConfigPath: b.GetConfigPath(),
+			RulesDir:   b.GetRulesDir(),
+			LogDir:     b.GetLogDir(),
+		})
+	}
+	raw, err := json.MarshalIndent(out, "", "  ")
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(dataDir, 0o755); err != nil {
+		return err
+	}
+	tmp := filepath.Join(dataDir, "bound_instances.json.tmp")
+	if err := os.WriteFile(tmp, raw, 0o600); err != nil {
+		return err
+	}
+	return os.Rename(tmp, filepath.Join(dataDir, "bound_instances.json"))
+}

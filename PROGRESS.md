@@ -10,10 +10,11 @@
 
 ## Следующий шаг (конкретно)
 
-**Чанк 12c** (после 12b, 2026-09-16):
-1. instance_id агенту (ConfigPush/HelloAck) — сейчас agent узнаёт свой
-   instance_id только из задачи деплоя.
-2. Автооткат при падении сервиса Suricata после деплоя (watchdog).
+**Чанк 12c-2** (после 12c-1, 2026-09-16):
+1. ~~instance_id агенту~~ — СДЕЛАНО в 12c-1 (HelloAck.bound_instances +
+   bound_instances.json в data_dir агента; проверено живьём).
+2. Автооткат при падении сервиса Suricata после деплоя (watchdog) —
+   использовать bound_instances (config_path/rules_dir уже есть у агента).
 3. Логи агента на сервер: LogBatch → ClickHouse.
 4. **Аномалия (не блокер)**: из ssh `sudo rm` в /etc/suricata → Permission
    denied при работающем touch; обход — агент от root правит сам (12a).
@@ -76,7 +77,8 @@ managed-файле (245 правил).
 | 10 | Репозиторий правил: `internal/rules` парсер (без зависимостей, ~430k правил/с, заголовок+опции с кавычками/экранированием, continuation-строки, action-набор + rejectsrc/dst/both, ошибки по строкам без остановки импорта); `internal/store` RulesRepo (upsert по (org,sid) в tx, sha256 raw → imported/updated/unchanged, тюнинг аналитика status/priority/threshold/tags НИКОГДА не перетирается импортом, keyset-ревизии по номеру); API /rules: import (multipart/text, source), CRUD (soft-delete, список скрывает deleted), bulk (enable/disable/delete/set_priority/add_tag по ids или фильтру, защита от пустой цели → 400), revisions. Живьём: 2000 строк ET Open → 1209 imported, повтор → unchanged, битый файл → errors со строками, bulk по категории 241 affected, тюнинг пережил реимпорт. Исправлен баг ANY-плейсхолдера в Bulk по ids. Сервер .28 PID 83802 | 68c3c74 |
 | 11 | Волновой деплой (требование А) — **ГОТОВО И ПРОВЕРЕНО ЖИВЬЁМ**: `internal/blob` (MinIO, content-addressed по SHA-256, presigned GET); `internal/ruleset` (детерминированный рендер ruleset из выбранных правил); `internal/store` rulesets/deploy/capabilities; `internal/orchestrator` (волны canary+batch, Recover при рестарте, DispatchPending при Hello, HandleTaskResult, auto-pause при провале canary, deploy_events); `internal/hub/tasks.go` (in-process реестр стримов, SendTask); `internal/compliance` (расчёт in_sync/pending/partial/drift/stale по событиям); `cmd/agent/deploy.go` (скачивание блоба + проверка SHA-256, бэкап, атомарная запись, suricata -T с откатом, reload-rules через сокет, верификация ruleset-failed-rules, журнал обработанных task_id для идемпотентности); API: /rulesets, /deployments (+pause/resume/cancel/tasks), /instances/{id}/state, /instances/{id}/deploy_history, /fleet/compliance, capabilities. Живой e2e (2026-09-16): негатив (битые правила → suricata -T → откат → failed с текстом парсера) и позитив (ruleset из 2 кастомных правил → succeeded, loaded=2/failed=0, compliance in_sync, движок 52743 loaded/0 failed). Исправлены: игнор rule_ids в POST /rulesets, таймаут reload-rules 30→240 с, s3.public_endpoint в example-конфиге | 8dea190 |
 | 12a | Агент управляет rule-files + документация доступа: `ensureRuleFiles` при capability 'rules' отключает чужие источники правил комментарием `# surifleet-disabled:` (идемпотентно, бэкап yaml .surifleet-bak-TS), оставляя только zz-surifleet-managed.rules — закрыта причина Duplicate signature при деплое ET-подмножеств. Живой e2e: деплой 335b6069 (245 ET-правил) → succeeded за 6 с, loaded=245/failed=0, in_sync; suricata -T ускорился 48 с → <1 с; подтверждено, что ошибка sid 2045706 была каскадом от дубликатов. Новый документ `docs/access.md`: карта портов/доступов стенда, DevAuth, полная карта эндпоинтов /api/v1, сквозной сценарий «импорт → ruleset → деплой → compliance», статус UI (не реализован) | f18b822 |
-| 12b | Фикс resume failed-деплоев end-to-end: сервер — resume допустим из финального failed (раньше 409); агент — failed-результаты больше не пишутся в журнал идемпотентности processed_tasks.jsonl (раньше повторная доставка проигрывала устаревший закэшированный провал — кореневая причина бага; журналируется только succeeded). Живой e2e: деплой 1b8fbcf5 → resume → задача перевыполнена (attempts=3) → succeeded (245/0), деплой completed, fleet in_sync | (этот коммит) |
+| 12b | Фикс resume failed-деплоев end-to-end: сервер — resume допустим из финального failed (раньше 409); агент — failed-результаты больше не пишутся в журнал идемпотентности processed_tasks.jsonl (раньше повторная доставка проигрывала устаревший закэшированный провал — кореневая причина бага; журналируется только succeeded). Живой e2e: деплой 1b8fbcf5 → resume → задача перевыполнена (attempts=3) → succeeded (245/0), деплой completed, fleet in_sync | bdad386 |
+| 12c-1 | instance_id агенту при подключении: proto HelloAck.bound_instances (InstanceBinding: instance_id/name/config_path/rules_dir/log_dir), сервер — instanceBindings (инстансы хоста агента), агент — лог привязки + data_dir/bound_instances.json (0600, атомарно). Регенерация proto через scripts/gen-proto.sh. Живой e2e: при Hello агент получил instance_id 468c9c71…, файл записан | (этот коммит) |
 
 ## Тестовая среда (добавлена в ТЗ п. 13)
 

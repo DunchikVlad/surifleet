@@ -7,6 +7,13 @@
 
 ### Added
 
+- Чанк 12c-1 (2026-09-16): сервер в HelloAck отдаёт агенту привязку к
+  зарегистрированным инстансам Suricata (`bound_instances`: instance_id,
+  name, config_path, rules_dir, log_dir) — агент знает свои instance_id
+  сразу при подключении, не дожидаясь первой задачи. Агент логирует
+  привязку и сохраняет её в data_dir/bound_instances.json (0600,
+  атомарно). Живой e2e: агент получил instance_id 468c9c71… при Hello.
+  (proto, server, agent)
 - Чанк 12a (2026-09-16): агент при capability 'rules' полностью берёт
   секцию rule-files под управление — ensureRuleFiles отключает чужие
   источники правил комментарием "# surifleet-disabled:" (идемпотентно,

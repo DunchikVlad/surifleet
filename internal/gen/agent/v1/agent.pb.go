@@ -709,8 +709,12 @@ type HelloAck struct {
 	MetricsIntervalSeconds     int32                  `protobuf:"varint,5,opt,name=metrics_interval_seconds,json=metricsIntervalSeconds,proto3" json:"metrics_interval_seconds,omitempty"`               // период MetricsBatch, по умолчанию 60
 	LogLevel                   string                 `protobuf:"bytes,6,opt,name=log_level,json=logLevel,proto3" json:"log_level,omitempty"`                                                            // debug | info | warn | error
 	Config                     *AgentConfig           `protobuf:"bytes,7,opt,name=config,proto3" json:"config,omitempty"`                                                                                // полная конфигурация агента (ротация логов и т.п.)
-	unknownFields              protoimpl.UnknownFields
-	sizeCache                  protoimpl.SizeCache
+	// Привязка агента к зарегистрированным на сервере инстансам Suricata
+	// (instance_id выдаётся при confirm_discovery). Агент узнаёт свои
+	// instance_id сразу при подключении, не дожидаясь первой задачи.
+	BoundInstances []*InstanceBinding `protobuf:"bytes,8,rep,name=bound_instances,json=boundInstances,proto3" json:"bound_instances,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *HelloAck) Reset() {
@@ -792,6 +796,90 @@ func (x *HelloAck) GetConfig() *AgentConfig {
 	return nil
 }
 
+func (x *HelloAck) GetBoundInstances() []*InstanceBinding {
+	if x != nil {
+		return x.BoundInstances
+	}
+	return nil
+}
+
+// InstanceBinding — привязка агента к зарегистрированному инстансу Suricata.
+type InstanceBinding struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	InstanceId    string                 `protobuf:"bytes,1,opt,name=instance_id,json=instanceId,proto3" json:"instance_id,omitempty"` // UUID инстанса (серверная «правда»)
+	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	ConfigPath    string                 `protobuf:"bytes,3,opt,name=config_path,json=configPath,proto3" json:"config_path,omitempty"` // путь к suricata.yaml
+	RulesDir      string                 `protobuf:"bytes,4,opt,name=rules_dir,json=rulesDir,proto3" json:"rules_dir,omitempty"`
+	LogDir        string                 `protobuf:"bytes,5,opt,name=log_dir,json=logDir,proto3" json:"log_dir,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *InstanceBinding) Reset() {
+	*x = InstanceBinding{}
+	mi := &file_agent_v1_agent_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *InstanceBinding) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*InstanceBinding) ProtoMessage() {}
+
+func (x *InstanceBinding) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_v1_agent_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use InstanceBinding.ProtoReflect.Descriptor instead.
+func (*InstanceBinding) Descriptor() ([]byte, []int) {
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *InstanceBinding) GetInstanceId() string {
+	if x != nil {
+		return x.InstanceId
+	}
+	return ""
+}
+
+func (x *InstanceBinding) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *InstanceBinding) GetConfigPath() string {
+	if x != nil {
+		return x.ConfigPath
+	}
+	return ""
+}
+
+func (x *InstanceBinding) GetRulesDir() string {
+	if x != nil {
+		return x.RulesDir
+	}
+	return ""
+}
+
+func (x *InstanceBinding) GetLogDir() string {
+	if x != nil {
+		return x.LogDir
+	}
+	return ""
+}
+
 // AgentConfig — настройки самого агента, управляемые с сервера централизованно.
 // Используется в HelloAck, ConfigPush и EnrollResponse (enrollment.proto).
 // Нулевые значения интервалов в ConfigPush означают «не менять текущее».
@@ -811,7 +899,7 @@ type AgentConfig struct {
 
 func (x *AgentConfig) Reset() {
 	*x = AgentConfig{}
-	mi := &file_agent_v1_agent_proto_msgTypes[5]
+	mi := &file_agent_v1_agent_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -823,7 +911,7 @@ func (x *AgentConfig) String() string {
 func (*AgentConfig) ProtoMessage() {}
 
 func (x *AgentConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_proto_msgTypes[5]
+	mi := &file_agent_v1_agent_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -836,7 +924,7 @@ func (x *AgentConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AgentConfig.ProtoReflect.Descriptor instead.
 func (*AgentConfig) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_proto_rawDescGZIP(), []int{5}
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *AgentConfig) GetLogLevel() string {
@@ -911,7 +999,7 @@ type Heartbeat struct {
 
 func (x *Heartbeat) Reset() {
 	*x = Heartbeat{}
-	mi := &file_agent_v1_agent_proto_msgTypes[6]
+	mi := &file_agent_v1_agent_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -923,7 +1011,7 @@ func (x *Heartbeat) String() string {
 func (*Heartbeat) ProtoMessage() {}
 
 func (x *Heartbeat) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_proto_msgTypes[6]
+	mi := &file_agent_v1_agent_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -936,7 +1024,7 @@ func (x *Heartbeat) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Heartbeat.ProtoReflect.Descriptor instead.
 func (*Heartbeat) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_proto_rawDescGZIP(), []int{6}
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *Heartbeat) GetAgentId() string {
@@ -1000,7 +1088,7 @@ type ResourceSummary struct {
 
 func (x *ResourceSummary) Reset() {
 	*x = ResourceSummary{}
-	mi := &file_agent_v1_agent_proto_msgTypes[7]
+	mi := &file_agent_v1_agent_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1012,7 +1100,7 @@ func (x *ResourceSummary) String() string {
 func (*ResourceSummary) ProtoMessage() {}
 
 func (x *ResourceSummary) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_proto_msgTypes[7]
+	mi := &file_agent_v1_agent_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1025,7 +1113,7 @@ func (x *ResourceSummary) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResourceSummary.ProtoReflect.Descriptor instead.
 func (*ResourceSummary) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_proto_rawDescGZIP(), []int{7}
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *ResourceSummary) GetCpuPercent() float64 {
@@ -1061,7 +1149,7 @@ type InstanceServiceStatus struct {
 
 func (x *InstanceServiceStatus) Reset() {
 	*x = InstanceServiceStatus{}
-	mi := &file_agent_v1_agent_proto_msgTypes[8]
+	mi := &file_agent_v1_agent_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1073,7 +1161,7 @@ func (x *InstanceServiceStatus) String() string {
 func (*InstanceServiceStatus) ProtoMessage() {}
 
 func (x *InstanceServiceStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_proto_msgTypes[8]
+	mi := &file_agent_v1_agent_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1086,7 +1174,7 @@ func (x *InstanceServiceStatus) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InstanceServiceStatus.ProtoReflect.Descriptor instead.
 func (*InstanceServiceStatus) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_proto_rawDescGZIP(), []int{8}
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *InstanceServiceStatus) GetInstanceId() string {
@@ -1127,7 +1215,7 @@ type StateReport struct {
 
 func (x *StateReport) Reset() {
 	*x = StateReport{}
-	mi := &file_agent_v1_agent_proto_msgTypes[9]
+	mi := &file_agent_v1_agent_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1139,7 +1227,7 @@ func (x *StateReport) String() string {
 func (*StateReport) ProtoMessage() {}
 
 func (x *StateReport) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_proto_msgTypes[9]
+	mi := &file_agent_v1_agent_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1152,7 +1240,7 @@ func (x *StateReport) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StateReport.ProtoReflect.Descriptor instead.
 func (*StateReport) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_proto_rawDescGZIP(), []int{9}
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *StateReport) GetInstanceId() string {
@@ -1215,7 +1303,7 @@ type LoadedRule struct {
 
 func (x *LoadedRule) Reset() {
 	*x = LoadedRule{}
-	mi := &file_agent_v1_agent_proto_msgTypes[10]
+	mi := &file_agent_v1_agent_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1227,7 +1315,7 @@ func (x *LoadedRule) String() string {
 func (*LoadedRule) ProtoMessage() {}
 
 func (x *LoadedRule) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_proto_msgTypes[10]
+	mi := &file_agent_v1_agent_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1240,7 +1328,7 @@ func (x *LoadedRule) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LoadedRule.ProtoReflect.Descriptor instead.
 func (*LoadedRule) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_proto_rawDescGZIP(), []int{10}
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *LoadedRule) GetSid() int64 {
@@ -1269,7 +1357,7 @@ type FailedRule struct {
 
 func (x *FailedRule) Reset() {
 	*x = FailedRule{}
-	mi := &file_agent_v1_agent_proto_msgTypes[11]
+	mi := &file_agent_v1_agent_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1281,7 +1369,7 @@ func (x *FailedRule) String() string {
 func (*FailedRule) ProtoMessage() {}
 
 func (x *FailedRule) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_proto_msgTypes[11]
+	mi := &file_agent_v1_agent_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1294,7 +1382,7 @@ func (x *FailedRule) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FailedRule.ProtoReflect.Descriptor instead.
 func (*FailedRule) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_proto_rawDescGZIP(), []int{11}
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *FailedRule) GetSid() int64 {
@@ -1331,7 +1419,7 @@ type ReloadResult struct {
 
 func (x *ReloadResult) Reset() {
 	*x = ReloadResult{}
-	mi := &file_agent_v1_agent_proto_msgTypes[12]
+	mi := &file_agent_v1_agent_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1343,7 +1431,7 @@ func (x *ReloadResult) String() string {
 func (*ReloadResult) ProtoMessage() {}
 
 func (x *ReloadResult) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_proto_msgTypes[12]
+	mi := &file_agent_v1_agent_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1356,7 +1444,7 @@ func (x *ReloadResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReloadResult.ProtoReflect.Descriptor instead.
 func (*ReloadResult) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_proto_rawDescGZIP(), []int{12}
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *ReloadResult) GetAction() ServiceAction {
@@ -1402,7 +1490,7 @@ type RuleLoadReport struct {
 
 func (x *RuleLoadReport) Reset() {
 	*x = RuleLoadReport{}
-	mi := &file_agent_v1_agent_proto_msgTypes[13]
+	mi := &file_agent_v1_agent_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1414,7 +1502,7 @@ func (x *RuleLoadReport) String() string {
 func (*RuleLoadReport) ProtoMessage() {}
 
 func (x *RuleLoadReport) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_proto_msgTypes[13]
+	mi := &file_agent_v1_agent_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1427,7 +1515,7 @@ func (x *RuleLoadReport) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RuleLoadReport.ProtoReflect.Descriptor instead.
 func (*RuleLoadReport) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_proto_rawDescGZIP(), []int{13}
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *RuleLoadReport) GetInstanceId() string {
@@ -1475,7 +1563,7 @@ type MetricsBatch struct {
 
 func (x *MetricsBatch) Reset() {
 	*x = MetricsBatch{}
-	mi := &file_agent_v1_agent_proto_msgTypes[14]
+	mi := &file_agent_v1_agent_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1487,7 +1575,7 @@ func (x *MetricsBatch) String() string {
 func (*MetricsBatch) ProtoMessage() {}
 
 func (x *MetricsBatch) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_proto_msgTypes[14]
+	mi := &file_agent_v1_agent_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1500,7 +1588,7 @@ func (x *MetricsBatch) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MetricsBatch.ProtoReflect.Descriptor instead.
 func (*MetricsBatch) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_proto_rawDescGZIP(), []int{14}
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *MetricsBatch) GetPoints() []*MetricPoint {
@@ -1524,7 +1612,7 @@ type MetricPoint struct {
 
 func (x *MetricPoint) Reset() {
 	*x = MetricPoint{}
-	mi := &file_agent_v1_agent_proto_msgTypes[15]
+	mi := &file_agent_v1_agent_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1536,7 +1624,7 @@ func (x *MetricPoint) String() string {
 func (*MetricPoint) ProtoMessage() {}
 
 func (x *MetricPoint) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_proto_msgTypes[15]
+	mi := &file_agent_v1_agent_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1549,7 +1637,7 @@ func (x *MetricPoint) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MetricPoint.ProtoReflect.Descriptor instead.
 func (*MetricPoint) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_proto_rawDescGZIP(), []int{15}
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *MetricPoint) GetTs() *timestamppb.Timestamp {
@@ -1597,7 +1685,7 @@ type LogBatch struct {
 
 func (x *LogBatch) Reset() {
 	*x = LogBatch{}
-	mi := &file_agent_v1_agent_proto_msgTypes[16]
+	mi := &file_agent_v1_agent_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1609,7 +1697,7 @@ func (x *LogBatch) String() string {
 func (*LogBatch) ProtoMessage() {}
 
 func (x *LogBatch) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_proto_msgTypes[16]
+	mi := &file_agent_v1_agent_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1622,7 +1710,7 @@ func (x *LogBatch) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LogBatch.ProtoReflect.Descriptor instead.
 func (*LogBatch) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_proto_rawDescGZIP(), []int{16}
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *LogBatch) GetEntries() []*LogEntry {
@@ -1646,7 +1734,7 @@ type LogEntry struct {
 
 func (x *LogEntry) Reset() {
 	*x = LogEntry{}
-	mi := &file_agent_v1_agent_proto_msgTypes[17]
+	mi := &file_agent_v1_agent_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1658,7 +1746,7 @@ func (x *LogEntry) String() string {
 func (*LogEntry) ProtoMessage() {}
 
 func (x *LogEntry) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_proto_msgTypes[17]
+	mi := &file_agent_v1_agent_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1671,7 +1759,7 @@ func (x *LogEntry) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LogEntry.ProtoReflect.Descriptor instead.
 func (*LogEntry) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_proto_rawDescGZIP(), []int{17}
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *LogEntry) GetSeq() int64 {
@@ -1721,7 +1809,7 @@ type DiscoveryReport struct {
 
 func (x *DiscoveryReport) Reset() {
 	*x = DiscoveryReport{}
-	mi := &file_agent_v1_agent_proto_msgTypes[18]
+	mi := &file_agent_v1_agent_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1733,7 +1821,7 @@ func (x *DiscoveryReport) String() string {
 func (*DiscoveryReport) ProtoMessage() {}
 
 func (x *DiscoveryReport) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_proto_msgTypes[18]
+	mi := &file_agent_v1_agent_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1746,7 +1834,7 @@ func (x *DiscoveryReport) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DiscoveryReport.ProtoReflect.Descriptor instead.
 func (*DiscoveryReport) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_proto_rawDescGZIP(), []int{18}
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *DiscoveryReport) GetInstances() []*DiscoveredInstance {
@@ -1780,7 +1868,7 @@ type DiscoveredInstance struct {
 
 func (x *DiscoveredInstance) Reset() {
 	*x = DiscoveredInstance{}
-	mi := &file_agent_v1_agent_proto_msgTypes[19]
+	mi := &file_agent_v1_agent_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1792,7 +1880,7 @@ func (x *DiscoveredInstance) String() string {
 func (*DiscoveredInstance) ProtoMessage() {}
 
 func (x *DiscoveredInstance) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_proto_msgTypes[19]
+	mi := &file_agent_v1_agent_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1805,7 +1893,7 @@ func (x *DiscoveredInstance) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DiscoveredInstance.ProtoReflect.Descriptor instead.
 func (*DiscoveredInstance) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_proto_rawDescGZIP(), []int{19}
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *DiscoveredInstance) GetName() string {
@@ -1877,7 +1965,7 @@ type SuricataBinary struct {
 
 func (x *SuricataBinary) Reset() {
 	*x = SuricataBinary{}
-	mi := &file_agent_v1_agent_proto_msgTypes[20]
+	mi := &file_agent_v1_agent_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1889,7 +1977,7 @@ func (x *SuricataBinary) String() string {
 func (*SuricataBinary) ProtoMessage() {}
 
 func (x *SuricataBinary) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_proto_msgTypes[20]
+	mi := &file_agent_v1_agent_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1902,7 +1990,7 @@ func (x *SuricataBinary) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SuricataBinary.ProtoReflect.Descriptor instead.
 func (*SuricataBinary) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_proto_rawDescGZIP(), []int{20}
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *SuricataBinary) GetPath() string {
@@ -1956,7 +2044,7 @@ type TaskResult struct {
 
 func (x *TaskResult) Reset() {
 	*x = TaskResult{}
-	mi := &file_agent_v1_agent_proto_msgTypes[21]
+	mi := &file_agent_v1_agent_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1968,7 +2056,7 @@ func (x *TaskResult) String() string {
 func (*TaskResult) ProtoMessage() {}
 
 func (x *TaskResult) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_proto_msgTypes[21]
+	mi := &file_agent_v1_agent_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1981,7 +2069,7 @@ func (x *TaskResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TaskResult.ProtoReflect.Descriptor instead.
 func (*TaskResult) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_proto_rawDescGZIP(), []int{21}
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *TaskResult) GetTaskId() string {
@@ -2125,7 +2213,7 @@ type DeployRulesResult struct {
 
 func (x *DeployRulesResult) Reset() {
 	*x = DeployRulesResult{}
-	mi := &file_agent_v1_agent_proto_msgTypes[22]
+	mi := &file_agent_v1_agent_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2137,7 +2225,7 @@ func (x *DeployRulesResult) String() string {
 func (*DeployRulesResult) ProtoMessage() {}
 
 func (x *DeployRulesResult) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_proto_msgTypes[22]
+	mi := &file_agent_v1_agent_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2150,7 +2238,7 @@ func (x *DeployRulesResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeployRulesResult.ProtoReflect.Descriptor instead.
 func (*DeployRulesResult) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_proto_rawDescGZIP(), []int{22}
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *DeployRulesResult) GetRulesetHash() string {
@@ -2186,7 +2274,7 @@ type DeployConfigResult struct {
 
 func (x *DeployConfigResult) Reset() {
 	*x = DeployConfigResult{}
-	mi := &file_agent_v1_agent_proto_msgTypes[23]
+	mi := &file_agent_v1_agent_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2198,7 +2286,7 @@ func (x *DeployConfigResult) String() string {
 func (*DeployConfigResult) ProtoMessage() {}
 
 func (x *DeployConfigResult) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_proto_msgTypes[23]
+	mi := &file_agent_v1_agent_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2211,7 +2299,7 @@ func (x *DeployConfigResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeployConfigResult.ProtoReflect.Descriptor instead.
 func (*DeployConfigResult) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_proto_rawDescGZIP(), []int{23}
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *DeployConfigResult) GetConfigVersion() string {
@@ -2246,7 +2334,7 @@ type ServiceActionResult struct {
 
 func (x *ServiceActionResult) Reset() {
 	*x = ServiceActionResult{}
-	mi := &file_agent_v1_agent_proto_msgTypes[24]
+	mi := &file_agent_v1_agent_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2258,7 +2346,7 @@ func (x *ServiceActionResult) String() string {
 func (*ServiceActionResult) ProtoMessage() {}
 
 func (x *ServiceActionResult) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_proto_msgTypes[24]
+	mi := &file_agent_v1_agent_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2271,7 +2359,7 @@ func (x *ServiceActionResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ServiceActionResult.ProtoReflect.Descriptor instead.
 func (*ServiceActionResult) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_proto_rawDescGZIP(), []int{24}
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *ServiceActionResult) GetInstanceId() string {
@@ -2298,7 +2386,7 @@ type RollbackResult struct {
 
 func (x *RollbackResult) Reset() {
 	*x = RollbackResult{}
-	mi := &file_agent_v1_agent_proto_msgTypes[25]
+	mi := &file_agent_v1_agent_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2310,7 +2398,7 @@ func (x *RollbackResult) String() string {
 func (*RollbackResult) ProtoMessage() {}
 
 func (x *RollbackResult) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_proto_msgTypes[25]
+	mi := &file_agent_v1_agent_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2323,7 +2411,7 @@ func (x *RollbackResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RollbackResult.ProtoReflect.Descriptor instead.
 func (*RollbackResult) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_proto_rawDescGZIP(), []int{25}
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *RollbackResult) GetActiveVersion() string {
@@ -2344,7 +2432,7 @@ type BundleResult struct {
 
 func (x *BundleResult) Reset() {
 	*x = BundleResult{}
-	mi := &file_agent_v1_agent_proto_msgTypes[26]
+	mi := &file_agent_v1_agent_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2356,7 +2444,7 @@ func (x *BundleResult) String() string {
 func (*BundleResult) ProtoMessage() {}
 
 func (x *BundleResult) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_proto_msgTypes[26]
+	mi := &file_agent_v1_agent_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2369,7 +2457,7 @@ func (x *BundleResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BundleResult.ProtoReflect.Descriptor instead.
 func (*BundleResult) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_proto_rawDescGZIP(), []int{26}
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *BundleResult) GetSignedUrl() string {
@@ -2397,7 +2485,7 @@ type AgentUpdateResult struct {
 
 func (x *AgentUpdateResult) Reset() {
 	*x = AgentUpdateResult{}
-	mi := &file_agent_v1_agent_proto_msgTypes[27]
+	mi := &file_agent_v1_agent_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2409,7 +2497,7 @@ func (x *AgentUpdateResult) String() string {
 func (*AgentUpdateResult) ProtoMessage() {}
 
 func (x *AgentUpdateResult) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_proto_msgTypes[27]
+	mi := &file_agent_v1_agent_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2422,7 +2510,7 @@ func (x *AgentUpdateResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AgentUpdateResult.ProtoReflect.Descriptor instead.
 func (*AgentUpdateResult) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_proto_rawDescGZIP(), []int{27}
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *AgentUpdateResult) GetPreviousVersion() string {
@@ -2461,7 +2549,7 @@ type Task struct {
 
 func (x *Task) Reset() {
 	*x = Task{}
-	mi := &file_agent_v1_agent_proto_msgTypes[28]
+	mi := &file_agent_v1_agent_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2473,7 +2561,7 @@ func (x *Task) String() string {
 func (*Task) ProtoMessage() {}
 
 func (x *Task) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_proto_msgTypes[28]
+	mi := &file_agent_v1_agent_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2486,7 +2574,7 @@ func (x *Task) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Task.ProtoReflect.Descriptor instead.
 func (*Task) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_proto_rawDescGZIP(), []int{28}
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *Task) GetTaskId() string {
@@ -2639,7 +2727,7 @@ type DeployRulesTask struct {
 
 func (x *DeployRulesTask) Reset() {
 	*x = DeployRulesTask{}
-	mi := &file_agent_v1_agent_proto_msgTypes[29]
+	mi := &file_agent_v1_agent_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2651,7 +2739,7 @@ func (x *DeployRulesTask) String() string {
 func (*DeployRulesTask) ProtoMessage() {}
 
 func (x *DeployRulesTask) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_proto_msgTypes[29]
+	mi := &file_agent_v1_agent_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2664,7 +2752,7 @@ func (x *DeployRulesTask) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeployRulesTask.ProtoReflect.Descriptor instead.
 func (*DeployRulesTask) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_proto_rawDescGZIP(), []int{29}
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *DeployRulesTask) GetInstanceId() string {
@@ -2733,7 +2821,7 @@ type DeployConfigTask struct {
 
 func (x *DeployConfigTask) Reset() {
 	*x = DeployConfigTask{}
-	mi := &file_agent_v1_agent_proto_msgTypes[30]
+	mi := &file_agent_v1_agent_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2745,7 +2833,7 @@ func (x *DeployConfigTask) String() string {
 func (*DeployConfigTask) ProtoMessage() {}
 
 func (x *DeployConfigTask) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_proto_msgTypes[30]
+	mi := &file_agent_v1_agent_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2758,7 +2846,7 @@ func (x *DeployConfigTask) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeployConfigTask.ProtoReflect.Descriptor instead.
 func (*DeployConfigTask) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_proto_rawDescGZIP(), []int{30}
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{31}
 }
 
 func (x *DeployConfigTask) GetInstanceId() string {
@@ -2834,7 +2922,7 @@ type ServiceActionTask struct {
 
 func (x *ServiceActionTask) Reset() {
 	*x = ServiceActionTask{}
-	mi := &file_agent_v1_agent_proto_msgTypes[31]
+	mi := &file_agent_v1_agent_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2846,7 +2934,7 @@ func (x *ServiceActionTask) String() string {
 func (*ServiceActionTask) ProtoMessage() {}
 
 func (x *ServiceActionTask) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_proto_msgTypes[31]
+	mi := &file_agent_v1_agent_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2859,7 +2947,7 @@ func (x *ServiceActionTask) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ServiceActionTask.ProtoReflect.Descriptor instead.
 func (*ServiceActionTask) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_proto_rawDescGZIP(), []int{31}
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{32}
 }
 
 func (x *ServiceActionTask) GetInstanceId() string {
@@ -2891,7 +2979,7 @@ type RollbackTask struct {
 
 func (x *RollbackTask) Reset() {
 	*x = RollbackTask{}
-	mi := &file_agent_v1_agent_proto_msgTypes[32]
+	mi := &file_agent_v1_agent_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2903,7 +2991,7 @@ func (x *RollbackTask) String() string {
 func (*RollbackTask) ProtoMessage() {}
 
 func (x *RollbackTask) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_proto_msgTypes[32]
+	mi := &file_agent_v1_agent_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2916,7 +3004,7 @@ func (x *RollbackTask) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RollbackTask.ProtoReflect.Descriptor instead.
 func (*RollbackTask) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_proto_rawDescGZIP(), []int{32}
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{33}
 }
 
 func (x *RollbackTask) GetInstanceId() string {
@@ -2981,7 +3069,7 @@ type CollectBundleTask struct {
 
 func (x *CollectBundleTask) Reset() {
 	*x = CollectBundleTask{}
-	mi := &file_agent_v1_agent_proto_msgTypes[33]
+	mi := &file_agent_v1_agent_proto_msgTypes[34]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2993,7 +3081,7 @@ func (x *CollectBundleTask) String() string {
 func (*CollectBundleTask) ProtoMessage() {}
 
 func (x *CollectBundleTask) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_proto_msgTypes[33]
+	mi := &file_agent_v1_agent_proto_msgTypes[34]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3006,7 +3094,7 @@ func (x *CollectBundleTask) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CollectBundleTask.ProtoReflect.Descriptor instead.
 func (*CollectBundleTask) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_proto_rawDescGZIP(), []int{33}
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{34}
 }
 
 func (x *CollectBundleTask) GetIncludeAgentLogs() bool {
@@ -3056,7 +3144,7 @@ type AgentUpdateTask struct {
 
 func (x *AgentUpdateTask) Reset() {
 	*x = AgentUpdateTask{}
-	mi := &file_agent_v1_agent_proto_msgTypes[34]
+	mi := &file_agent_v1_agent_proto_msgTypes[35]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3068,7 +3156,7 @@ func (x *AgentUpdateTask) String() string {
 func (*AgentUpdateTask) ProtoMessage() {}
 
 func (x *AgentUpdateTask) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_proto_msgTypes[34]
+	mi := &file_agent_v1_agent_proto_msgTypes[35]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3081,7 +3169,7 @@ func (x *AgentUpdateTask) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AgentUpdateTask.ProtoReflect.Descriptor instead.
 func (*AgentUpdateTask) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_proto_rawDescGZIP(), []int{34}
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{35}
 }
 
 func (x *AgentUpdateTask) GetVersion() string {
@@ -3115,7 +3203,7 @@ type SetCapabilitiesTask struct {
 
 func (x *SetCapabilitiesTask) Reset() {
 	*x = SetCapabilitiesTask{}
-	mi := &file_agent_v1_agent_proto_msgTypes[35]
+	mi := &file_agent_v1_agent_proto_msgTypes[36]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3127,7 +3215,7 @@ func (x *SetCapabilitiesTask) String() string {
 func (*SetCapabilitiesTask) ProtoMessage() {}
 
 func (x *SetCapabilitiesTask) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_proto_msgTypes[35]
+	mi := &file_agent_v1_agent_proto_msgTypes[36]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3140,7 +3228,7 @@ func (x *SetCapabilitiesTask) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SetCapabilitiesTask.ProtoReflect.Descriptor instead.
 func (*SetCapabilitiesTask) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_proto_rawDescGZIP(), []int{35}
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{36}
 }
 
 func (x *SetCapabilitiesTask) GetCapabilities() []string {
@@ -3161,7 +3249,7 @@ type TaskCancel struct {
 
 func (x *TaskCancel) Reset() {
 	*x = TaskCancel{}
-	mi := &file_agent_v1_agent_proto_msgTypes[36]
+	mi := &file_agent_v1_agent_proto_msgTypes[37]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3173,7 +3261,7 @@ func (x *TaskCancel) String() string {
 func (*TaskCancel) ProtoMessage() {}
 
 func (x *TaskCancel) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_proto_msgTypes[36]
+	mi := &file_agent_v1_agent_proto_msgTypes[37]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3186,7 +3274,7 @@ func (x *TaskCancel) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TaskCancel.ProtoReflect.Descriptor instead.
 func (*TaskCancel) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_proto_rawDescGZIP(), []int{36}
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{37}
 }
 
 func (x *TaskCancel) GetTaskId() string {
@@ -3213,7 +3301,7 @@ type LogLevelChange struct {
 
 func (x *LogLevelChange) Reset() {
 	*x = LogLevelChange{}
-	mi := &file_agent_v1_agent_proto_msgTypes[37]
+	mi := &file_agent_v1_agent_proto_msgTypes[38]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3225,7 +3313,7 @@ func (x *LogLevelChange) String() string {
 func (*LogLevelChange) ProtoMessage() {}
 
 func (x *LogLevelChange) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_proto_msgTypes[37]
+	mi := &file_agent_v1_agent_proto_msgTypes[38]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3238,7 +3326,7 @@ func (x *LogLevelChange) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LogLevelChange.ProtoReflect.Descriptor instead.
 func (*LogLevelChange) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_proto_rawDescGZIP(), []int{37}
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{38}
 }
 
 func (x *LogLevelChange) GetLevel() string {
@@ -3258,7 +3346,7 @@ type ConfigPush struct {
 
 func (x *ConfigPush) Reset() {
 	*x = ConfigPush{}
-	mi := &file_agent_v1_agent_proto_msgTypes[38]
+	mi := &file_agent_v1_agent_proto_msgTypes[39]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3270,7 +3358,7 @@ func (x *ConfigPush) String() string {
 func (*ConfigPush) ProtoMessage() {}
 
 func (x *ConfigPush) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_proto_msgTypes[38]
+	mi := &file_agent_v1_agent_proto_msgTypes[39]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3283,7 +3371,7 @@ func (x *ConfigPush) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ConfigPush.ProtoReflect.Descriptor instead.
 func (*ConfigPush) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_proto_rawDescGZIP(), []int{38}
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{39}
 }
 
 func (x *ConfigPush) GetConfig() *AgentConfig {
@@ -3344,7 +3432,7 @@ const file_agent_v1_agent_proto_rawDesc = "" +
 	"\trules_dir\x18\x05 \x01(\tR\brulesDir\x12\x17\n" +
 	"\alog_dir\x18\x06 \x01(\tR\x06logDir\x12-\n" +
 	"\x12capture_interfaces\x18\a \x03(\tR\x11captureInterfaces\x12!\n" +
-	"\fsystemd_unit\x18\b \x01(\tR\vsystemdUnit\"\xd7\x02\n" +
+	"\fsystemd_unit\x18\b \x01(\tR\vsystemdUnit\"\x9b\x03\n" +
 	"\bHelloAck\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x01 \x01(\tR\tsessionId\x12%\n" +
@@ -3353,7 +3441,16 @@ const file_agent_v1_agent_proto_rawDesc = "" +
 	"\x1dstate_report_interval_seconds\x18\x04 \x01(\x05R\x1astateReportIntervalSeconds\x128\n" +
 	"\x18metrics_interval_seconds\x18\x05 \x01(\x05R\x16metricsIntervalSeconds\x12\x1b\n" +
 	"\tlog_level\x18\x06 \x01(\tR\blogLevel\x12-\n" +
-	"\x06config\x18\a \x01(\v2\x15.agent.v1.AgentConfigR\x06config\"\x93\x03\n" +
+	"\x06config\x18\a \x01(\v2\x15.agent.v1.AgentConfigR\x06config\x12B\n" +
+	"\x0fbound_instances\x18\b \x03(\v2\x19.agent.v1.InstanceBindingR\x0eboundInstances\"\x9d\x01\n" +
+	"\x0fInstanceBinding\x12\x1f\n" +
+	"\vinstance_id\x18\x01 \x01(\tR\n" +
+	"instanceId\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\x12\x1f\n" +
+	"\vconfig_path\x18\x03 \x01(\tR\n" +
+	"configPath\x12\x1b\n" +
+	"\trules_dir\x18\x04 \x01(\tR\brulesDir\x12\x17\n" +
+	"\alog_dir\x18\x05 \x01(\tR\x06logDir\"\x93\x03\n" +
 	"\vAgentConfig\x12\x1b\n" +
 	"\tlog_level\x18\x01 \x01(\tR\blogLevel\x12%\n" +
 	"\x0flog_max_size_mb\x18\x02 \x01(\x05R\flogMaxSizeMb\x12&\n" +
@@ -3591,7 +3688,7 @@ func file_agent_v1_agent_proto_rawDescGZIP() []byte {
 }
 
 var file_agent_v1_agent_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_agent_v1_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 41)
+var file_agent_v1_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 42)
 var file_agent_v1_agent_proto_goTypes = []any{
 	(TaskStatus)(0),               // 0: agent.v1.TaskStatus
 	(ServiceAction)(0),            // 1: agent.v1.ServiceAction
@@ -3600,107 +3697,109 @@ var file_agent_v1_agent_proto_goTypes = []any{
 	(*Hello)(nil),                 // 4: agent.v1.Hello
 	(*InstanceInfo)(nil),          // 5: agent.v1.InstanceInfo
 	(*HelloAck)(nil),              // 6: agent.v1.HelloAck
-	(*AgentConfig)(nil),           // 7: agent.v1.AgentConfig
-	(*Heartbeat)(nil),             // 8: agent.v1.Heartbeat
-	(*ResourceSummary)(nil),       // 9: agent.v1.ResourceSummary
-	(*InstanceServiceStatus)(nil), // 10: agent.v1.InstanceServiceStatus
-	(*StateReport)(nil),           // 11: agent.v1.StateReport
-	(*LoadedRule)(nil),            // 12: agent.v1.LoadedRule
-	(*FailedRule)(nil),            // 13: agent.v1.FailedRule
-	(*ReloadResult)(nil),          // 14: agent.v1.ReloadResult
-	(*RuleLoadReport)(nil),        // 15: agent.v1.RuleLoadReport
-	(*MetricsBatch)(nil),          // 16: agent.v1.MetricsBatch
-	(*MetricPoint)(nil),           // 17: agent.v1.MetricPoint
-	(*LogBatch)(nil),              // 18: agent.v1.LogBatch
-	(*LogEntry)(nil),              // 19: agent.v1.LogEntry
-	(*DiscoveryReport)(nil),       // 20: agent.v1.DiscoveryReport
-	(*DiscoveredInstance)(nil),    // 21: agent.v1.DiscoveredInstance
-	(*SuricataBinary)(nil),        // 22: agent.v1.SuricataBinary
-	(*TaskResult)(nil),            // 23: agent.v1.TaskResult
-	(*DeployRulesResult)(nil),     // 24: agent.v1.DeployRulesResult
-	(*DeployConfigResult)(nil),    // 25: agent.v1.DeployConfigResult
-	(*ServiceActionResult)(nil),   // 26: agent.v1.ServiceActionResult
-	(*RollbackResult)(nil),        // 27: agent.v1.RollbackResult
-	(*BundleResult)(nil),          // 28: agent.v1.BundleResult
-	(*AgentUpdateResult)(nil),     // 29: agent.v1.AgentUpdateResult
-	(*Task)(nil),                  // 30: agent.v1.Task
-	(*DeployRulesTask)(nil),       // 31: agent.v1.DeployRulesTask
-	(*DeployConfigTask)(nil),      // 32: agent.v1.DeployConfigTask
-	(*ServiceActionTask)(nil),     // 33: agent.v1.ServiceActionTask
-	(*RollbackTask)(nil),          // 34: agent.v1.RollbackTask
-	(*CollectBundleTask)(nil),     // 35: agent.v1.CollectBundleTask
-	(*AgentUpdateTask)(nil),       // 36: agent.v1.AgentUpdateTask
-	(*SetCapabilitiesTask)(nil),   // 37: agent.v1.SetCapabilitiesTask
-	(*TaskCancel)(nil),            // 38: agent.v1.TaskCancel
-	(*LogLevelChange)(nil),        // 39: agent.v1.LogLevelChange
-	(*ConfigPush)(nil),            // 40: agent.v1.ConfigPush
-	nil,                           // 41: agent.v1.MetricPoint.LabelsEntry
-	nil,                           // 42: agent.v1.LogEntry.AttrsEntry
-	(*timestamppb.Timestamp)(nil), // 43: google.protobuf.Timestamp
-	(*durationpb.Duration)(nil),   // 44: google.protobuf.Duration
+	(*InstanceBinding)(nil),       // 7: agent.v1.InstanceBinding
+	(*AgentConfig)(nil),           // 8: agent.v1.AgentConfig
+	(*Heartbeat)(nil),             // 9: agent.v1.Heartbeat
+	(*ResourceSummary)(nil),       // 10: agent.v1.ResourceSummary
+	(*InstanceServiceStatus)(nil), // 11: agent.v1.InstanceServiceStatus
+	(*StateReport)(nil),           // 12: agent.v1.StateReport
+	(*LoadedRule)(nil),            // 13: agent.v1.LoadedRule
+	(*FailedRule)(nil),            // 14: agent.v1.FailedRule
+	(*ReloadResult)(nil),          // 15: agent.v1.ReloadResult
+	(*RuleLoadReport)(nil),        // 16: agent.v1.RuleLoadReport
+	(*MetricsBatch)(nil),          // 17: agent.v1.MetricsBatch
+	(*MetricPoint)(nil),           // 18: agent.v1.MetricPoint
+	(*LogBatch)(nil),              // 19: agent.v1.LogBatch
+	(*LogEntry)(nil),              // 20: agent.v1.LogEntry
+	(*DiscoveryReport)(nil),       // 21: agent.v1.DiscoveryReport
+	(*DiscoveredInstance)(nil),    // 22: agent.v1.DiscoveredInstance
+	(*SuricataBinary)(nil),        // 23: agent.v1.SuricataBinary
+	(*TaskResult)(nil),            // 24: agent.v1.TaskResult
+	(*DeployRulesResult)(nil),     // 25: agent.v1.DeployRulesResult
+	(*DeployConfigResult)(nil),    // 26: agent.v1.DeployConfigResult
+	(*ServiceActionResult)(nil),   // 27: agent.v1.ServiceActionResult
+	(*RollbackResult)(nil),        // 28: agent.v1.RollbackResult
+	(*BundleResult)(nil),          // 29: agent.v1.BundleResult
+	(*AgentUpdateResult)(nil),     // 30: agent.v1.AgentUpdateResult
+	(*Task)(nil),                  // 31: agent.v1.Task
+	(*DeployRulesTask)(nil),       // 32: agent.v1.DeployRulesTask
+	(*DeployConfigTask)(nil),      // 33: agent.v1.DeployConfigTask
+	(*ServiceActionTask)(nil),     // 34: agent.v1.ServiceActionTask
+	(*RollbackTask)(nil),          // 35: agent.v1.RollbackTask
+	(*CollectBundleTask)(nil),     // 36: agent.v1.CollectBundleTask
+	(*AgentUpdateTask)(nil),       // 37: agent.v1.AgentUpdateTask
+	(*SetCapabilitiesTask)(nil),   // 38: agent.v1.SetCapabilitiesTask
+	(*TaskCancel)(nil),            // 39: agent.v1.TaskCancel
+	(*LogLevelChange)(nil),        // 40: agent.v1.LogLevelChange
+	(*ConfigPush)(nil),            // 41: agent.v1.ConfigPush
+	nil,                           // 42: agent.v1.MetricPoint.LabelsEntry
+	nil,                           // 43: agent.v1.LogEntry.AttrsEntry
+	(*timestamppb.Timestamp)(nil), // 44: google.protobuf.Timestamp
+	(*durationpb.Duration)(nil),   // 45: google.protobuf.Duration
 }
 var file_agent_v1_agent_proto_depIdxs = []int32{
-	43, // 0: agent.v1.AgentMessage.sent_at:type_name -> google.protobuf.Timestamp
+	44, // 0: agent.v1.AgentMessage.sent_at:type_name -> google.protobuf.Timestamp
 	4,  // 1: agent.v1.AgentMessage.hello:type_name -> agent.v1.Hello
-	8,  // 2: agent.v1.AgentMessage.heartbeat:type_name -> agent.v1.Heartbeat
-	11, // 3: agent.v1.AgentMessage.state_report:type_name -> agent.v1.StateReport
-	15, // 4: agent.v1.AgentMessage.rule_load_report:type_name -> agent.v1.RuleLoadReport
-	16, // 5: agent.v1.AgentMessage.metrics_batch:type_name -> agent.v1.MetricsBatch
-	18, // 6: agent.v1.AgentMessage.log_batch:type_name -> agent.v1.LogBatch
-	23, // 7: agent.v1.AgentMessage.task_result:type_name -> agent.v1.TaskResult
-	20, // 8: agent.v1.AgentMessage.discovery_report:type_name -> agent.v1.DiscoveryReport
-	43, // 9: agent.v1.ServerMessage.sent_at:type_name -> google.protobuf.Timestamp
+	9,  // 2: agent.v1.AgentMessage.heartbeat:type_name -> agent.v1.Heartbeat
+	12, // 3: agent.v1.AgentMessage.state_report:type_name -> agent.v1.StateReport
+	16, // 4: agent.v1.AgentMessage.rule_load_report:type_name -> agent.v1.RuleLoadReport
+	17, // 5: agent.v1.AgentMessage.metrics_batch:type_name -> agent.v1.MetricsBatch
+	19, // 6: agent.v1.AgentMessage.log_batch:type_name -> agent.v1.LogBatch
+	24, // 7: agent.v1.AgentMessage.task_result:type_name -> agent.v1.TaskResult
+	21, // 8: agent.v1.AgentMessage.discovery_report:type_name -> agent.v1.DiscoveryReport
+	44, // 9: agent.v1.ServerMessage.sent_at:type_name -> google.protobuf.Timestamp
 	6,  // 10: agent.v1.ServerMessage.hello_ack:type_name -> agent.v1.HelloAck
-	30, // 11: agent.v1.ServerMessage.task:type_name -> agent.v1.Task
-	38, // 12: agent.v1.ServerMessage.task_cancel:type_name -> agent.v1.TaskCancel
-	39, // 13: agent.v1.ServerMessage.log_level_change:type_name -> agent.v1.LogLevelChange
-	40, // 14: agent.v1.ServerMessage.config_push:type_name -> agent.v1.ConfigPush
+	31, // 11: agent.v1.ServerMessage.task:type_name -> agent.v1.Task
+	39, // 12: agent.v1.ServerMessage.task_cancel:type_name -> agent.v1.TaskCancel
+	40, // 13: agent.v1.ServerMessage.log_level_change:type_name -> agent.v1.LogLevelChange
+	41, // 14: agent.v1.ServerMessage.config_push:type_name -> agent.v1.ConfigPush
 	5,  // 15: agent.v1.Hello.instances:type_name -> agent.v1.InstanceInfo
-	7,  // 16: agent.v1.HelloAck.config:type_name -> agent.v1.AgentConfig
-	44, // 17: agent.v1.AgentConfig.log_max_age:type_name -> google.protobuf.Duration
-	9,  // 18: agent.v1.Heartbeat.resources:type_name -> agent.v1.ResourceSummary
-	10, // 19: agent.v1.Heartbeat.instances:type_name -> agent.v1.InstanceServiceStatus
-	12, // 20: agent.v1.StateReport.loaded_rules:type_name -> agent.v1.LoadedRule
-	13, // 21: agent.v1.StateReport.failed_rules:type_name -> agent.v1.FailedRule
-	14, // 22: agent.v1.StateReport.last_reload:type_name -> agent.v1.ReloadResult
-	43, // 23: agent.v1.StateReport.reported_at:type_name -> google.protobuf.Timestamp
-	1,  // 24: agent.v1.ReloadResult.action:type_name -> agent.v1.ServiceAction
-	43, // 25: agent.v1.ReloadResult.finished_at:type_name -> google.protobuf.Timestamp
-	13, // 26: agent.v1.RuleLoadReport.failed_rules:type_name -> agent.v1.FailedRule
-	43, // 27: agent.v1.RuleLoadReport.verified_at:type_name -> google.protobuf.Timestamp
-	17, // 28: agent.v1.MetricsBatch.points:type_name -> agent.v1.MetricPoint
-	43, // 29: agent.v1.MetricPoint.ts:type_name -> google.protobuf.Timestamp
-	41, // 30: agent.v1.MetricPoint.labels:type_name -> agent.v1.MetricPoint.LabelsEntry
-	19, // 31: agent.v1.LogBatch.entries:type_name -> agent.v1.LogEntry
-	43, // 32: agent.v1.LogEntry.ts:type_name -> google.protobuf.Timestamp
-	42, // 33: agent.v1.LogEntry.attrs:type_name -> agent.v1.LogEntry.AttrsEntry
-	21, // 34: agent.v1.DiscoveryReport.instances:type_name -> agent.v1.DiscoveredInstance
-	22, // 35: agent.v1.DiscoveryReport.binary:type_name -> agent.v1.SuricataBinary
-	0,  // 36: agent.v1.TaskResult.status:type_name -> agent.v1.TaskStatus
-	24, // 37: agent.v1.TaskResult.deploy_rules:type_name -> agent.v1.DeployRulesResult
-	25, // 38: agent.v1.TaskResult.deploy_config:type_name -> agent.v1.DeployConfigResult
-	26, // 39: agent.v1.TaskResult.service_action:type_name -> agent.v1.ServiceActionResult
-	27, // 40: agent.v1.TaskResult.rollback:type_name -> agent.v1.RollbackResult
-	28, // 41: agent.v1.TaskResult.bundle:type_name -> agent.v1.BundleResult
-	29, // 42: agent.v1.TaskResult.agent_update:type_name -> agent.v1.AgentUpdateResult
-	11, // 43: agent.v1.TaskResult.state_after:type_name -> agent.v1.StateReport
-	43, // 44: agent.v1.Task.deadline:type_name -> google.protobuf.Timestamp
-	31, // 45: agent.v1.Task.deploy_rules:type_name -> agent.v1.DeployRulesTask
-	32, // 46: agent.v1.Task.deploy_config:type_name -> agent.v1.DeployConfigTask
-	33, // 47: agent.v1.Task.service_action:type_name -> agent.v1.ServiceActionTask
-	34, // 48: agent.v1.Task.rollback:type_name -> agent.v1.RollbackTask
-	35, // 49: agent.v1.Task.collect_bundle:type_name -> agent.v1.CollectBundleTask
-	36, // 50: agent.v1.Task.agent_update:type_name -> agent.v1.AgentUpdateTask
-	37, // 51: agent.v1.Task.set_capabilities:type_name -> agent.v1.SetCapabilitiesTask
-	1,  // 52: agent.v1.ServiceActionTask.action:type_name -> agent.v1.ServiceAction
-	7,  // 53: agent.v1.ConfigPush.config:type_name -> agent.v1.AgentConfig
-	2,  // 54: agent.v1.AgentChannel.Channel:input_type -> agent.v1.AgentMessage
-	3,  // 55: agent.v1.AgentChannel.Channel:output_type -> agent.v1.ServerMessage
-	55, // [55:56] is the sub-list for method output_type
-	54, // [54:55] is the sub-list for method input_type
-	54, // [54:54] is the sub-list for extension type_name
-	54, // [54:54] is the sub-list for extension extendee
-	0,  // [0:54] is the sub-list for field type_name
+	8,  // 16: agent.v1.HelloAck.config:type_name -> agent.v1.AgentConfig
+	7,  // 17: agent.v1.HelloAck.bound_instances:type_name -> agent.v1.InstanceBinding
+	45, // 18: agent.v1.AgentConfig.log_max_age:type_name -> google.protobuf.Duration
+	10, // 19: agent.v1.Heartbeat.resources:type_name -> agent.v1.ResourceSummary
+	11, // 20: agent.v1.Heartbeat.instances:type_name -> agent.v1.InstanceServiceStatus
+	13, // 21: agent.v1.StateReport.loaded_rules:type_name -> agent.v1.LoadedRule
+	14, // 22: agent.v1.StateReport.failed_rules:type_name -> agent.v1.FailedRule
+	15, // 23: agent.v1.StateReport.last_reload:type_name -> agent.v1.ReloadResult
+	44, // 24: agent.v1.StateReport.reported_at:type_name -> google.protobuf.Timestamp
+	1,  // 25: agent.v1.ReloadResult.action:type_name -> agent.v1.ServiceAction
+	44, // 26: agent.v1.ReloadResult.finished_at:type_name -> google.protobuf.Timestamp
+	14, // 27: agent.v1.RuleLoadReport.failed_rules:type_name -> agent.v1.FailedRule
+	44, // 28: agent.v1.RuleLoadReport.verified_at:type_name -> google.protobuf.Timestamp
+	18, // 29: agent.v1.MetricsBatch.points:type_name -> agent.v1.MetricPoint
+	44, // 30: agent.v1.MetricPoint.ts:type_name -> google.protobuf.Timestamp
+	42, // 31: agent.v1.MetricPoint.labels:type_name -> agent.v1.MetricPoint.LabelsEntry
+	20, // 32: agent.v1.LogBatch.entries:type_name -> agent.v1.LogEntry
+	44, // 33: agent.v1.LogEntry.ts:type_name -> google.protobuf.Timestamp
+	43, // 34: agent.v1.LogEntry.attrs:type_name -> agent.v1.LogEntry.AttrsEntry
+	22, // 35: agent.v1.DiscoveryReport.instances:type_name -> agent.v1.DiscoveredInstance
+	23, // 36: agent.v1.DiscoveryReport.binary:type_name -> agent.v1.SuricataBinary
+	0,  // 37: agent.v1.TaskResult.status:type_name -> agent.v1.TaskStatus
+	25, // 38: agent.v1.TaskResult.deploy_rules:type_name -> agent.v1.DeployRulesResult
+	26, // 39: agent.v1.TaskResult.deploy_config:type_name -> agent.v1.DeployConfigResult
+	27, // 40: agent.v1.TaskResult.service_action:type_name -> agent.v1.ServiceActionResult
+	28, // 41: agent.v1.TaskResult.rollback:type_name -> agent.v1.RollbackResult
+	29, // 42: agent.v1.TaskResult.bundle:type_name -> agent.v1.BundleResult
+	30, // 43: agent.v1.TaskResult.agent_update:type_name -> agent.v1.AgentUpdateResult
+	12, // 44: agent.v1.TaskResult.state_after:type_name -> agent.v1.StateReport
+	44, // 45: agent.v1.Task.deadline:type_name -> google.protobuf.Timestamp
+	32, // 46: agent.v1.Task.deploy_rules:type_name -> agent.v1.DeployRulesTask
+	33, // 47: agent.v1.Task.deploy_config:type_name -> agent.v1.DeployConfigTask
+	34, // 48: agent.v1.Task.service_action:type_name -> agent.v1.ServiceActionTask
+	35, // 49: agent.v1.Task.rollback:type_name -> agent.v1.RollbackTask
+	36, // 50: agent.v1.Task.collect_bundle:type_name -> agent.v1.CollectBundleTask
+	37, // 51: agent.v1.Task.agent_update:type_name -> agent.v1.AgentUpdateTask
+	38, // 52: agent.v1.Task.set_capabilities:type_name -> agent.v1.SetCapabilitiesTask
+	1,  // 53: agent.v1.ServiceActionTask.action:type_name -> agent.v1.ServiceAction
+	8,  // 54: agent.v1.ConfigPush.config:type_name -> agent.v1.AgentConfig
+	2,  // 55: agent.v1.AgentChannel.Channel:input_type -> agent.v1.AgentMessage
+	3,  // 56: agent.v1.AgentChannel.Channel:output_type -> agent.v1.ServerMessage
+	56, // [56:57] is the sub-list for method output_type
+	55, // [55:56] is the sub-list for method input_type
+	55, // [55:55] is the sub-list for extension type_name
+	55, // [55:55] is the sub-list for extension extendee
+	0,  // [0:55] is the sub-list for field type_name
 }
 
 func init() { file_agent_v1_agent_proto_init() }
@@ -3725,7 +3824,7 @@ func file_agent_v1_agent_proto_init() {
 		(*ServerMessage_LogLevelChange)(nil),
 		(*ServerMessage_ConfigPush)(nil),
 	}
-	file_agent_v1_agent_proto_msgTypes[21].OneofWrappers = []any{
+	file_agent_v1_agent_proto_msgTypes[22].OneofWrappers = []any{
 		(*TaskResult_DeployRules)(nil),
 		(*TaskResult_DeployConfig)(nil),
 		(*TaskResult_ServiceAction)(nil),
@@ -3733,7 +3832,7 @@ func file_agent_v1_agent_proto_init() {
 		(*TaskResult_Bundle)(nil),
 		(*TaskResult_AgentUpdate)(nil),
 	}
-	file_agent_v1_agent_proto_msgTypes[28].OneofWrappers = []any{
+	file_agent_v1_agent_proto_msgTypes[29].OneofWrappers = []any{
 		(*Task_DeployRules)(nil),
 		(*Task_DeployConfig)(nil),
 		(*Task_ServiceAction)(nil),
@@ -3742,11 +3841,11 @@ func file_agent_v1_agent_proto_init() {
 		(*Task_AgentUpdate)(nil),
 		(*Task_SetCapabilities)(nil),
 	}
-	file_agent_v1_agent_proto_msgTypes[30].OneofWrappers = []any{
+	file_agent_v1_agent_proto_msgTypes[31].OneofWrappers = []any{
 		(*DeployConfigTask_SignedUrl)(nil),
 		(*DeployConfigTask_InlineYaml)(nil),
 	}
-	file_agent_v1_agent_proto_msgTypes[32].OneofWrappers = []any{
+	file_agent_v1_agent_proto_msgTypes[33].OneofWrappers = []any{
 		(*RollbackTask_RulesetVersion)(nil),
 		(*RollbackTask_ConfigVersion)(nil),
 	}
@@ -3756,7 +3855,7 @@ func file_agent_v1_agent_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_agent_v1_agent_proto_rawDesc), len(file_agent_v1_agent_proto_rawDesc)),
 			NumEnums:      2,
-			NumMessages:   41,
+			NumMessages:   42,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

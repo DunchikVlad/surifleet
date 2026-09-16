@@ -105,6 +105,19 @@ message HelloAck {
   int32 metrics_interval_seconds = 5;       // период MetricsBatch, по умолчанию 60
   string log_level = 6;                     // debug | info | warn | error
   AgentConfig config = 7;                   // полная конфигурация агента (ротация логов и т.п.)
+  // Привязка агента к зарегистрированным на сервере инстансам Suricata
+  // (instance_id выдаётся при confirm_discovery). Агент узнаёт свои
+  // instance_id сразу при подключении, не дожидаясь первой задачи.
+  repeated InstanceBinding bound_instances = 8;
+}
+
+// InstanceBinding — привязка агента к зарегистрированному инстансу Suricata.
+message InstanceBinding {
+  string instance_id = 1;                   // UUID инстанса (серверная «правда»)
+  string name = 2;
+  string config_path = 3;                   // путь к suricata.yaml
+  string rules_dir = 4;
+  string log_dir = 5;
 }
 
 // AgentConfig — настройки самого агента, управляемые с сервера централизованно.

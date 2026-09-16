@@ -236,6 +236,34 @@ func (s *Server) hostCapabilities(ctx context.Context, log *slog.Logger, agentID
 	return caps
 }
 
+// instanceBindings — привязка агента к зарегистрированным инстансам Suricata
+// его хоста для HelloAck.bound_instances: агент узнаёт свои instance_id
+// сразу при подключении, не дожидаясь первой задачи. Ошибка чтения не
+// блокирует сессию — агент просто получит пустой список.
+func (s *Server) instanceBindings(ctx context.Context, log *slog.Logger, agentID uuid.UUID) []*agentv1.InstanceBinding {
+	host, err := s.db.Hosts.GetByAgentID(ctx, agentID)
+	if err != nil {
+		log.Error("bindings: хост агента не найден", "err", err)
+		return nil
+	}
+	instances, _, err := s.db.Instances.List(ctx, host.ID, uuid.Nil, uuid.Nil, 100)
+	if err != nil {
+		log.Error("bindings: список инстансов хоста", "host_id", host.ID, "err", err)
+		return nil
+	}
+	out := make([]*agentv1.InstanceBinding, 0, len(instances))
+	for _, inst := range instances {
+		out = append(out, &agentv1.InstanceBinding{
+			InstanceId: inst.ID.String(),
+			Name:       inst.Name,
+			ConfigPath: inst.ConfigPath,
+			RulesDir:   inst.RulesDir,
+			LogDir:     inst.LogDir,
+		})
+	}
+	return out
+}
+
 // --- разбор jsonb-колонок desired/actual в структуры compliance ---
 
 // computedRule — элемент desired_state.computed_rules ([{sid,rev,status}]).
