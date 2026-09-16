@@ -1291,8 +1291,8 @@ paths:
     post:
       operationId: resume_deployment
       tags: [deployments]
-      summary: Продолжить приостановленный деплой
-      description: "Требуется право: deployments.control"
+      summary: Продолжить приостановленный или завершившийся ошибкой деплой
+      description: "Resume из paused или failed: failed-задачи переводятся в pending и прогоняются заново. Требуется право: deployments.control"
       parameters:
         - {$ref: '#/components/parameters/PathId'}
       responses:

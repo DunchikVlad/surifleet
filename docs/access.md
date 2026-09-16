@@ -97,7 +97,8 @@ default 50) и `cursor`; в ответе `next_cursor` (null — страниц 
   (`total/pending/running/succeeded/failed`, `current_wave`) + лента
   событий деплоя.
 - `POST /deployments/{id}/pause` | `/resume` | `/cancel` — управление
-  (известное ограничение: resume не перезапускает уже failed-задачи).
+  (resume работает из paused и из финального failed: failed-задачи
+  переводятся в pending и прогоняются заново — проверено живьём).
 - `GET /deployments/{id}/tasks` — задачи по инстансам (status, attempts,
   error, result с `loaded_count` и `ruleset_hash`).
 
@@ -166,7 +167,5 @@ curl "$API/fleet/compliance"
 ## 7. Известные ограничения (на 2026-09-16)
 
 - Нет UI и настоящей аутентификации (DevAuth-заглушка).
-- Resume деплоя не перезапускает задачи в статусе failed (только
-  pending/running) — пересоздавайте деплой.
-- Логи агентов на сервер не стекаются (LogBatch → ClickHouse — чанк 12b).
+- Логи агентов на сервер не стекаются (LogBatch → ClickHouse — чанк 12c).
 - Автооткат при падении сервиса Suricata после деплоя (watchdog) — чанк 12b.

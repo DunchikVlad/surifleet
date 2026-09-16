@@ -309,9 +309,12 @@ func (h *handlers) resumeDeployment(w http.ResponseWriter, r *http.Request) {
 		writeStoreError(w, err)
 		return
 	}
-	if d.Status != "paused" {
+	// Resume допустим из paused (оператор снял паузу) и из финального
+	// failed (повторный прогон: failed-задачи → pending ниже). Из
+	// completed/cancelled повтор запрещён — создавайте новый деплой.
+	if d.Status != "paused" && d.Status != "failed" {
 		writeError(w, http.StatusConflict, CodeConflict,
-			"resume возможен только из paused (текущий: "+d.Status+")", nil)
+			"resume возможен только из paused или failed (текущий: "+d.Status+")", nil)
 		return
 	}
 	if _, err := h.d.Store.Deployments.RetryFailedTasks(r.Context(), id); err != nil {

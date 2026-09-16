@@ -134,7 +134,7 @@ func (e *taskExecutor) executeDeploy(task *agentv1.Task, dr *agentv1.DeployRules
 
 	// Capability-гейт: без rules хост не отдаёт управление правилами (ТЗ п.5).
 	if !e.caps["rules"] {
-		e.failAndJournal(taskID, nil, "capability rules не включена для хоста")
+		e.failTask(taskID, nil, "capability rules не включена для хоста")
 		return
 	}
 	// Идемпотентность: повторная доставка — повтор сохранённого результата.
@@ -150,7 +150,7 @@ func (e *taskExecutor) executeDeploy(task *agentv1.Task, dr *agentv1.DeployRules
 	}
 	// Дедлайн: после срока задача не выполняется (protocol: cancelled).
 	if dl := task.GetDeadline(); dl != nil && time.Now().After(dl.AsTime()) {
-		e.failAndJournal(taskID, nil, "дедлайн задачи истёк") // failed, не cancelled: сервер фиксирует невыполнение
+		e.failTask(taskID, nil, "дедлайн задачи истёк") // failed, не cancelled: сервер фиксирует невыполнение
 		return
 	}
 
@@ -159,19 +159,19 @@ func (e *taskExecutor) executeDeploy(task *agentv1.Task, dr *agentv1.DeployRules
 	// 1. Скачивание блоба и сверка целостности.
 	data, err := downloadBlob(dr.GetSignedUrl())
 	if err != nil {
-		e.failAndJournal(taskID, nil, "скачивание ruleset: "+err.Error())
+		e.failTask(taskID, nil, "скачивание ruleset: "+err.Error())
 		return
 	}
 	sum := sha256.Sum256(data)
 	if got := hex.EncodeToString(sum[:]); got != hash {
-		e.failAndJournal(taskID, nil, fmt.Sprintf("sha256 не совпал: ожидался %s, получен %s", hash, got))
+		e.failTask(taskID, nil, fmt.Sprintf("sha256 не совпал: ожидался %s, получен %s", hash, got))
 		return
 	}
 	log.Info("ruleset скачан и проверен", "bytes", len(data), "sha256", hash)
 
 	// 2. rule-files в suricata.yaml должен включать managed-файл (с бэкапом).
 	if err := ensureRuleFiles(dr.GetConfigPath(), log); err != nil {
-		e.failAndJournal(taskID, nil, "правка rule-files: "+err.Error())
+		e.failTask(taskID, nil, "правка rule-files: "+err.Error())
 		return
 	}
 
@@ -179,11 +179,11 @@ func (e *taskExecutor) executeDeploy(task *agentv1.Task, dr *agentv1.DeployRules
 	target := filepath.Join(dr.GetRulesDir(), managedRulesFile)
 	backup, hadBackup, err := backupFile(target)
 	if err != nil {
-		e.failAndJournal(taskID, nil, "бэкап managed-файла: "+err.Error())
+		e.failTask(taskID, nil, "бэкап managed-файла: "+err.Error())
 		return
 	}
 	if err := writeFileAtomic(target, data, 0o644); err != nil {
-		e.failAndJournal(taskID, nil, "запись managed-файла: "+err.Error())
+		e.failTask(taskID, nil, "запись managed-файла: "+err.Error())
 		return
 	}
 	log.Info("managed-файл записан", "path", target, "backup", backup)
@@ -191,7 +191,7 @@ func (e *taskExecutor) executeDeploy(task *agentv1.Task, dr *agentv1.DeployRules
 	// 4. Валидация конфигурации движком; при ошибке — откат файла.
 	if out, err := validateConfig(dr.GetConfigPath()); err != nil {
 		rollback(target, backup, hadBackup, log)
-		e.failAndJournal(taskID, nil, "suricata -T: "+err.Error()+"; вывод: "+tail(out, 20))
+		e.failTask(taskID, nil, "suricata -T: "+err.Error()+"; вывод: "+tail(out, 20))
 		return
 	}
 	log.Info("suricata -T пройден")
@@ -256,7 +256,7 @@ func (e *taskExecutor) executeDeploy(task *agentv1.Task, dr *agentv1.DeployRules
 	// отклонённые правила — НЕ провал задачи (сервер посчитает partial
 	// по actual state). Провал — невозможность применить (см. выше).
 	if !reloadOK {
-		e.failAndJournal(taskID, deployRes, reloadMsg)
+		e.failTask(taskID, deployRes, reloadMsg)
 		return
 	}
 	res := &agentv1.TaskResult{
@@ -291,8 +291,11 @@ func (e *taskExecutor) reply2(m *agentv1.AgentMessage) {
 	}
 }
 
-// failAndJournal — TaskResult failed + запись в журнал (идемпотентность).
-func (e *taskExecutor) failAndJournal(taskID string, deploy *agentv1.DeployRulesResult, msg string) {
+// failTask — TaskResult failed БЕЗ записи в журнал: провал задачи должен
+// быть перевыполним (resume на сервере → повторная доставка → новая попытка
+// с актуальным окружением). В журнал (идемпотентность) пишется только
+// succeeded — иначе resume навсегда проигрывал бы устаревший провал.
+func (e *taskExecutor) failTask(taskID string, deploy *agentv1.DeployRulesResult, msg string) {
 	e.log.Warn("задача завершилась ошибкой", "task_id", taskID, "error", msg)
 	e.reply(&agentv1.TaskResult{
 		TaskId:  taskID,
@@ -300,7 +303,6 @@ func (e *taskExecutor) failAndJournal(taskID string, deploy *agentv1.DeployRules
 		Error:   msg,
 		Details: deployDetails(deploy),
 	})
-	e.saveProcessed(taskID, cachedResult{Status: "failed", Error: msg, Deploy: deploy})
 }
 
 func deployDetails(d *agentv1.DeployRulesResult) *agentv1.TaskResult_DeployRules {
