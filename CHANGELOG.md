@@ -7,6 +7,18 @@
 
 ### Added
 
+- Чанк 12a (2026-09-16): агент при capability 'rules' полностью берёт
+  секцию rule-files под управление — ensureRuleFiles отключает чужие
+  источники правил комментарием "# surifleet-disabled:" (идемпотентно,
+  с бэкапом yaml), активным остаётся только zz-surifleet-managed.rules.
+  Живой e2e: деплой ET-сабсета (245 правил) → succeeded за 6 с,
+  loaded=245/failed=0, compliance in_sync; движок ruleset-stats
+  245 loaded / 0 failed. Закрыта причина Duplicate signature; ошибка
+  sid 2045706 подтверждена как каскад от дубликатов. (agent)
+- docs/access.md — как подключиться к стенду: карта портов и доступов,
+  DevAuth, полная карта эндпоинтов /api/v1 с примерами curl, сквозной
+  сценарий «импорт → ruleset → деплой → compliance», статус UI.
+  (docs)
 - Верификация чанка 11, заход 3 (2026-09-16): **позитивный сценарий пройден
   полностью** — ruleset smoke2 (2 кастомных правила sid 9000020/9000021)
   задеплоен волной на инстанс: задача succeeded (loaded=2, failed=0),
@@ -38,9 +50,9 @@
 
 ### Known issues (выявлены верификацией, заход 2)
 
-- Деплой подмножества ET Open конфликтует со штатным suricata.rules
-  (Duplicate signature) — по дизайну SuriFleet при capability 'rules'
-  должен сам управлять rule-files (чанк 12).
+- ~~Деплой подмножества ET Open конфликтует со штатным suricata.rules
+  (Duplicate signature)~~ — РЕШЕНО в чанке 12a: агент отключает штатные
+  источники правил при capability 'rules'.
 - POST /deployments/{id}/resume не перезапускает failed-задачи. (server)
 
 ### Added (ранее)

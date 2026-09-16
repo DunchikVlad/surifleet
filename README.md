@@ -43,6 +43,7 @@ web/            React-фронтенд
 - [PROGRESS.md](PROGRESS.md) — текущая фаза, что сделано, следующий шаг.
 - [FEATURES.md](FEATURES.md) — реестр функционала: пункт ТЗ → статус → где реализовано.
 - [CHANGELOG.md](CHANGELOG.md) — журнал изменений по чанкам (Keep a Changelog).
+- [docs/access.md](docs/access.md) — как подключиться к стенду: API, порты, сценарии использования.
 
 ## Требования к разработке
 

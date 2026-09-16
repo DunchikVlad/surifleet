@@ -27,8 +27,11 @@ import (
 // Параметры деплоя правил (chunk 11).
 const (
 	// managedRulesFile — имя файла правил под управлением SuriFleet.
-	// Отдельный файл: пользовательские .rules не трогаем, в suricata.yaml
-	// добавляется одна строка в rule-files (с бэкапом).
+	// При capability 'rules' SuriFleet полностью управляет секцией
+	// rule-files в suricata.yaml: managed-файл добавляется, прочие
+	// источники отключаются комментарием "# surifleet-disabled:"
+	// (иначе правила из деплоя конфликтуют со штатными — Duplicate
+	// signature). Все правки — с бэкапом yaml рядом (.surifleet-bak-TS).
 	managedRulesFile = "zz-surifleet-managed.rules"
 	// defaultCommandSocket — сокет unix-command Suricata по умолчанию
 	// (переопределяется из unix-command.filename конфига инстанса).
@@ -408,21 +411,23 @@ func downloadBlob(url string) ([]byte, error) {
 // --- правка suricata.yaml (rule-files) ---
 
 // ensureRuleFiles гарантирует, что managed-файл присутствует в секции
-// rule-files конфига. При изменении — бэкап yaml рядом (.surifleet-bak-TS).
+// rule-files конфига и что он там ЕДИНСТВЕННЫЙ активный источник правил:
+// при capability 'rules' SuriFleet берёт набор rule-files под полное
+// управление — прочие элементы отключаются комментарием
+// "# surifleet-disabled:" (идемпотентно, повторный вызов их не трогает).
+// При изменении — бэкап yaml рядом (.surifleet-bak-TS).
 func ensureRuleFiles(configPath string, log *slog.Logger) error {
 	raw, err := os.ReadFile(configPath)
 	if err != nil {
 		return err
 	}
-	content := string(raw)
-	if strings.Contains(content, managedRulesFile) {
-		return nil // уже подключён
-	}
+	lines := strings.Split(string(raw), "\n")
 
-	lines := strings.Split(content, "\n")
-	// Ищем секцию rule-files: и последний элемент списка внутри неё.
+	// Ищем секцию rule-files:, внутри неё — активные элементы списка.
 	secIdx := -1
 	lastItem := -1
+	managedPresent := false
+	disabled := 0
 	for i, ln := range lines {
 		trimmed := strings.TrimSpace(ln)
 		if secIdx < 0 {
@@ -433,10 +438,22 @@ func ensureRuleFiles(configPath string, log *slog.Logger) error {
 		}
 		// Внутри секции: элементы списка вида "  - file.rules".
 		if strings.HasPrefix(trimmed, "- ") {
-			lastItem = i
+			entry := strings.Trim(strings.TrimSpace(strings.TrimPrefix(trimmed, "- ")), `"'`)
+			if entry == managedRulesFile {
+				managedPresent = true
+				lastItem = i
+				continue
+			}
+			// Отключаем чужой источник правил: оставляем строку
+			// комментарием с маркером — обратимо и идемпотентно.
+			indent := ln[:len(ln)-len(strings.TrimLeft(ln, " \t"))]
+			lines[i] = indent + "# surifleet-disabled: " + trimmed
+			log.Info("rule-files: источник отключён (управление у SuriFleet)", "entry", entry)
+			disabled++
 			continue
 		}
-		// Пустые строки/комментарии внутри списка допустимы.
+		// Пустые строки/комментарии внутри списка допустимы (в т.ч. наши
+		// "# surifleet-disabled:" от прошлых запусков).
 		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
 			continue
 		}
@@ -444,6 +461,9 @@ func ensureRuleFiles(configPath string, log *slog.Logger) error {
 	}
 	if secIdx < 0 {
 		return fmt.Errorf("секция rule-files не найдена в %s", configPath)
+	}
+	if managedPresent && disabled == 0 {
+		return nil // уже подключён и единственный активный
 	}
 
 	// Бэкап оригинала рядом с конфигом.
@@ -453,12 +473,14 @@ func ensureRuleFiles(configPath string, log *slog.Logger) error {
 	}
 	log.Info("бэкап suricata.yaml создан", "path", bak)
 
-	entry := "  - " + managedRulesFile
-	insertAt := secIdx + 1
-	if lastItem >= 0 {
-		insertAt = lastItem + 1
+	if !managedPresent {
+		entry := "  - " + managedRulesFile
+		insertAt := secIdx + 1
+		if lastItem >= 0 {
+			insertAt = lastItem + 1
+		}
+		lines = append(lines[:insertAt], append([]string{entry}, lines[insertAt:]...)...)
 	}
-	lines = append(lines[:insertAt], append([]string{entry}, lines[insertAt:]...)...)
 	return os.WriteFile(configPath, []byte(strings.Join(lines, "\n")), 0o644)
 }
 
