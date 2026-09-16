@@ -7,6 +7,14 @@
 
 ### Added
 
+- Чанк 12c-2 (2026-09-16): watchdog автоотката после успешного деплоя.
+  Через 90 с агент проверяет живость движка (systemctl is-active по
+  systemd_unit из задачи; fallback — suricatasc uptime); если движок не
+  жив — откат managed-файла из бэкапа, systemctl restart, повторная
+  проверка. Живой e2e: движок остановлен сразу после деплоя → watchdog
+  детектировал, за 6 с откатил ruleset и поднял сервис (is-active=active,
+  managed-файл откачен на прежнюю версию). Сервер видит откат косвенно:
+  heartbeat + drift compliance. (agent)
 - Чанк 12c-1 (2026-09-16): сервер в HelloAck отдаёт агенту привязку к
   зарегистрированным инстансам Suricata (`bound_instances`: instance_id,
   name, config_path, rules_dir, log_dir) — агент знает свои instance_id

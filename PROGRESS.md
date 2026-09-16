@@ -10,15 +10,24 @@
 
 ## Следующий шаг (конкретно)
 
-**Чанк 12c-2** (после 12c-1, 2026-09-16):
-1. ~~instance_id агенту~~ — СДЕЛАНО в 12c-1 (HelloAck.bound_instances +
-   bound_instances.json в data_dir агента; проверено живьём).
-2. Автооткат при падении сервиса Suricata после деплоя (watchdog) —
-   использовать bound_instances (config_path/rules_dir уже есть у агента).
-3. Логи агента на сервер: LogBatch → ClickHouse.
-4. **Аномалия (не блокер)**: из ssh `sudo rm` в /etc/suricata → Permission
+**Чанк 12c-3** (после 12c-2, 2026-09-16):
+1. ~~instance_id агенту~~ — СДЕЛАНО в 12c-1. ~~watchdog~~ — СДЕЛАНО в 12c-2.
+2. Логи агента на сервер: LogBatch → ClickHouse.
+3. **Аномалия (не блокер)**: из ssh `sudo rm` в /etc/suricata → Permission
    denied при работающем touch; обход — агент от root правит сам (12a).
-5. UI фазы 2 (матрица правила×хосты, страница инстанса, сводка флота).
+4. UI фазы 2 (матрица правила×хосты, страница инстанса, сводка флота).
+5. Улучшение watchdog: серверу сейчас виден откат только косвенно
+   (heartbeat + drift) — завести явное событие/уведомление.
+
+Чанк 12c-2 ГОТОВ И ПРОВЕРЕН (2026-09-16): watchdog автоотката после
+деплоя. Через 90 с после успешного деплоя агент проверяет живость движка
+(systemctl is-active по systemd_unit, fallback — suricatasc uptime); если
+не жив — откат managed-файла из бэкапа + systemctl restart + повторная
+проверка. Живой e2e: деплой e3df40cf (ruleset 2.0) → успех → движок
+остановлен наблюдателем → watchdog в +90 с: «движок НЕ жив — откат» →
+за 6 с откат + рестарт → «движок поднят», is-active=active, managed-файл
+откачен на 245-правильную версию. Побочно выяснено: systemctl stop
+Suricata — graceful, занимает до ~55 с (учитывать в тестах).
 
 Чанк 12b ГОТОВ И ПРОВЕРЕН (2026-09-16): починен resume failed-деплоев
 end-to-end. Кореневая причина была на агенте: failed-результаты писались
@@ -78,7 +87,8 @@ managed-файле (245 правил).
 | 11 | Волновой деплой (требование А) — **ГОТОВО И ПРОВЕРЕНО ЖИВЬЁМ**: `internal/blob` (MinIO, content-addressed по SHA-256, presigned GET); `internal/ruleset` (детерминированный рендер ruleset из выбранных правил); `internal/store` rulesets/deploy/capabilities; `internal/orchestrator` (волны canary+batch, Recover при рестарте, DispatchPending при Hello, HandleTaskResult, auto-pause при провале canary, deploy_events); `internal/hub/tasks.go` (in-process реестр стримов, SendTask); `internal/compliance` (расчёт in_sync/pending/partial/drift/stale по событиям); `cmd/agent/deploy.go` (скачивание блоба + проверка SHA-256, бэкап, атомарная запись, suricata -T с откатом, reload-rules через сокет, верификация ruleset-failed-rules, журнал обработанных task_id для идемпотентности); API: /rulesets, /deployments (+pause/resume/cancel/tasks), /instances/{id}/state, /instances/{id}/deploy_history, /fleet/compliance, capabilities. Живой e2e (2026-09-16): негатив (битые правила → suricata -T → откат → failed с текстом парсера) и позитив (ruleset из 2 кастомных правил → succeeded, loaded=2/failed=0, compliance in_sync, движок 52743 loaded/0 failed). Исправлены: игнор rule_ids в POST /rulesets, таймаут reload-rules 30→240 с, s3.public_endpoint в example-конфиге | 8dea190 |
 | 12a | Агент управляет rule-files + документация доступа: `ensureRuleFiles` при capability 'rules' отключает чужие источники правил комментарием `# surifleet-disabled:` (идемпотентно, бэкап yaml .surifleet-bak-TS), оставляя только zz-surifleet-managed.rules — закрыта причина Duplicate signature при деплое ET-подмножеств. Живой e2e: деплой 335b6069 (245 ET-правил) → succeeded за 6 с, loaded=245/failed=0, in_sync; suricata -T ускорился 48 с → <1 с; подтверждено, что ошибка sid 2045706 была каскадом от дубликатов. Новый документ `docs/access.md`: карта портов/доступов стенда, DevAuth, полная карта эндпоинтов /api/v1, сквозной сценарий «импорт → ruleset → деплой → compliance», статус UI (не реализован) | f18b822 |
 | 12b | Фикс resume failed-деплоев end-to-end: сервер — resume допустим из финального failed (раньше 409); агент — failed-результаты больше не пишутся в журнал идемпотентности processed_tasks.jsonl (раньше повторная доставка проигрывала устаревший закэшированный провал — кореневая причина бага; журналируется только succeeded). Живой e2e: деплой 1b8fbcf5 → resume → задача перевыполнена (attempts=3) → succeeded (245/0), деплой completed, fleet in_sync | bdad386 |
-| 12c-1 | instance_id агенту при подключении: proto HelloAck.bound_instances (InstanceBinding: instance_id/name/config_path/rules_dir/log_dir), сервер — instanceBindings (инстансы хоста агента), агент — лог привязки + data_dir/bound_instances.json (0600, атомарно). Регенерация proto через scripts/gen-proto.sh. Живой e2e: при Hello агент получил instance_id 468c9c71…, файл записан | (этот коммит) |
+| 12c-1 | instance_id агенту при подключении: proto HelloAck.bound_instances (InstanceBinding: instance_id/name/config_path/rules_dir/log_dir), сервер — instanceBindings (инстансы хоста агента), агент — лог привязки + data_dir/bound_instances.json (0600, атомарно). Регенерация proto через scripts/gen-proto.sh. Живой e2e: при Hello агент получил instance_id 468c9c71…, файл записан | 660caf5 |
+| 12c-2 | Watchdog автоотката после деплоя: +90 с после успеха агент проверяет живость движка (systemctl is-active / suricatasc uptime), при смерти — откат managed-файла + systemctl restart + перепроверка. Живой e2e: движок остановлен сразу после деплоя → watchdog детектировал → за 6 с откат + рестарт → active, managed-файл откачен (245 правил вместо 2) | (этот коммит) |
 
 ## Тестовая среда (добавлена в ТЗ п. 13)
 

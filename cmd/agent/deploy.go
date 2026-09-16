@@ -278,6 +278,63 @@ func (e *taskExecutor) executeDeploy(task *agentv1.Task, dr *agentv1.DeployRules
 		FailedRules: failedRulesPB,
 		VerifiedAt:  timestamppb.Now(),
 	}}})
+
+	// Watchdog (chunk 12c-2): runtime-крах движка вскоре после деплоя
+	// (правила прошли -T, но убили движок под нагрузкой) → откат
+	// managed-файла и рестарт сервиса. Одноразовая проверка.
+	go watchdogAfterDeploy(dr, target, backup, hadBackup, log)
+}
+
+// watchdogSettleDelay — пауза перед проверкой живости движка после деплоя:
+// отсекает немедленные краши при reload, но даёт проявиться ранним
+// runtime-падениям на новых правилах.
+const watchdogSettleDelay = 90 * time.Second
+
+// watchdogAfterDeploy — одноразовый контроль после успешного деплоя:
+// если движок не жив — откат managed-файла из бэкапа и рестарт юнита.
+// Сервер узнаёт о проблеме через heartbeat (статусы сервисов) и расхождение
+// compliance (actual hash откатился от desired) — drift.
+func watchdogAfterDeploy(dr *agentv1.DeployRulesTask, target, backup string, hadBackup bool, log *slog.Logger) {
+	time.Sleep(watchdogSettleDelay)
+	if engineAlive(dr) {
+		log.Info("watchdog: движок жив после деплоя")
+		return
+	}
+	log.Error("watchdog: движок НЕ жив после деплоя — откат ruleset",
+		"unit", dr.GetSystemdUnit(), "config", dr.GetConfigPath())
+	rollback(target, backup, hadBackup, log)
+
+	unit := dr.GetSystemdUnit()
+	if unit == "" {
+		log.Error("watchdog: systemd_unit неизвестен — рестарт невозможен, нужен оператор")
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	if out, err := exec.CommandContext(ctx, "systemctl", "restart", unit).CombinedOutput(); err != nil {
+		log.Error("watchdog: рестарт юнита неуспешен", "unit", unit,
+			"err", err, "вывод", tail(string(out), 5))
+		return
+	}
+	// Проверка поднятия после рестарта.
+	time.Sleep(5 * time.Second)
+	if engineAlive(dr) {
+		log.Info("watchdog: откат применён, движок поднят", "unit", unit)
+		return
+	}
+	log.Error("watchdog: движок не поднялся даже после отката — нужен оператор", "unit", unit)
+}
+
+// engineAlive — живость движка: по systemd-юниту (если известен), иначе
+// по ответу unix-command сокета.
+func engineAlive(dr *agentv1.DeployRulesTask) bool {
+	if unit := dr.GetSystemdUnit(); unit != "" {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		return exec.CommandContext(ctx, "systemctl", "is-active", "--quiet", unit).Run() == nil
+	}
+	_, err := suricatasc(commandSocket(dr.GetConfigPath()), "uptime", suricatascTimeout)
+	return err == nil
 }
 
 // reply отправляет TaskResult серверу.
