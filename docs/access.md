@@ -193,7 +193,11 @@ default 50) и `cursor`; в ответе `next_cursor` (null — страниц 
   expires_at?}`; значение валидируется по типу (IP/CIDR, домен, URL,
   hex-хэши, email), score 0..100; дубль (org, type, value) → 409.
 - `GET/PATCH/DELETE /iocs/{id}` — карточка, изменение (score/status/
-  source/expires_at), жёсткое удаление (204).
+  source/expires_at), жёсткое удаление (204). Смена status на `revoked`
+  и удаление отзывают сгенерированное из IOC правило: оно переводится
+  в `status=disabled` с тегом `ioc-revoked` (чанк 19; disabled обратим —
+  при возврате IOC в active повторный /iocs/generate снова включит
+  правило).
 - `POST /iocs/import` — массовый импорт JSON `{source?, items:
   [IocInput...]}`; идемпотентно по (org, type, value): новые —
   `imported`, существующие — `updated` (перетираются только score/
@@ -214,14 +218,16 @@ default 50) и `cursor`; в ответе `next_cursor` (null — страниц 
   префикс sha256 состава: version уникальна в пределах организации).
   Деплой на инстансы — только по явному `"deploy": true` с `targeting`
   (общий волновой конвейер POST /deployments). Ответ:
-  `{swept_expired, active, created, updated, unchanged, skipped[],
+  `{swept_expired, revoked, active, created, updated, unchanged, skipped[],
   ruleset_id, ruleset_version, ruleset_created, rules_count,
-  deployment_id?}`.
+  deployment_id?}` (`revoked` — правила, отключённые свипом
+  просроченных IOC в этом прогоне, чанк 19).
 - Свипер истёкших IOC — фоновая горутина сервера (роль api|all),
   интервал `server.ioc_sweep_interval` (default 60s, 0 — выключен);
-  дублируется свипом внутри `/iocs/generate`. expired-правила из
-  репозитория не удаляются автоматически (после revoke/delete IOC
-  правило остаётся — отключение вручную через /rules/bulk).
+  дублируется свипом внутри `/iocs/generate`. Правила погашенных
+  (expired) IOC автоматически отзываются в `disabled` + тег
+  `ioc-revoked` (чанк 19); повторная генерация отозванное правило не
+  включает, пока IOC не вернулся в active.
 
 ### 4.8 Фиды IOC (чанк 18)
 - `GET /feeds` — список фидов с фильтром `type` (et_open/et_pro/taxii/

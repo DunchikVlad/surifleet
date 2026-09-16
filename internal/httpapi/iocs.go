@@ -9,6 +9,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/surifleet/surifleet/internal/iocrules"
 	"github.com/surifleet/surifleet/internal/rules"
 	"github.com/surifleet/surifleet/internal/store"
 )
@@ -171,18 +172,36 @@ func (h *handlers) updateIoc(w http.ResponseWriter, r *http.Request) {
 		writeStoreError(w, err)
 		return
 	}
+	// Отзыв сгенерированного правила при revoke IOC (чанк 19): ошибка
+	// отзыва не валит запрос — IOC уже переведён, правило догонит свип
+	// или повторный вызов.
+	if p.Status != nil && *p.Status == "revoked" {
+		if _, err := iocrules.RevokeForIoc(r.Context(), ioc.OrganizationID, ioc.Type, ioc.Value, h.d.Store.Rules); err != nil {
+			errLog.Error("отзыв IOC-правила после revoke", "ioc_id", ioc.ID, "err", err)
+		}
+	}
 	writeJSON(w, http.StatusOK, ioc)
 }
 
 // deleteIoc — DELETE /api/v1/iocs/{id} (жёсткое удаление).
+// Перед удалением читаем IOC — его type/value нужны для отзыва
+// сгенерированного правила (чанк 19); Get же даёт 404 до DELETE.
 func (h *handlers) deleteIoc(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathUUID(w, chi.URLParam(r, "id"), "id")
 	if !ok {
 		return
 	}
+	ioc, err := h.d.Store.Iocs.Get(r.Context(), id)
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
 	if err := h.d.Store.Iocs.Delete(r.Context(), id); err != nil {
 		writeStoreError(w, err)
 		return
+	}
+	if _, err := iocrules.RevokeForIoc(r.Context(), ioc.OrganizationID, ioc.Type, ioc.Value, h.d.Store.Rules); err != nil {
+		errLog.Error("отзыв IOC-правила после delete", "ioc_id", ioc.ID, "err", err)
 	}
 	w.WriteHeader(http.StatusNoContent)
 }

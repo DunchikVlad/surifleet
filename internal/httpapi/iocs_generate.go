@@ -38,7 +38,8 @@ type iocSkip struct {
 
 // iocGenerateResult — ответ POST /iocs/generate (openapi IocGenerateResult).
 type iocGenerateResult struct {
-	SweptExpired   int64      `json:"swept_expired"` // IOC, погашенные свипом перед генерацией
+	SweptExpired   int        `json:"swept_expired"` // IOC, погашенные свипом перед генерацией
+	Revoked        int        `json:"revoked"`       // правила, отключённые при свипе/отзыве (чанк 19)
 	Active         int        `json:"active"`        // всего активных IOC
 	Created        int        `json:"created"`       // новые правила
 	Updated        int        `json:"updated"`       // изменившиеся (raw отличался)
@@ -129,11 +130,22 @@ func (h *handlers) generateIocRules(w http.ResponseWriter, r *http.Request) {
 // Возвращает версию ruleset (nil — ioc-правил нет, ruleset не собран).
 func (h *handlers) generateIocRulesCore(ctx context.Context, orgID uuid.UUID, res *iocGenerateResult) (*store.RulesetVersion, error) {
 	// Свип: просроченные active → expired, чтобы не попасть в генерацию.
+	// Погашенным отзываем сгенерированные правила (disabled, чанк 19).
 	swept, err := h.d.Store.Iocs.SweepExpired(ctx)
 	if err != nil {
 		return nil, err
 	}
-	res.SweptExpired = swept
+	res.SweptExpired = len(swept)
+	for _, ioc := range swept {
+		ok, err := iocrules.RevokeForIoc(ctx, orgID, ioc.Type, ioc.Value, h.d.Store.Rules)
+		if err != nil {
+			errLog.Error("отзыв IOC-правила при свипе", "ioc_id", ioc.ID, "err", err)
+			continue
+		}
+		if ok {
+			res.Revoked++
+		}
+	}
 
 	iocs, err := h.d.Store.Iocs.ListActiveForGeneration(ctx, orgID)
 	if err != nil {

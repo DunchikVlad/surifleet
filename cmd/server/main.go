@@ -33,6 +33,7 @@ import (
 	agentv1 "github.com/surifleet/surifleet/internal/gen/agent/v1"
 	"github.com/surifleet/surifleet/internal/httpapi"
 	"github.com/surifleet/surifleet/internal/hub"
+	"github.com/surifleet/surifleet/internal/iocrules"
 	"github.com/surifleet/surifleet/internal/orchestrator"
 	"github.com/surifleet/surifleet/internal/pki"
 	"github.com/surifleet/surifleet/internal/store"
@@ -320,7 +321,8 @@ func shutdownHTTP(log *slog.Logger, srv *http.Server) {
 
 // runIocSweeper — фоновый свип просроченных IOC: раз в interval все active
 // с expires_at < now() переводятся в expired (исключаются из генерации
-// правил). Дублируется свипом внутри POST /iocs/generate.
+// правил), их сгенерированные правила отзываются в disabled (чанк 19).
+// Дублируется свипом внутри POST /iocs/generate.
 func runIocSweeper(ctx context.Context, db *store.Store, interval time.Duration, log *slog.Logger) {
 	log.Info("IOC-свипер запущен", "interval", interval.String())
 	t := time.NewTicker(interval)
@@ -330,12 +332,26 @@ func runIocSweeper(ctx context.Context, db *store.Store, interval time.Duration,
 		case <-ctx.Done():
 			return
 		case <-t.C:
-			n, err := db.Iocs.SweepExpired(ctx)
+			swept, err := db.Iocs.SweepExpired(ctx)
 			if err != nil {
 				log.Error("IOC-свипер", "err", err)
-			} else if n > 0 {
-				log.Info("IOC-свипер: погашены просроченные", "expired", n)
+				continue
 			}
+			if len(swept) == 0 {
+				continue
+			}
+			revoked := 0
+			for _, ioc := range swept {
+				ok, err := iocrules.RevokeForIoc(ctx, ioc.OrganizationID, ioc.Type, ioc.Value, db.Rules)
+				if err != nil {
+					log.Error("отзыв IOC-правила при свипе", "ioc_id", ioc.ID, "err", err)
+					continue
+				}
+				if ok {
+					revoked++
+				}
+			}
+			log.Info("IOC-свипер: погашены просроченные", "expired", len(swept), "revoked_rules", revoked)
 		}
 	}
 }

@@ -7,6 +7,31 @@
 
 ### Added
 
+- Чанк 19 (2026-09-16): отзыв IOC-правил при revoke/delete/expire
+  источника. `internal/iocrules/revoke.go`: `RevokeForIoc(ctx, orgID,
+  type, value, RuleStore)` — поиск правила тем же пробингом слотов sid,
+  что и генератор (свободный слот = правила нет), отзыв в
+  status='disabled' + тег `ioc-revoked` (msg не меняется — это ключ
+  владения слотом при повторной генерации; disabled обратим: вернувшийся
+  в active IOC снова включит правило). Вызовы: PATCH /iocs/{id} со
+  сменой status→revoked, DELETE /iocs/{id} (IOC читается до удаления —
+  нужны type/value), свип просроченных — и фоновый свипер
+  (cmd/server/main.go), и свип внутри POST /iocs/generate (в ответе
+  новый счётчик `revoked`; SweepExpired теперь возвращает погашенные
+  IOC через RETURNING, IocForGeneration +OrganizationID). Ошибка отзыва
+  не валит основной запрос (логируется). Юнит-тесты RevokeForIoc на
+  поддельном RuleStore: disable+тег, идемпотентность, нет правила,
+  пробинг коллизии, msg нетронут. OpenAPI: IocGenerateResult + revoked,
+  описания update_ioc/delete_ioc. Живой e2e на .28: PATCH revoked
+  (198.51.100.23) → правило 8891280 disabled + [ioc-revoked]; DELETE
+  (url evil.example.com/payload) → правило 8836534 disabled; повторный
+  generate — оба остаются disabled, ruleset пересобран без них
+  (ioc-current-1eccbd2c, 7 правил); свип: IOC с expires_at в прошлом →
+  generate: swept=1, revoked=1, правило 8813164 disabled, ruleset
+  вернулся к тому же составу. Деплоев не было, compliance in_sync 1/1.
+  Тестовые IOC оставлены: 198.51.100.23 revoked, 203.0.113.99 expired.
+  (server, api)
+
 - Чанк 18 (2026-09-16): фиды IOC — CRUD API, синхронизация и React-вкладка
   «Фиды». Store `internal/store/feeds.go` (FeedsRepo: Create/Get/Update/
   Delete/keyset-List с фильтром type, MarkSync, feed_runs CreateRun/

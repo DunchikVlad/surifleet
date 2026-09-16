@@ -1028,7 +1028,7 @@ paths:
       operationId: update_ioc
       tags: [iocs]
       summary: Изменить IOC (скоринг, статус, срок жизни)
-      description: "Требуется право: iocs.write"
+      description: "Требуется право: iocs.write. Смена status на revoked отзывает сгенерированное из IOC правило (source_type=ioc → status=disabled + тег ioc-revoked)."
       requestBody:
         required: true
         content:
@@ -1045,7 +1045,7 @@ paths:
       operationId: delete_ioc
       tags: [iocs]
       summary: Удалить IOC
-      description: "Требуется право: iocs.write"
+      description: "Требуется право: iocs.write. Жёсткое удаление; сгенерированное из IOC правило отзывается (status=disabled + тег ioc-revoked)."
       responses:
         '204': {description: Удалено}
         default: {$ref: '#/components/responses/Error'}
@@ -2836,6 +2836,7 @@ components:
       type: object
       properties:
         swept_expired: {type: integer, description: IOC, погашенные свипом перед генерацией}
+        revoked: {type: integer, description: IOC-правила, отключённые при свипе просроченных (чанк 19)}
         active: {type: integer, description: Всего активных IOC}
         created: {type: integer, description: Новые правила}
         updated: {type: integer, description: Правила с изменившимся raw}
