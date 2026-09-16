@@ -1063,8 +1063,8 @@ paths:
     post:
       operationId: import_iocs
       tags: [iocs]
-      summary: Импорт IOC списком (JSON или CSV-текст)
-      description: "Требуется право: iocs.write"
+      summary: Импорт IOC списком (JSON)
+      description: "Требуется право: iocs.write. Идемпотентно по (org, type, value): новые — imported, существующие — updated (score/source/expires_at; status не перетирается). Ошибочные элементы не прерывают импорт."
       requestBody:
         required: true
         content:
@@ -1073,12 +1073,10 @@ paths:
               type: object
               required: [items]
               properties:
-                source: {type: string}
+                source: {type: string, description: Источник по умолчанию для элементов без своего source}
                 items:
                   type: array
                   items: {$ref: '#/components/schemas/IocInput'}
-          text/csv:
-            schema: {type: string, description: 'CSV: type,value,score,expires_at'}
       responses:
         '200':
           description: Статистика импорта
@@ -2782,14 +2780,16 @@ components:
       properties:
         type: {type: string, enum: [ip, domain, url, md5, sha1, sha256, email]}
         value: {type: string}
-        score: {type: integer, default: 0}
+        score: {type: integer, default: 0, minimum: 0, maximum: 100}
+        source: {type: string, nullable: true, description: 'Источник (manual / имя фида); для POST /iocs/import — дефолт верхнего уровня'}
         expires_at: {type: string, format: date-time}
 
     IocUpdateInput:
       type: object
       properties:
-        score: {type: integer}
+        score: {type: integer, minimum: 0, maximum: 100}
         status: {type: string, enum: [active, under_review, expired, revoked]}
+        source: {type: string, nullable: true}
         expires_at: {type: string, format: date-time}
 
     # ------ Деплой и состояние ------

@@ -8,10 +8,11 @@ import Rulesets from "./pages/Rulesets";
 import Deployments from "./pages/Deployments";
 import Logs from "./pages/Logs";
 import Matrix from "./pages/Matrix";
+import Iocs from "./pages/Iocs";
 
 type TabName =
   | "overview" | "instances" | "rules" | "rulesets"
-  | "deployments" | "logs" | "matrix";
+  | "deployments" | "logs" | "matrix" | "iocs";
 
 const TABS: { name: TabName; label: string }[] = [
   { name: "overview", label: "Обзор" },
@@ -21,6 +22,7 @@ const TABS: { name: TabName; label: string }[] = [
   { name: "deployments", label: "Деплои" },
   { name: "logs", label: "Логи" },
   { name: "matrix", label: "Матрица" },
+  { name: "iocs", label: "IOC" },
 ];
 
 // Страницы не размонтируем при переключении (display:none), чтобы
@@ -33,6 +35,7 @@ const PAGES: Record<TabName, React.ComponentType<{ active: boolean }>> = {
   deployments: Deployments,
   logs: Logs,
   matrix: Matrix,
+  iocs: Iocs,
 };
 
 export default function App() {

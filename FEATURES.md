@@ -8,7 +8,7 @@
 | Пункт ТЗ | Статус | Где реализовано | Чанк |
 |---|---|---|---|
 | 5.1 Правила: репозиторий, импорт, жизненный цикл, таргетинг, история, экспорт | 🚧 | `internal/rules` (парсер), `internal/store` RulesRepo, API /rules (import/CRUD/bulk/revisions); жизненный цикл и история ревизий работают; таргетинг и экспорт (STIX/dataset) позже | чанк 10 |
-| 5.2 IOC/TI: жизненный цикл, коннекторы TAXII/STIX/MISP, автогенерация правил | ⬜ | — | — |
+| 5.2 IOC/TI: жизненный цикл, коннекторы TAXII/STIX/MISP, автогенерация правил | 🚧 | `internal/store/iocs.go` (CRUD, keyset-листинг, upsert-импорт), REST `/iocs` (+`/iocs/{id}`, `/iocs/import`), React-вкладка «IOC» (форма/таблица/поиск/удаление, ссылки VirusTotal); фиды, автогенерация правил из IOC и свипер expires_at — следующие чанки | чанк 16 |
 | 5.3 Конфигурации: редактор suricata.yaml, валидация `suricata -T`, профили, откат | ⬜ | — | — |
 | 5.4 Мониторинг: метрики Suricata/хоста, пересылка EVE в SIEM, дашборды | ⬜ | — | — |
 | 5.5 Платформа: REST API (OpenAPI), API-токены, аудит-лог, уведомления | 🚧 | OpenAPI-спека `api/openapi/openapi.yaml`; REST-каркас `/api/v1` с CRUD флота и join_tokens (`internal/httpapi`); токены/аудит/уведомления позже | чанки 4, 7–8 |

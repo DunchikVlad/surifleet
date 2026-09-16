@@ -7,6 +7,28 @@
 
 ### Added
 
+- Чанк 16 (2026-09-16): IOC / Threat Intel — вертикальный срез.
+  Таблица `iocs` уже существовала (миграция 000001), добавлен слой
+  доступа и API: `internal/store/iocs.go` (IocsRepo — Create с
+  конфликтом 409 по (org, type, value), Get, Update, жёсткий Delete,
+  keyset-List с фильтрами type/status/source/q, UpsertImport — импорт
+  обновляет score/source/expires_at, status аналитика не перетирается),
+  модели Ioc/IocInput/IocPatch в `internal/store/model.go`;
+  `internal/httpapi/iocs.go` — GET /iocs (keyset, фильтры),
+  POST /iocs, GET/PATCH/DELETE /iocs/{id}, POST /iocs/import
+  (JSON-массив, ошибочные элементы не прерывают импорт, ответ
+  ImportResult). Валидация значений по типу (ip/CIDR, domain, url,
+  md5/sha1/sha256 hex, email), score 0..100. OpenAPI приведён под факт:
+  IocInput/IocUpdateInput дополнены `source`, исправлен битый $ref в
+  IocPage, из /iocs/import убран неподдерживаемый text/csv.
+  React UI — вкладка «IOC» (`web/src/pages/Iocs.tsx`): форма добавления
+  (тип, значение, score, источник, истечение datetime-local), таблица
+  (тип, значение + ссылка VirusTotal, score, статус, источник, сроки),
+  фильтры по типу/статусу, поиск по значению, удаление, дозагрузка;
+  в api.ts добавлен `apiDelete`. Проверено живьём на .28: POST 201 →
+  GET/q-поиск находит → PATCH → дубль 409 → мусор 400 → import
+  (2 imported + 1 ошибка по строке) → DELETE 204 → GET 404. (server, api, ui)
+
 - Чанк 15 (2026-09-16): развитие React UI. Конструктор ruleset'ов во
   вкладке «Ruleset'ы»: список правил с чекбоксами (фильтр по статусу,
   поиск по sid/msg, keyset-дозагрузка по 50), выбранные правила

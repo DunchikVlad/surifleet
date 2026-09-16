@@ -75,8 +75,9 @@ tr.clickable { cursor: pointer; }
 .badge-err, .badge-failed, .badge-drift, .badge-offline, .badge-cancelled { background: rgba(224,94,94,.15); color: var(--err); }
 .badge-partial, .badge-stale { background: rgba(201,160,232,.15); color: var(--partial); }
 .badge-muted { background: var(--panel2); color: var(--muted); }
-.badge-enabled { background: rgba(63,185,122,.15); color: var(--ok); }
-.badge-disabled { background: var(--panel2); color: var(--muted); }
+.badge-enabled, .badge-active { background: rgba(63,185,122,.15); color: var(--ok); }
+.badge-disabled, .badge-expired { background: var(--panel2); color: var(--muted); }
+.badge-revoked { background: rgba(224,94,94,.15); color: var(--err); }
 .badge-under_review { background: rgba(77,163,255,.15); color: var(--accent); }
 .badge-info { background: rgba(77,163,255,.15); color: var(--accent); }
 .badge-unknown { background: var(--panel2); color: var(--muted); }

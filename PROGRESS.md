@@ -10,13 +10,45 @@
 
 ## Следующий шаг (конкретно)
 
-**После 15** (2026-09-16):
+**После 16** (2026-09-16):
 1. Визуально проверить React UI (/app/) в браузере при первом открытии —
-   все проверки были только HTTP (особенно конструктор ruleset'ов и
-   страницу инстанса чанка 15).
-2. IOC/TI (п. 5.2 FEATURES) или auth/RBAC (DevAuth → токены, п. 8–9).
+   все проверки были только HTTP (включая новую вкладку «IOC» чанка 16).
+2. IOC/TI, следующий срез (п. 5.2 FEATURES): фиды (таблица feeds есть,
+   API /feeds не реализован — CRUD + sync), автогенерация правил из IOC
+   (openapi POST /iocs/{id}/deploy — заглушка, не реализован), свипер
+   автоистечения expires_at → status='expired'. Либо auth/RBAC
+   (DevAuth → токены, п. 8–9).
 3. **Аномалия (не блокер)**: из ssh `sudo rm` в /etc/suricata → Permission
    denied при работающем touch; обход — агент от root правит сам (12a).
+
+Чанк 16 ГОТОВ (2026-09-16): IOC / Threat Intel — вертикальный срез
+server→UI. Разведка показала: таблица iocs существовала с миграции
+000001 (type/value/score/feed_id/source/status/expires_at, UNIQUE
+(org,type,value)), openapi-спека IOC/фидов описана, но store-слоя и
+REST не было. Добавлено: `internal/store/iocs.go` (IocsRepo: Create
+(дубль → 409), Get, Update, жёсткий Delete, keyset-List с фильтрами
+type/status/source/q, UpsertImport — перетирает только score/source/
+expires_at, status аналитика нетронут), модели Ioc/IocInput/IocPatch;
+`internal/httpapi/iocs.go`: GET /iocs (keyset+фильтры), POST /iocs,
+GET/PATCH/DELETE /iocs/{id}, POST /iocs/import (JSON, ошибки по строкам
+не прерывают импорт, ответ ImportResult); валидация значения по типу
+(ip/CIDR, domain, url, md5/sha1/sha256, email), score 0..100; роуты в
+router.go. OpenAPI приведён под факт (source в IocInput/IocUpdateInput,
+починен $ref IocPage, из import убран text/csv). React: вкладка «IOC»
+(web/src/pages/Iocs.tsx) — форма добавления (тип/значение/score/
+источник/истечение), таблица со ссылками VirusTotal, фильтры
+тип/статус, поиск по значению, удаление, дозагрузка по 50; api.ts +
+apiDelete; badge-стили active/expired/revoked. Проверки: npm run build
+чисто (bundle 176 КБ), go build/vet/test зелёные; перекат .28: health
+ok. Живой e2e: POST ip 203.0.113.77 → 201 (source=manual, score=80);
+GET /iocs — запись есть; q=203.0.113 — находит; GET one — 200;
+PATCH score=95 — ок; дубль POST → 409; мусорный ip → 400; import
+3 шт → {imported:2, errors:[line 3 md5]}; DELETE → 204, GET → 404;
+тестовые IOC вычищены (осталось 0). /app/ отдаёт новый бандл
+index-DFOtvsxQ.js (grep «/iocs» и «IOC / Threat Intel» — есть).
+НЕ сделано (следующие чанки): фиды (API /feeds), автогенерация правил
+из IOC (POST /iocs/{id}/deploy), свипер expires_at→expired. Браузер
+недоступен — только HTTP-проверки.
 
 Чанк 15 ГОТОВ (2026-09-16): развитие React UI. Конструктор ruleset'ов
 (вкладка «Ruleset'ы»): выбор правил чекбоксами (фильтр по статусу,
@@ -205,7 +237,8 @@ managed-файле (245 правил).
 | 13c | Логи агента на сервер и в UI: агент — captureHandler поверх slog → ring buffer 500 (переживает reconnect) → LogBatch каждые 30 с по стриму (`cmd/agent/logship.go`); сервер — `internal/chlogs` (ClickHouse по HTTP; native-DSN clickhouse://host:9900 конвертируется в http :8123), таблица surifleet.agent_logs (CREATE IF NOT EXISTS при старте), запись батчей в hub.handleLogBatch; API: GET /api/v1/agents (список с hostname), GET /api/v1/agents/{id}/logs?limit=200 (≤1000, ts DESC, ts→RFC3339); UI — вкладка «Логи» (селектор агента, лимит, обновить, авто 10 с). Infra-фикс: ClickHouse default без пароля из LAN через маунт zz_allow_network.xml в users.d (entrypoint без кредами сам резал default до localhost → 403). Живой e2e: 30 записей за первый батч (включая warn о разрыве — буфер дождался reconnect), SELECT count()>0, API 200 с записями, app.js содержит logs, go build/vet/test/node --check чисто | 500fb50 |
 | 13d | Матрица «правила × инстансы» (требование А): API GET /api/v1/matrix/rules (openapi get_rules_matrix) — независимые keyset-курсоры rule_cursor (по sid) / instance_cursor (по id), фильтры rule_status/category/sid/cluster_id/cell_status, limit ≤1000; ячейка loaded/failed/missing/extra из desired_state.computed_rules + actual_state (loaded/failed StateReport); store — `internal/store/matrix.go` (страницы осей + батч состояний 2 запросами), handler — `internal/httpapi/matrix.go`; тесты sid-курсора и cellStatusOf. UI — вкладка «Матрица» (строки sid+msg, столбцы hostname вертикально, цветные ячейки + легенда, фильтр по статусу ячейки, поиск по sid, дозагрузка по 50). Живой e2e: ?limit=5 → 200 с ячейками loaded для инстанса 468c9c71; пагинация/фильтры/400-валидация; кейс missing живьём (битое правило 9999991 отклонено агентом через suricata -T → desired без actual → missing, сводка 244 loaded + 1 missing); disable+ребилд+деплой → ячейка исчезла; стенд восстановлен (245/245 loaded). Ограничение MVP: cell_status фильтрует ячейки внутри текущей страницы оси правил | d868a9b |
 | 14 | React-фронтенд в `web/`: Vite 5 + React 18 + TS strict, без UI-китов (стили из webui/style.css); 7 экранов в паритете с ванильным MVP (Обзор/Инстансы/Правила/Ruleset'ы/Деплои/Логи/Матрица) + улучшение (вкладки не размонтируются — фильтры/пагинация сохраняются, сводка ячеек матрицы). Vite base=/app/, dev-proxy /api → .28:8080. Раздача из бинаря: `web/embed.go` (go:embed dist) + `internal/httpapi/reactui.go` (/app/*, SPA-fallback, заглушка когда dist не собран; placeholder.txt в git, postbuild восстанавливает). Старый UI на / не тронут. Проверки: npm install/build/dev чисто, go build/vet/test зелёные, перекат .28 — /app/ + ассеты + SPA-fallback + /api/v1/fleet/compliance 200; браузер недоступен — только HTTP | 96c777e |
-| 15 | Развитие React UI: конструктор ruleset'ов во вкладке «Ruleset'ы» (выбор правил чекбоксами с фильтром/поиском/дозагрузкой, накопление выбора между страницами, чипы/счётчик/снятие, сборка POST /rulesets с rule_ids, различение 201 «создан»/200 «уже существует» через новый apiPostEx); страница инстанса (требование А) — drill-down `pages/InstanceDetail.tsx`: параметры, compliance, desired/actual hash, loaded/failed, last_reload, failed-правила, diff missing/extra, история деплоев (существующий GET /instances/{id}/deploy_history), логи агента хоста. Проверки: npm build + go build/vet/test чисто, перекат .28 (health ok, /app/ 200, новый бандл отдаётся, deploy_history 200 с деплоями 09200803/102c688b), живой e2e конструктора: 3 sid → 201 ruleset 8ce1b381 (chunk15-e2e), повтор → 200 (идемпотентность); браузер недоступен — только HTTP | (этот коммит) |
+| 15 | Развитие React UI: конструктор ruleset'ов во вкладке «Ruleset'ы» (выбор правил чекбоксами с фильтром/поиском/дозагрузкой, накопление выбора между страницами, чипы/счётчик/снятие, сборка POST /rulesets с rule_ids, различение 201 «создан»/200 «уже существует» через новый apiPostEx); страница инстанса (требование А) — drill-down `pages/InstanceDetail.tsx`: параметры, compliance, desired/actual hash, loaded/failed, last_reload, failed-правила, diff missing/extra, история деплоев (существующий GET /instances/{id}/deploy_history), логи агента хоста. Проверки: npm build + go build/vet/test чисто, перекат .28 (health ok, /app/ 200, новый бандл отдаётся, deploy_history 200 с деплоями 09200803/102c688b), живой e2e конструктора: 3 sid → 201 ruleset 8ce1b381 (chunk15-e2e), повтор → 200 (идемпотентность); браузер недоступен — только HTTP | 0ccd7b2 |
+| 16 | IOC / Threat Intel — вертикальный срез: таблица iocs была с миграции 000001, добавлены store (`internal/store/iocs.go` — Create/Get/Update/Delete/keyset-List с фильтрами type/status/source/q, UpsertImport без перетирания status) и REST (`internal/httpapi/iocs.go` — GET/POST /iocs, GET/PATCH/DELETE /iocs/{id}, POST /iocs/import с ImportResult; валидация значения по типу, score 0..100, дубль → 409); openapi приведён под факт (source в IocInput/IocUpdateInput, фикс $ref IocPage, убран text/csv из import). React UI — вкладка «IOC» (форма добавления с expires datetime-local, таблица со ссылками VirusTotal, фильтры тип/статус, поиск, удаление; apiDelete в api.ts). Проверки: npm build чисто, go build/vet/test зелёные; живой e2e на .28 — POST 201 → список/q-поиск → PATCH → дубль 409 → мусор 400 → import {imported:2, errors:[1]} → DELETE 204 → 404; тестовые IOC вычищены. Фиды, автогенерация правил из IOC и свипер expires_at — следующие чанки | (этот коммит) |
 
 ## Тестовая среда (добавлена в ТЗ п. 13)
 

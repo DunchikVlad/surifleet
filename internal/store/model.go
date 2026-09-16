@@ -185,6 +185,40 @@ type RuleRevision struct {
 	CreatedAt time.Time       `json:"created_at"`
 }
 
+// Ioc — индикатор компрометации (таблица iocs): тип/значение/скоринг,
+// источник (фид или ручной ввод), жизненный цикл status, автоистечение.
+type Ioc struct {
+	ID             uuid.UUID  `json:"id"`
+	OrganizationID uuid.UUID  `json:"organization_id"`
+	Type           string     `json:"type"`
+	Value          string     `json:"value"`
+	Score          int        `json:"score"`
+	Status         string     `json:"status"`
+	FeedID         *uuid.UUID `json:"feed_id"`
+	Source         *string    `json:"source"`
+	ExpiresAt      *time.Time `json:"expires_at"`
+	CreatedAt      time.Time  `json:"created_at"`
+	UpdatedAt      time.Time  `json:"updated_at"`
+}
+
+// IocInput — создание/импорт IOC (openapi IocInput).
+type IocInput struct {
+	Type      string     `json:"type"`
+	Value     string     `json:"value"`
+	Score     int        `json:"score"`
+	Source    *string    `json:"source"`
+	ExpiresAt *time.Time `json:"expires_at"`
+}
+
+// IocPatch — частичное обновление IOC (openapi IocUpdateInput):
+// nil-поле означает «не изменять».
+type IocPatch struct {
+	Score     *int       `json:"score"`
+	Status    *string    `json:"status"`
+	Source    *string    `json:"source"`
+	ExpiresAt *time.Time `json:"expires_at"`
+}
+
 // RulesetVersion — версия ruleset (таблица ruleset_versions):
 // sha256 — content-addressed блоб в S3 (s3_key), manifest — состав.
 type RulesetVersion struct {

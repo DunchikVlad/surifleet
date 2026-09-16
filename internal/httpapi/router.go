@@ -132,6 +132,17 @@ func NewRouter(d Deps) http.Handler {
 			r.Get("/{id}", h.getRuleset)
 		})
 
+		r.Route("/iocs", func(r chi.Router) {
+			r.Get("/", h.listIocs)
+			r.Post("/", h.createIoc)
+			r.Post("/import", h.importIocs)
+			r.Route("/{id}", func(r chi.Router) {
+				r.Get("/", h.getIoc)
+				r.Patch("/", h.updateIoc)
+				r.Delete("/", h.deleteIoc)
+			})
+		})
+
 		r.Route("/deployments", func(r chi.Router) {
 			r.Get("/", h.listDeployments)
 			r.Post("/", h.createDeployment)

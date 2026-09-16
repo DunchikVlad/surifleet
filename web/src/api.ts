@@ -25,6 +25,19 @@ export const apiPost = <T,>(path: string, body?: unknown) =>
     body: body !== undefined ? JSON.stringify(body) : null,
   });
 
+// apiDelete — DELETE без тела; 204 (без контента) → undefined.
+export const apiDelete = async (path: string) => {
+  const r = await fetch(API + path, { method: "DELETE" });
+  if (!r.ok) {
+    let msg = "HTTP " + r.status;
+    try {
+      const j = await r.json();
+      if (j.error?.message) msg += ": " + j.error.message;
+    } catch { /* тело не JSON — оставляем HTTP-код */ }
+    throw new ApiError(msg);
+  }
+};
+
 // apiPostEx — как apiPost, но возвращает и HTTP-статус (напр. различать
 // 201 «создан» и 200 «уже существовал» у идемпотентного POST /rulesets).
 export const apiPostEx = async <T,>(path: string, body?: unknown) => {
@@ -165,3 +178,15 @@ export interface RulesMatrix {
 }
 
 export interface Page<T> { items?: T[]; next_cursor?: string | null }
+
+// Ioc — индикатор компрометации (GET /iocs, openapi Ioc).
+export interface Ioc {
+  id: string;
+  type: string;
+  value: string;
+  score: number;
+  status: string;
+  source?: string | null;
+  expires_at?: string | null;
+  created_at?: string;
+}
