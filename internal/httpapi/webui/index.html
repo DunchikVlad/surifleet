@@ -19,6 +19,7 @@
   <button class="tab active" data-tab="overview">Обзор</button>
   <button class="tab" data-tab="instances">Инстансы</button>
   <button class="tab" data-tab="rules">Правила</button>
+  <button class="tab" data-tab="matrix">Матрица</button>
   <button class="tab" data-tab="rulesets">Ruleset'ы</button>
   <button class="tab" data-tab="deployments">Деплои</button>
   <button class="tab" data-tab="logs">Логи</button>
@@ -52,6 +53,30 @@
     </div>
     <div id="rules-list"></div>
     <button class="btn hidden" id="rules-more">Загрузить ещё</button>
+  </section>
+
+  <section id="tab-matrix" class="page">
+    <h2>Матрица «правила × инстансы» <button class="btn" id="matrix-refresh">Обновить</button></h2>
+    <div class="toolbar">
+      <select id="matrix-status">
+        <option value="">все статусы ячеек</option>
+        <option value="loaded">loaded</option>
+        <option value="failed">failed</option>
+        <option value="missing">missing</option>
+        <option value="extra">extra</option>
+      </select>
+      <input id="matrix-sid" type="search" placeholder="поиск по sid…">
+      <button class="btn" id="matrix-search">Найти</button>
+      <span class="matrix-legend muted">
+        <i class="mx-cell mx-loaded"></i> loaded
+        <i class="mx-cell mx-failed"></i> failed
+        <i class="mx-cell mx-missing"></i> missing
+        <i class="mx-cell mx-extra"></i> extra
+        <i class="mx-cell mx-none"></i> нет ячейки
+      </span>
+    </div>
+    <div id="matrix-list"></div>
+    <button class="btn hidden" id="matrix-more">Ещё правила</button>
   </section>
 
   <section id="tab-rulesets" class="page">

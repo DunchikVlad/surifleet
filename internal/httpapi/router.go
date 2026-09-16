@@ -144,6 +144,8 @@ func NewRouter(d Deps) http.Handler {
 
 		r.Get("/fleet/compliance", h.getFleetCompliance)
 
+		r.Get("/matrix/rules", h.getRulesMatrix)
+
 		r.Route("/agents", func(r chi.Router) {
 			r.Get("/", h.listAgents)
 			r.Get("/{id}/logs", h.getAgentLogs)

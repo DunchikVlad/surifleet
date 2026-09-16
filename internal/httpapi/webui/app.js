@@ -44,7 +44,8 @@ document.querySelectorAll(".tab").forEach(btn => {
 
 function loadTab(name) {
   ({ overview: loadOverview, instances: loadInstances, rules: loadRules,
-     rulesets: loadRulesets, deployments: loadDeployments, logs: loadLogs })[name]?.();
+     rulesets: loadRulesets, deployments: loadDeployments, logs: loadLogs,
+     matrix: loadMatrix })[name]?.();
 }
 
 // --- шапка: health + version ---
@@ -287,6 +288,60 @@ async function toggleTasks(id) {
   } catch (e) { cell.innerHTML = `<div class="error-box">${esc(e.message)}</div>`; }
 }
 
+// --- Матрица «правила × инстансы» (chunk 13d) ---
+// Накопленное состояние страниц (keyset по осям): догружаем правила по
+// next_rule_cursor, таблицу перерисовываем целиком из кэша.
+let matrixCursor = null;
+const matrixData = { rules: [], instances: [], cells: {} }; // cells: "sid|instance_id" -> status
+
+async function loadMatrix(append) {
+  const box = document.getElementById("matrix-list");
+  const more = document.getElementById("matrix-more");
+  if (!append) {
+    matrixCursor = null;
+    matrixData.rules = []; matrixData.instances = []; matrixData.cells = {};
+    box.innerHTML = "";
+  }
+  const st = document.getElementById("matrix-status").value;
+  const sid = document.getElementById("matrix-sid").value.trim();
+  let path = "/matrix/rules?limit=50";
+  if (st) path += "&cell_status=" + encodeURIComponent(st);
+  if (sid) path += "&sid=" + encodeURIComponent(sid);
+  if (matrixCursor) path += "&rule_cursor=" + encodeURIComponent(matrixCursor);
+  try {
+    const d = await api(path);
+    (d.instances || []).forEach(i => {
+      if (!matrixData.instances.some(x => x.instance_id === i.instance_id))
+        matrixData.instances.push(i);
+    });
+    (d.rules || []).forEach(r => matrixData.rules.push(r));
+    (d.cells || []).forEach(c => { matrixData.cells[c.sid + "|" + c.instance_id] = c.status; });
+    matrixCursor = d.next_rule_cursor;
+    more.classList.toggle("hidden", !matrixCursor);
+    renderMatrix(box);
+  } catch (e) { box.innerHTML = `<div class="error-box">${esc(e.message)}</div>`; }
+}
+
+function renderMatrix(box) {
+  const { rules, instances, cells } = matrixData;
+  if (!rules.length) { box.innerHTML = '<p class="muted">Правил по фильтру нет.</p>'; return; }
+  if (!instances.length) { box.innerHTML = '<p class="muted">Инстансов нет.</p>'; return; }
+  const head = instances.map(i =>
+    `<th class="mx-inst" title="${esc(i.name)} · ${esc(i.instance_id)}">${esc(i.hostname)}</th>`).join("");
+  const body = rules.map(r => {
+    const tds = instances.map(i => {
+      const st = cells[r.sid + "|" + i.instance_id];
+      return `<td class="mx"><i class="mx-cell mx-${st || "none"}" title="sid ${r.sid} · ${esc(i.hostname)}: ${st || "—"}"></i></td>`;
+    }).join("");
+    return `<tr><td class="mx-sid">${r.sid}</td>
+      <td class="mx-msg" title="${esc(r.msg || "")}">${esc(r.msg || "")}</td>
+      <td>${badge(r.status)}</td>${tds}</tr>`;
+  }).join("");
+  box.innerHTML = `<div class="mx-wrap"><table class="mx-table"><thead><tr>
+    <th>SID</th><th>Сообщение</th><th>Статус</th>${head}</tr></thead>
+    <tbody>${body}</tbody></table></div>`;
+}
+
 // --- Логи агентов (chunk 13c) ---
 async function fillLogsAgents() {
   const sel = document.getElementById("logs-agent");
@@ -331,6 +386,11 @@ document.getElementById("dep-create").addEventListener("click", createDeployment
 document.getElementById("logs-refresh").addEventListener("click", loadLogs);
 document.getElementById("logs-agent").addEventListener("change", loadLogs);
 document.getElementById("logs-limit").addEventListener("change", loadLogs);
+document.getElementById("matrix-refresh").addEventListener("click", () => loadMatrix(false));
+document.getElementById("matrix-search").addEventListener("click", () => loadMatrix(false));
+document.getElementById("matrix-more").addEventListener("click", () => loadMatrix(true));
+document.getElementById("matrix-sid").addEventListener("keydown", e => { if (e.key === "Enter") loadMatrix(false); });
+document.getElementById("matrix-status").addEventListener("change", () => loadMatrix(false));
 
 loadHeader();
 loadOverview();

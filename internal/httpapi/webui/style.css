@@ -98,6 +98,21 @@ tr.clickable { cursor: pointer; }
   padding: 12px; overflow: auto; font-size: 12px; color: var(--muted);
 }
 .hidden { display: none; }
+
+/* Матрица «правила × инстансы» (chunk 13d) */
+.matrix-legend { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; font-size: 12px; }
+.mx-wrap { overflow-x: auto; }
+.mx-table { width: auto; min-width: 100%; }
+.mx-table .mx-sid { white-space: nowrap; font-family: Consolas, monospace; }
+.mx-table .mx-msg { max-width: 420px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mx-table td.mx { text-align: center; padding: 8px 8px; }
+.mx-table th.mx-inst { writing-mode: vertical-rl; transform: rotate(180deg); white-space: nowrap; vertical-align: bottom; padding: 8px 6px; }
+.mx-cell { display: inline-block; width: 14px; height: 14px; border-radius: 3px; vertical-align: middle; }
+.mx-loaded { background: var(--ok); }
+.mx-failed { background: var(--err); }
+.mx-missing { background: var(--warn); }
+.mx-extra { background: var(--muted); }
+.mx-none { background: var(--panel2); }
 .error-box { color: var(--err); padding: 10px 0; }
 .progress { display: inline-block; min-width: 160px; height: 8px; background: var(--panel2); border-radius: 4px; overflow: hidden; vertical-align: middle; }
 .progress > i { display: block; height: 100%; background: var(--ok); }

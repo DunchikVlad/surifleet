@@ -7,6 +7,25 @@
 
 ### Added
 
+- Чанк 13d (2026-09-16): матрица «правила × инстансы» (требование А).
+  API `GET /api/v1/matrix/rules` (openapi get_rules_matrix): две
+  независимые keyset-оси — `rule_cursor` (по sid) и `instance_cursor`
+  (по id), фильтры `rule_status` / `category` / `sid` / `cluster_id` /
+  `cell_status`, `limit` (default 100, max 1000). Ячейка считается из
+  `desired_state.computed_rules` и `actual_state` (loaded_rules /
+  failed_rules последнего StateReport): failed > loaded (desired∩actual)
+  > missing (desired без actual) > extra (actual вне desired); правило
+  вне контекста инстанса — ячейки нет. Слой store: `internal/store/matrix.go`
+  (страницы осей + батч-чтение состояний двумя запросами). UI: вкладка
+  «Матрица» — строки sid+msg, столбцы-инстансы (hostname вертикально),
+  цветные ячейки (loaded зелёный / failed красный / missing жёлтый /
+  extra серый), легенда, фильтр по статусу ячейки, поиск по sid,
+  дозагрузка правил по 50. Ограничение MVP: `cell_status` фильтрует
+  ячейки внутри текущей страницы оси правил, а не подтягивает подходящие
+  правила вперёд. Живой e2e: кейс missing (битое правило 9999991 в
+  desired после failed-деплоя — агент отклонил его suricata -T до
+  перезагрузки движка) и исчезновение ячейки при выводе правила из
+  ruleset; стенд восстановлен (245/245 loaded). (server, api, ui)
 - Чанк 13c (2026-09-16): доставка логов агента на сервер и просмотр в UI.
   Агент: captureHandler поверх slog складывает записи в ring buffer 500
   (переживает reconnect), shipper шлёт LogBatch каждые 30 с по стриму.

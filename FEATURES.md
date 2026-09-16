@@ -21,7 +21,7 @@
 | Actual state (отчёты агента, кэш Redis, история PG) | 🧪 | `cmd/agent/deploy.go` (RuleLoadReport/StateReport), actual_state + кэш Redis; проверено: actual.ruleset_hash == desired, loaded=2/failed=0 | чанк 11 |
 | Drift detection (In sync / Pending / Partial / Drift / Stale) | 🧪 | `internal/compliance`, таблица instance_compliance, GET /fleet/compliance, /instances/{id}/state; проверено: in_sync на живом стенде (остальные статусы — в чанке 12+) | чанк 11 |
 | Подтверждение деплоя по факту загрузки движком | 🧪 | `cmd/agent/deploy.go`: suricata -T → reload-rules → ruleset-failed-rules через unix-сокет; проверено в обе стороны (откат при битых правилах, успех на валидных) | чанк 11 |
-| UI: матрица правила×хосты, страница инстанса, сводка флота | 🚧 | MVP UI встроен в сервер (`internal/httpapi/webui`, embed): обзор compliance, инстансы+state, правила (фильтр/поиск), ruleset'ы, деплои+задачи; матрица и функции управления — в React-фронтенде (web/) | чанк 13 |
+| UI: матрица правила×хосты, страница инстанса, сводка флота | 🧪 | MVP UI встроен в сервер (`internal/httpapi/webui`, embed): обзор compliance, инстансы+state, правила (фильтр/поиск), ruleset'ы, деплои+задачи, вкладка «Матрица» (правила × инстансы, ячейки loaded/failed/missing/extra, API GET /matrix/rules); проверено живьём по HTTP (браузер — вручную при первом открытии) | чанки 13, 13d |
 
 ## 7. Ключевое требование Б: проблемы с агентами
 

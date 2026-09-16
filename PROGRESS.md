@@ -10,11 +10,39 @@
 
 ## Следующий шаг (конкретно)
 
-**Чанк 13d** (после 13c, 2026-09-16):
-1. Матрица правила×хосты (требование А, UI-часть).
-2. React-фронтенд в web/ — когда MVP упрётся в пределы ванильного JS.
-3. **Аномалия (не блокер)**: из ssh `sudo rm` в /etc/suricata → Permission
+**После 13d** (2026-09-16):
+1. React-фронтенд в web/ — MVP уперся в пределы ванильного JS
+   (матрица/деплои/логи уже просят SPA-каркас).
+2. **Аномалия (не блокер)**: из ssh `sudo rm` в /etc/suricata → Permission
    denied при работающем touch; обход — агент от root правит сам (12a).
+
+Чанк 13d ГОТОВ (2026-09-16): матрица «правила × инстансы» (требование А).
+API GET /api/v1/matrix/rules по openapi (RulesMatrix): keyset-курсоры
+rule_cursor (по sid, base64url) и instance_cursor (по id) независимы,
+фильтры rule_status/category/sid/cluster_id/cell_status, limit ≤1000.
+Ячейка из desired_state.computed_rules + actual_state (loaded/failed
+последнего StateReport): failed > loaded > missing > extra; вне
+контекста инстанса — ячейки нет. store: matrix.go (страницы осей,
+батч desired/actual двумя запросами ANY); тесты: sid-курсор round-trip,
+cellStatusOf. UI: вкладка «Матрица» (строки sid+msg, столбцы hostname
+вертикально, цветные ячейки + легенда, фильтр по статусу, поиск по sid,
+дозагрузка по 50). Живой e2e на стенде: ?limit=5 — 200 с ячейками
+loaded для инстанса 468c9c71; пагинация по rule_cursor; sid-фильтр;
+cell_status=loaded на странице 100 правил — 84 loaded; валидация 400
+(bogus cell_status / битые курсоры / sid=abc); кейс missing —
+битое правило 9999991: деплой отклонён агентом (suricata -T), desired
+обновлён → ячейка missing, сводка 244 loaded + 1 missing; кейс
+«вывод из ruleset» — disable 2000596 → ребилд → деплой → ячейка
+исчезла (244 loaded). Стенд восстановлен: битое правило удалено,
+2000596 включён, деплой 09200803 completed → 245/245 loaded.
+UI-проверки только по HTTP (curl /ui/app.js | grep -c matrix = 23,
+node --check чисто) — реальный браузер недоступен, вкладку «Матрица»
+проверить руками при первом открытии. Известное MVP-ограничение:
+cell_status фильтрует ячейки внутри страницы оси правил (при >1000
+правил в репозитории подходящие правила могут быть на других страницах).
+При перекате подтвердилась старая гонка: kill → старый сервер держит
+:8080 до ~10 с (drain gRPC) → новый падает на bind; лечится повторным
+запуском, в процедуру переката добавить ожидание порта.
 
 Чанк 13c ГОТОВ (2026-09-16): доставка логов агента на сервер и просмотр
 в UI. Агент: slog captureHandler → ring buffer 500 (переживает reconnect)
@@ -128,7 +156,8 @@ managed-файле (245 правил).
 | 12c-2 | Watchdog автоотката после деплоя: +90 с после успеха агент проверяет живость движка (systemctl is-active / suricatasc uptime), при смерти — откат managed-файла + systemctl restart + перепроверка. Живой e2e: движок остановлен сразу после деплоя → watchdog детектировал → за 6 с откат + рестарт → active, managed-файл откачен (245 правил вместо 2) | 18f449b |
 | 13 | MVP Web UI в сервере (`internal/httpapi/webui`, go:embed; index.html+app.js+style.css; ванильный JS поверх /api/v1): Обзор (compliance-карточки, активные деплои, автообновление 15 с), Инстансы (+state/diff), Правила (фильтр/поиск/пагинация), Ruleset'ы, Деплои (+задачи). Раздача с / и /ui/* на :8080. Проверено с Windows: все эндпоинты 200, node --check app.js; фикс зацикливания FileServer на index.html | 431f345 |
 | 13b | Управление из UI: кнопки pause/resume/cancel у деплоев (dep-act), вкл/откл правил (rule-toggle → POST /rules/bulk), форма сборки ruleset (rs-build → POST /rulesets с rule_filter status=enabled), форма нового деплоя (dep-create). apiPOST-хелпер. Живой e2e через API как из UI: сборка ruleset 200 (идемпотентный 245 правил), деплой 102c688b create→pause→resume→completed 1/1, bulk enable/disable affected:1 туда-обратно; node --check app.js; сервер перекачен, app.js отдаётся с новыми функциями | c046466 |
-| 13c | Логи агента на сервер и в UI: агент — captureHandler поверх slog → ring buffer 500 (переживает reconnect) → LogBatch каждые 30 с по стриму (`cmd/agent/logship.go`); сервер — `internal/chlogs` (ClickHouse по HTTP; native-DSN clickhouse://host:9900 конвертируется в http :8123), таблица surifleet.agent_logs (CREATE IF NOT EXISTS при старте), запись батчей в hub.handleLogBatch; API: GET /api/v1/agents (список с hostname), GET /api/v1/agents/{id}/logs?limit=200 (≤1000, ts DESC, ts→RFC3339); UI — вкладка «Логи» (селектор агента, лимит, обновить, авто 10 с). Infra-фикс: ClickHouse default без пароля из LAN через маунт zz_allow_network.xml в users.d (entrypoint без кредами сам резал default до localhost → 403). Живой e2e: 30 записей за первый батч (включая warn о разрыве — буфер дождался reconnect), SELECT count()>0, API 200 с записями, app.js содержит logs, go build/vet/test/node --check чисто | (этот коммит) |
+| 13c | Логи агента на сервер и в UI: агент — captureHandler поверх slog → ring buffer 500 (переживает reconnect) → LogBatch каждые 30 с по стриму (`cmd/agent/logship.go`); сервер — `internal/chlogs` (ClickHouse по HTTP; native-DSN clickhouse://host:9900 конвертируется в http :8123), таблица surifleet.agent_logs (CREATE IF NOT EXISTS при старте), запись батчей в hub.handleLogBatch; API: GET /api/v1/agents (список с hostname), GET /api/v1/agents/{id}/logs?limit=200 (≤1000, ts DESC, ts→RFC3339); UI — вкладка «Логи» (селектор агента, лимит, обновить, авто 10 с). Infra-фикс: ClickHouse default без пароля из LAN через маунт zz_allow_network.xml в users.d (entrypoint без кредами сам резал default до localhost → 403). Живой e2e: 30 записей за первый батч (включая warn о разрыве — буфер дождался reconnect), SELECT count()>0, API 200 с записями, app.js содержит logs, go build/vet/test/node --check чисто | 500fb50 |
+| 13d | Матрица «правила × инстансы» (требование А): API GET /api/v1/matrix/rules (openapi get_rules_matrix) — независимые keyset-курсоры rule_cursor (по sid) / instance_cursor (по id), фильтры rule_status/category/sid/cluster_id/cell_status, limit ≤1000; ячейка loaded/failed/missing/extra из desired_state.computed_rules + actual_state (loaded/failed StateReport); store — `internal/store/matrix.go` (страницы осей + батч состояний 2 запросами), handler — `internal/httpapi/matrix.go`; тесты sid-курсора и cellStatusOf. UI — вкладка «Матрица» (строки sid+msg, столбцы hostname вертикально, цветные ячейки + легенда, фильтр по статусу ячейки, поиск по sid, дозагрузка по 50). Живой e2e: ?limit=5 → 200 с ячейками loaded для инстанса 468c9c71; пагинация/фильтры/400-валидация; кейс missing живьём (битое правило 9999991 отклонено агентом через suricata -T → desired без actual → missing, сводка 244 loaded + 1 missing); disable+ребилд+деплой → ячейка исчезла; стенд восстановлен (245/245 loaded). Ограничение MVP: cell_status фильтрует ячейки внутри текущей страницы оси правил | (этот коммит) |
 
 ## Тестовая среда (добавлена в ТЗ п. 13)
 
