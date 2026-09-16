@@ -163,6 +163,12 @@ func main() {
 		log.Error("восстановление оркестратора", "err", err)
 	}
 
+	// Свипер просроченных IOC (чанк 17): active с expires_at < now() → expired.
+	// Работает при роли api|all (там же, где HTTP API с генерацией правил).
+	if (cfg.Role == "api" || cfg.Role == "all") && cfg.IocSweepInterval.D() > 0 {
+		go runIocSweeper(ctx, db, cfg.IocSweepInterval.D(), log)
+	}
+
 	app := &App{cfg: cfg, log: log, db: db, ca: ca, rdb: rdb, hubID: hubID, blob: blobStore, orch: orch, chLogs: chLogs}
 
 	errCh := make(chan error, 4)
@@ -297,6 +303,28 @@ func shutdownHTTP(log *slog.Logger, srv *http.Server) {
 	defer cancel()
 	if err := srv.Shutdown(ctx); err != nil {
 		log.Error("ошибка остановки HTTP-сервера", "addr", srv.Addr, "err", err)
+	}
+}
+
+// runIocSweeper — фоновый свип просроченных IOC: раз в interval все active
+// с expires_at < now() переводятся в expired (исключаются из генерации
+// правил). Дублируется свипом внутри POST /iocs/generate.
+func runIocSweeper(ctx context.Context, db *store.Store, interval time.Duration, log *slog.Logger) {
+	log.Info("IOC-свипер запущен", "interval", interval.String())
+	t := time.NewTicker(interval)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			n, err := db.Iocs.SweepExpired(ctx)
+			if err != nil {
+				log.Error("IOC-свипер", "err", err)
+			} else if n > 0 {
+				log.Info("IOC-свипер: погашены просроченные", "expired", n)
+			}
+		}
 	}
 }
 

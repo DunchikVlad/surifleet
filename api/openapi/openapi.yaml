@@ -666,7 +666,7 @@ paths:
         - {name: status, in: query, schema: {type: string, enum: [enabled, disabled, expired, under_review, deleted]}}
         - {name: category, in: query, schema: {type: string}}
         - {name: tag, in: query, schema: {type: string}}
-        - {name: source, in: query, description: 'Источник: file | feed', schema: {type: string, enum: [file, feed]}}
+        - {name: source, in: query, description: 'Источник: file | feed | ioc', schema: {type: string, enum: [file, feed, ioc]}}
         - {name: sid, in: query, schema: {type: integer, format: int64}}
         - {name: q, in: query, description: Поиск по msg, schema: {type: string}}
       responses:
@@ -1043,20 +1043,37 @@ paths:
         '204': {description: Удалено}
         default: {$ref: '#/components/responses/Error'}
 
-  /iocs/{id}/deploy:
+  /iocs/generate:
     post:
-      operationId: deploy_ioc
+      operationId: generate_ioc_rules
       tags: [iocs]
-      summary: Задеплоить IOC (автогенерация правила и включение в ruleset)
-      description: "Требуется право: iocs.deploy"
-      parameters:
-        - {$ref: '#/components/parameters/PathId'}
+      summary: Сгенерировать Suricata-правила из активных IOC (bulk)
+      description: >
+        Требуется право: iocs.write (+ deployments.write при deploy=true).
+        Bulk-реализация идеи "deploy IOC" из ТЗ: перед генерацией выполняется
+        свип просроченных IOC (active с expires_at < now() → expired).
+        Из всех активных IOC детерминированно генерируются Suricata-правила
+        (sid 8800000..8899999 — FNV-1a от (type,value), идемпотентно;
+        коллизии разрешаются линейным пробингом). Маппинг: ip → alert ip,
+        domain → dns.query content, url → http.host+http.uri; hash-типы и
+        email пропускаются с причиной в skipped. Правила пишутся в
+        репозиторий как source=ioc и сразу enabled. Если есть хоть одно
+        enabled ioc-правило, собирается content-addressed ruleset с именем
+        "ioc-current-<sha8>" (тот же состав → та же версия, без дублей; имя
+        включает префикс sha256, т.к. version уникально в пределах орг). Деплой
+        на инстансы — только по явному deploy=true с targeting (общий
+        волновой конвейер POST /deployments).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/IocGenerateInput'}
       responses:
-        '202':
-          description: Деплой поставлен в очередь
+        '200':
+          description: Результат генерации (+ ruleset, + деплой при deploy=true)
           content:
             application/json:
-              schema: {$ref: '#/components/schemas/TaskInfo'}
+              schema: {$ref: '#/components/schemas/IocGenerateResult'}
         default: {$ref: '#/components/responses/Error'}
 
   /iocs/import:
@@ -2624,7 +2641,7 @@ components:
         status: {type: string, enum: [enabled, disabled, expired, under_review, deleted]}
         priority: {type: integer, nullable: true, description: Тюнинг аналитика}
         threshold: {type: object, nullable: true, description: Тюнинг аналитика (threshold/suppress)}
-        source_type: {type: string, enum: [file, feed]}
+        source_type: {type: string, enum: [file, feed, ioc]}
         feed_id: {type: string, format: uuid, nullable: true}
         created_at: {type: string, format: date-time}
         updated_at: {type: string, format: date-time}
@@ -2655,7 +2672,7 @@ components:
         status: {type: string, enum: [enabled, disabled, expired, under_review, deleted]}
         category: {type: string}
         tag: {type: string}
-        source: {type: string, enum: [file, feed]}
+        source: {type: string, enum: [file, feed, ioc]}
         feed_id: {type: string, format: uuid}
 
     RuleRevision:
@@ -2791,6 +2808,39 @@ components:
         status: {type: string, enum: [active, under_review, expired, revoked]}
         source: {type: string, nullable: true}
         expires_at: {type: string, format: date-time}
+
+    IocGenerateInput:
+      type: object
+      properties:
+        deploy: {type: boolean, default: false, description: 'Сразу задеплоить собранный ruleset (требует targeting)'}
+        targeting: {$ref: '#/components/schemas/Targeting'}
+        batch_size: {type: integer, default: 50}
+        concurrency: {type: integer, default: 10}
+        canary_size: {type: integer, default: 1}
+
+    IocGenerateResult:
+      type: object
+      properties:
+        swept_expired: {type: integer, description: IOC, погашенные свипом перед генерацией}
+        active: {type: integer, description: Всего активных IOC}
+        created: {type: integer, description: Новые правила}
+        updated: {type: integer, description: Правила с изменившимся raw}
+        unchanged: {type: integer, description: Идемпотентный повтор (без изменений)}
+        skipped:
+          type: array
+          description: IOC без правила (hash/email/битый url) с причиной
+          items:
+            type: object
+            properties:
+              id: {type: string, format: uuid}
+              type: {type: string}
+              value: {type: string}
+              reason: {type: string}
+        ruleset_id: {type: string, format: uuid, nullable: true, description: 'Версия ruleset "ioc-current" (null — ioc-правил нет)'}
+        ruleset_version: {type: string}
+        ruleset_created: {type: boolean, description: true — новая версия; false — состав не изменился}
+        rules_count: {type: integer}
+        deployment_id: {type: string, format: uuid, nullable: true, description: 'Созданный деплой (только при deploy=true)'}
 
     # ------ Деплой и состояние ------
 

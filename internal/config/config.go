@@ -77,22 +77,26 @@ type ServerConfig struct {
 	RedisAddr     string   `yaml:"redis_addr"`
 	NatsURL       string   `yaml:"nats_url"`
 	ClickHouseDSN string   `yaml:"clickhouse_dsn"`
-	S3            S3Config `yaml:"s3"`
-	LogLevel      string   `yaml:"log_level"`
+	// IocSweepInterval — интервал фонового свипера просроченных IOC
+	// (active с expires_at < now() → expired). 0 — свипер выключен.
+	IocSweepInterval Duration `yaml:"ioc_sweep_interval"`
+	S3               S3Config `yaml:"s3"`
+	LogLevel         string   `yaml:"log_level"`
 }
 
 // DefaultServer возвращает конфигурацию сервера с дефолтами.
 func DefaultServer() *ServerConfig {
 	return &ServerConfig{
-		Role:         "all",
-		HTTPAddr:     ":8080",
-		GRPCAddr:     ":8443",
-		EnrollAddr:   ":8444",
-		MetricsAddr:  ":9090",
-		CADir:        "./data/ca",
-		HubEndpoints: []string{"localhost:8443"},
-		CertSANs:     []string{"localhost", "127.0.0.1", "::1"},
-		LogLevel:     "info",
+		Role:             "all",
+		HTTPAddr:         ":8080",
+		GRPCAddr:         ":8443",
+		EnrollAddr:       ":8444",
+		MetricsAddr:      ":9090",
+		CADir:            "./data/ca",
+		HubEndpoints:     []string{"localhost:8443"},
+		CertSANs:         []string{"localhost", "127.0.0.1", "::1"},
+		IocSweepInterval: Duration(time.Minute),
+		LogLevel:         "info",
 		S3: S3Config{
 			Endpoint: "localhost:9000",
 			Bucket:   "surifleet-rulesets",

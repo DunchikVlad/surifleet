@@ -179,6 +179,17 @@ func (r *RulesRepo) CreateManual(ctx context.Context, orgID uuid.UUID, it Import
 	return rule, translate(tx.Commit(ctx))
 }
 
+// GetBySid возвращает правило по (org, sid) — нужен генератору IOC-правил
+// для пробинга хэш-коллизий sid. Нет записи → ErrNotFound.
+func (r *RulesRepo) GetBySid(ctx context.Context, orgID uuid.UUID, sid int64) (Rule, error) {
+	rule, err := scanRule(r.pool.QueryRow(ctx,
+		`SELECT `+ruleColumns+` FROM rules WHERE organization_id = $1 AND sid = $2`, orgID, sid))
+	if err != nil {
+		return Rule{}, translate(err)
+	}
+	return rule, nil
+}
+
 // Get возвращает правило по id. Нет записи → ErrNotFound.
 func (r *RulesRepo) Get(ctx context.Context, id uuid.UUID) (Rule, error) {
 	rule, err := scanRule(r.pool.QueryRow(ctx,

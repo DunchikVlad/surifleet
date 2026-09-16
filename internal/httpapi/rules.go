@@ -73,8 +73,8 @@ func (h *handlers) listRules(w http.ResponseWriter, r *http.Request) {
 	if f.Status != "" && !ruleStatuses[f.Status] {
 		fe.add("status", "enabled|disabled|expired|under_review|deleted")
 	}
-	if f.Source != "" && f.Source != "file" && f.Source != "feed" {
-		fe.add("source", "file|feed")
+	if f.Source != "" && f.Source != "file" && f.Source != "feed" && f.Source != "ioc" {
+		fe.add("source", "file|feed|ioc")
 	}
 	if s := q.Get("sid"); s != "" {
 		n, err := strconv.ParseInt(s, 10, 64)
@@ -356,8 +356,8 @@ func (h *handlers) bulkRules(w http.ResponseWriter, r *http.Request) {
 	if in.Filter.Status != "" && !ruleStatuses[in.Filter.Status] {
 		fe.add("filter.status", "enabled|disabled|expired|under_review|deleted")
 	}
-	if in.Filter.Source != "" && in.Filter.Source != "file" && in.Filter.Source != "feed" {
-		fe.add("filter.source", "file|feed")
+	if in.Filter.Source != "" && in.Filter.Source != "file" && in.Filter.Source != "feed" && in.Filter.Source != "ioc" {
+		fe.add("filter.source", "file|feed|ioc")
 	}
 	if len(in.IDs) == 0 && in.Filter.Status == "" && in.Filter.Category == "" &&
 		in.Filter.Tag == "" && in.Filter.Source == "" && in.Filter.FeedID == uuid.Nil {

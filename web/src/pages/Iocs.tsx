@@ -1,5 +1,5 @@
 import React from "react";
-import { apiDelete, apiGet, apiPost, Ioc, Page } from "../api";
+import { apiDelete, apiGet, apiPost, Ioc, IocGenerateResult, Page } from "../api";
 import { Badge, ErrorBox, fmtTime } from "../components";
 
 const LIMIT = 50;
@@ -31,6 +31,22 @@ export default function Iocs({ active }: { active: boolean }) {
   const [fSource, setFSource] = React.useState("manual");
   const [fExpires, setFExpires] = React.useState(""); // datetime-local
   const [busy, setBusy] = React.useState(false);
+
+  // Генерация Suricata-правил из IOC (POST /iocs/generate).
+  const [genBusy, setGenBusy] = React.useState(false);
+  const [genResult, setGenResult] = React.useState<IocGenerateResult | null>(null);
+  const [genErr, setGenErr] = React.useState<unknown>(null);
+
+  const generate = async () => {
+    setGenBusy(true);
+    setGenErr(null);
+    try {
+      const r = await apiPost<IocGenerateResult>("/iocs/generate", {});
+      setGenResult(r);
+      if (r.swept_expired > 0) setLoaded(false); // статусы могли измениться
+    } catch (e) { setGenErr(e); }
+    setGenBusy(false);
+  };
 
   const load = React.useCallback(async (append: boolean) => {
     let path = `/iocs?limit=${LIMIT}`;
@@ -125,7 +141,31 @@ export default function Iocs({ active }: { active: boolean }) {
           onKeyDown={e => { if (e.key === "Enter") setLoaded(false); }}
         />
         <button className="btn" onClick={() => setLoaded(false)}>Найти</button>
+        <span style={{ flex: 1 }} />
+        <button className="btn primary" disabled={genBusy} onClick={generate}
+          title="Сгенерировать Suricata-правила из активных IOC (sid 8800000+, ruleset ioc-current)">
+          {genBusy ? "Генерация…" : "Сгенерировать правила"}
+        </button>
       </div>
+      {genErr && <ErrorBox error={genErr} />}
+      {genResult && (
+        <div className="card">
+          <b>Генерация правил из IOC:</b>{" "}
+          активных {genResult.active}, погашено просроченных {genResult.swept_expired},{" "}
+          создано {genResult.created}, обновлено {genResult.updated}, без изменений {genResult.unchanged}
+          {genResult.skipped.length > 0 && <> , пропущено {genResult.skipped.length}
+            {" "}({genResult.skipped.map(s => `${s.type}:${s.value} — ${s.reason}`).join("; ")})
+          </>}
+          {genResult.ruleset_id && (
+            <> — ruleset <b>{genResult.ruleset_version}</b> ({genResult.rules_count} правил,{" "}
+              {genResult.ruleset_created ? "новая версия" : "состав не изменился"},{" "}
+              id <code>{genResult.ruleset_id}</code>)
+            </>
+          )}
+          {!genResult.ruleset_id && <> — правил нет, ruleset не собран</>}
+          {genResult.deployment_id && <> — деплой <code>{genResult.deployment_id}</code></>}
+        </div>
+      )}
       <ErrorBox error={err} />
       {loaded && !items.length && !err && <p className="muted">IOC по фильтру нет.</p>}
       {items.length > 0 && (

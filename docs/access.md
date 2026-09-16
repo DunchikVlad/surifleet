@@ -199,10 +199,31 @@ default 50) и `cursor`; в ответе `next_cursor` (null — страниц 
   `imported`, существующие — `updated` (перетираются только score/
   source/expires_at, status аналитика сохраняется); ошибочные элементы
   не прерывают импорт, ответ — ImportResult с ошибками по строкам.
+- `POST /iocs/generate` (чанк 17) — генерация Suricata-правил из всех
+  активных IOC (bulk-реализация идеи `POST /iocs/{id}/deploy` из спеки).
+  Перед генерацией выполняется свип просроченных (active с
+  `expires_at` < now() → expired). Правила детерминированные: sid из
+  диапазона **8800000..8899999** (= 8800000 + FNV-1a(type, value) %
+  100000; не пересекается с ET 2xxxxx и локальными ручными 9000xxx),
+  повторная генерация идемпотентна. Маппинг: ip/CIDR → `alert ip`,
+  domain → `dns.query; content` (nocase), url → `http.host` +
+  `http.uri`; md5/sha1/sha256 (нужен файл хэшей) и email пропускаются
+  с причиной в `skipped[]`. Правила попадают в репозиторий с
+  `source_type=ioc` и сразу enabled. Из всех enabled ioc-правил
+  собирается content-addressed ruleset `ioc-current-<sha8>` (суффикс —
+  префикс sha256 состава: version уникальна в пределах организации).
+  Деплой на инстансы — только по явному `"deploy": true` с `targeting`
+  (общий волновой конвейер POST /deployments). Ответ:
+  `{swept_expired, active, created, updated, unchanged, skipped[],
+  ruleset_id, ruleset_version, ruleset_created, rules_count,
+  deployment_id?}`.
+- Свипер истёкших IOC — фоновая горутина сервера (роль api|all),
+  интервал `server.ioc_sweep_interval` (default 60s, 0 — выключен);
+  дублируется свипом внутри `/iocs/generate`. expired-правила из
+  репозитория не удаляются автоматически (после revoke/delete IOC
+  правило остаётся — отключение вручную через /rules/bulk).
 
-Не реализовано пока: API фидов (`/feeds*`), автогенерация правил из IOC
-(`POST /iocs/{id}/deploy` — есть в openapi, вернёт 404), свипер
-истёкших IOC (`expires_at` → status='expired').
+Не реализовано пока: API фидов (`/feeds*`) с автопрогоном генерации.
 
 ## 5. Сквозной сценарий «от нуля до задеплоенных правил»
 

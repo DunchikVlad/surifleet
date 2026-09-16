@@ -136,6 +136,7 @@ func NewRouter(d Deps) http.Handler {
 			r.Get("/", h.listIocs)
 			r.Post("/", h.createIoc)
 			r.Post("/import", h.importIocs)
+			r.Post("/generate", h.generateIocRules)
 			r.Route("/{id}", func(r chi.Router) {
 				r.Get("/", h.getIoc)
 				r.Patch("/", h.updateIoc)

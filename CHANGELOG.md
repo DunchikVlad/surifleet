@@ -7,6 +7,36 @@
 
 ### Added
 
+- Чанк 17 (2026-09-16): генерация Suricata-правил из IOC + свипер
+  expires. Новый пакет `internal/iocrules` — детерминированная
+  генерация: sid = 8800000 + FNV-1a(type, value) % 100000 (диапазон
+  8800000..8899999, не пересекается с ET 2xxxxx и локальными 9000xxx),
+  rev = FormatRev (версия формата генератора — ключ новой ревизии при
+  изменении шаблона). Маппинг: ip/CIDR → `alert ip`, domain →
+  `dns.query; content` (nocase), url → `http.host` + `http.uri`
+  (nocase снят с http.host — Suricata 8 нормализует буфер и считает
+  nocase ошибкой парсинга); md5/sha1/sha256 (нужен файл хэшей) и email
+  пропускаются с причиной в `skipped[]`. Правила пишутся в репозиторий
+  как source_type='ioc' (миграция 000004 расширяет CHECK source_type)
+  через UpsertImport и сразу enabled; хэш-коллизии sid разрешаются
+  линейным пробингом (GetBySid). Эндпоинт `POST /api/v1/iocs/generate`
+  (`internal/httpapi/iocs_generate.go`, bulk-вариант спекового
+  POST /iocs/{id}/deploy): перед генерацией — свип просроченных IOC,
+  затем генерация, затем сборка content-addressed ruleset
+  `ioc-current-<sha8>` (суффикс sha256, т.к. version уникальна в
+  пределах орг) и, только при `deploy: true` с явным `targeting`, —
+  деплой через общий волновой конвейер. Ответ: swept_expired/active/
+  created/updated/unchanged/skipped + ruleset_id/version/created +
+  deployment_id. Свипер expires — фоновая горутина сервера
+  (роль api|all), интервал `server.ioc_sweep_interval` (default 60s,
+  0 — выкл): active с expires_at < now() → expired; тот же свип
+  выполняется внутри /iocs/generate. Фильтр `source` в GET /rules и
+  /rules/bulk допускает `ioc`. OpenAPI: /iocs/{id}/deploy заменён на
+  /iocs/generate (IocGenerateInput/IocGenerateResult), enum source
+  дополнен ioc. React: во вкладке «IOC» кнопка «Сгенерировать правила»
+  с отчётом о результате (api.ts + IocGenerateResult, стиль
+  .btn.primary). (server, api, db, ui)
+
 - Чанк 16 (2026-09-16): IOC / Threat Intel — вертикальный срез.
   Таблица `iocs` уже существовала (миграция 000001), добавлен слой
   доступа и API: `internal/store/iocs.go` (IocsRepo — Create с

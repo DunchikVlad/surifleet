@@ -145,6 +145,51 @@ func (r *IocsRepo) List(ctx context.Context, orgID uuid.UUID, f IocFilter, curso
 	return items, next, nil
 }
 
+// IocForGeneration — IOC, участвующий в генерации правил.
+type IocForGeneration struct {
+	ID    uuid.UUID
+	Type  string
+	Value string
+}
+
+// ListActiveForGeneration — все активные IOC организации для генерации
+// правил (без пагинации: набор целиком, порядок по id для детерминизма).
+// expired/revoked/under_review исключены; просроченные active перед вызовом
+// гасит SweepExpired.
+func (r *IocsRepo) ListActiveForGeneration(ctx context.Context, orgID uuid.UUID) ([]IocForGeneration, error) {
+	rows, err := r.pool.Query(ctx,
+		`SELECT id, type, value FROM iocs
+		 WHERE organization_id = $1 AND status = 'active'
+		 ORDER BY id`, orgID)
+	if err != nil {
+		return nil, translate(err)
+	}
+	defer rows.Close()
+
+	items := []IocForGeneration{}
+	for rows.Next() {
+		var it IocForGeneration
+		if err := rows.Scan(&it.ID, &it.Type, &it.Value); err != nil {
+			return nil, translate(err)
+		}
+		items = append(items, it)
+	}
+	return items, translate(rows.Err())
+}
+
+// SweepExpired — active IOC с expires_at < now() переводятся в 'expired'.
+// Возвращает число погашенных. Вызывается фоновым свипером и перед
+// генерацией правил.
+func (r *IocsRepo) SweepExpired(ctx context.Context) (int64, error) {
+	tag, err := r.pool.Exec(ctx,
+		`UPDATE iocs SET status = 'expired', updated_at = now()
+		 WHERE status = 'active' AND expires_at IS NOT NULL AND expires_at < now()`)
+	if err != nil {
+		return 0, translate(err)
+	}
+	return tag.RowsAffected(), nil
+}
+
 // UpsertImport — идемпотентный импорт одного IOC по (org, type, value):
 // новый → inserted=true; существующий — обновляются score/source/expires_at
 // (данные источника), status не перетирается (жизненный цикл — у аналитика).

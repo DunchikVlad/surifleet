@@ -190,3 +190,18 @@ export interface Ioc {
   expires_at?: string | null;
   created_at?: string;
 }
+
+// IocGenerateResult — ответ POST /iocs/generate (openapi IocGenerateResult).
+export interface IocGenerateResult {
+  swept_expired: number;
+  active: number;
+  created: number;
+  updated: number;
+  unchanged: number;
+  skipped: { id: string; type: string; value: string; reason: string }[];
+  ruleset_id?: string | null;
+  ruleset_version?: string;
+  ruleset_created?: boolean;
+  rules_count?: number;
+  deployment_id?: string | null;
+}

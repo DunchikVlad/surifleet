@@ -10,18 +10,47 @@
 
 ## Следующий шаг (конкретно)
 
-**После 16** (2026-09-16):
+**После 17** (2026-09-16):
 1. Визуально проверить React UI (/app/) в браузере при первом открытии —
-   все проверки были только HTTP (включая новую вкладку «IOC» чанка 16).
+   все проверки были только HTTP (включая вкладку «IOC» с кнопкой
+   «Сгенерировать правила» чанка 17).
 2. IOC/TI, следующий срез (п. 5.2 FEATURES): фиды (таблица feeds есть,
-   API /feeds не реализован — CRUD + sync), автогенерация правил из IOC
-   (openapi POST /iocs/{id}/deploy — заглушка, не реализован), свипер
-   автоистечения expires_at → status='expired'. Либо auth/RBAC
-   (DevAuth → токены, п. 8–9).
+   API /feeds не реализован — CRUD + sync с автопрогоном /iocs/generate),
+   удаление/отзыв IOC-правил при revoke источника (сейчас правило живёт,
+   пока enabled). Либо auth/RBAC (DevAuth → токены, п. 8–9).
 3. **Аномалия (не блокер)**: из ssh `sudo rm` в /etc/suricata → Permission
    denied при работающем touch; обход — агент от root правит сам (12a).
 
-Чанк 16 ГОТОВ (2026-09-16): IOC / Threat Intel — вертикальный срез
+Чанк 17 ГОТОВ (2026-09-16, этот коммит): генерация Suricata-правил из
+IOC + свипер expires. Пакет `internal/iocrules`: sid = 8800000 +
+FNV-1a(type,value) % 100000 (диапазон 8800000..8899999; занятые —
+ET 2xxxxx, локальные ручные 9000xxx), rev = FormatRev (2; rev:1 был с
+nocase на http.host — Suricata 8 считает это ошибкой парсинга: буфер
+нормализован в lowercase). Маппинг: ip/CIDR → alert ip; domain →
+dns.query content nocase; url → http.host + http.uri; hash-типы и
+email — skipped с причиной. Правила — source_type='ioc' (миграция
+000004 расширяет CHECK), UpsertImport + принудительный enabled;
+коллизии sid — линейный пробинг через GetBySid. POST /iocs/generate
+(bulk-реализация спекового /iocs/{id}/deploy): свип просроченных →
+генерация → content-addressed ruleset `ioc-current-<sha8>` (имя с
+префиксом sha — UNIQUE (org, version) в ruleset_versions не даёт
+переиспользовать «ioc-current» при новом составе) → деплой только при
+deploy:true с явным targeting. Свипер — горутина (api|all),
+`server.ioc_sweep_interval` default 60s; дублируется внутри generate.
+Проверки: npm run build чисто (177 КБ js), go build/vet/test зелёные;
+перекат .28: health ok, миграции → version 4, свипер в логе. Живой
+e2e: 5 IOC (ip/domain/url/email + ip с expires_at в прошлом) →
+generate: swept_expired=1, created=3, email skipped → правила
+8891280/8890656/8879857 enabled source=ioc; повторная генерация —
+unchanged=3, тот же ruleset (идемпотентно); истёкший IOC → expired и
+в правила не попал. Деплой e2e: первая попытка упала на suricata -T
+агента (nocase на http.host — валидация отработала как задумано,
+откат), после исправления формата (rev:2) деплой ioc-current-f021c4ab
+completed 1/1, compliance in_sync; стенд возвращён на рабочий ruleset
+d44182a6 (деплой d0197c12 completed, in_sync). Браузер недоступен —
+только HTTP-проверки.
+
+Чанк 16 ГОТОВ (2026-09-16, 25de9f3): IOC / Threat Intel — вертикальный срез
 server→UI. Разведка показала: таблица iocs существовала с миграции
 000001 (type/value/score/feed_id/source/status/expires_at, UNIQUE
 (org,type,value)), openapi-спека IOC/фидов описана, но store-слоя и
