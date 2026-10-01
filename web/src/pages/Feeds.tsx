@@ -105,8 +105,8 @@ export default function Feeds({ active }: { active: boolean }) {
           {TYPES.map(t => <option key={t} value={t}>{t}</option>)}
         </select>
         <input
-          placeholder="интервал (1h, 30m)…"
-          title="авто-синк: длительность Go, напр. 1h или 30m; пусто — только вручную"
+          placeholder="интервал (1h) или cron…"
+          title="авто-синк: длительность Go (1h, 30m) или 5-полевой cron (*/15 * * * *, @daily); пусто — только вручную"
           value={fSchedule}
           onChange={e => setFSchedule(e.target.value)}
           style={{ width: "12em" }}

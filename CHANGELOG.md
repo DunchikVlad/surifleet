@@ -7,6 +7,19 @@
 
 ### Added
 
+- Чанк 27 (2026-10-01): cron-расписания авто-синка фидов.
+  `internal/feedsync/schedule.go`: `ParseSchedule` — длительность Go
+  ("1h") или 5-полевой cron ("*/15 * * * *", @daily и др.; новая
+  зависимость robfig/cron/v3; локальное время сервера);
+  `Schedule.Due(last_sync_at, now)` — для cron наступление = ближайшее
+  cron-время после last_sync_at уже прошло. Планировщик переведён на
+  ParseSchedule/Due (фид с исправленным schedule подхватывается снова);
+  валидация schedule в POST/PATCH /feeds → 400. Юнит-тесты
+  ParseSchedule/Due. Живой e2e: фид generic со schedule "* * * * *" →
+  авто-запуски каждую минуту без ручного синка (imported=2 → updated=2),
+  невалидный schedule → 400; compliance in_sync 1/1. Эпик фидов
+  завершён: 6 коннекторов + расписания. (server, docs)
+
 - Чанк 26 (2026-10-01): коннектор misp — MISP core format feed
   (`internal/feedsync/misp.go`): manifest.json → события {uuid}.json
   (свежие первыми по timestamp, предел 2000 за синк); атрибуты с

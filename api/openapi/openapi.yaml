@@ -2774,7 +2774,7 @@ components:
         name: {type: string}
         type: {type: string, enum: [et_open, et_pro, taxii, stix, misp, generic]}
         url: {type: string}
-        schedule: {type: string, nullable: true, description: 'Интервал авто-синка (MVP: длительность Go, напр. "1h", "30m"; cron — следующие чанки)'}
+        schedule: {type: string, nullable: true, description: 'Интервал авто-синка: длительность Go ("1h", "30m" — от last_sync_at) или 5-полевой cron ("*/15 * * * *", @daily; локальное время сервера)'}
         enabled: {type: boolean}
         last_sync_at: {type: string, format: date-time, nullable: true}
         last_sync_status: {type: string, nullable: true, description: 'success | failed'}
@@ -2789,7 +2789,7 @@ components:
         name: {type: string}
         type: {type: string, enum: [et_open, et_pro, taxii, stix, misp, generic]}
         url: {type: string, description: 'Абсолютный URL http(s). Для et_open может быть пустой строкой — подставляется дефолт https://rules.emergingthreats.net/open/suricata/rules/emerging-all.rules (или URL отдельной категории/свой .rules-файл). Для et_pro тоже может быть пустой — URL строится при синке из кода подписки (credentials): https://rules.emergingthreatspro.com/<code>/suricata/rules/etpro-all.rules'}
-        schedule: {type: string, description: 'Интервал авто-синка (MVP: длительность Go, напр. "1h"; cron — следующие чанки)'}
+        schedule: {type: string, description: 'Интервал авто-синка: длительность Go ("1h") или 5-полевой cron ("*/15 * * * *")'}
         credentials: {type: string, writeOnly: true, description: 'Креды доступа: "user:pass" → Basic Auth, иначе Bearer-токен; для et_pro — код подписки ET Pro (просто код, без user:pass), подставляется в URL. Хранятся шифрованно'}
         enabled: {type: boolean, default: true}
 

@@ -172,10 +172,9 @@ func main() {
 		go runIocSweeper(ctx, db, cfg.IocSweepInterval.D(), log)
 	}
 
-	// Синхронизация фидов (чанк 18 — generic IOC, чанк 21 — et_open правила):
-	// syncer общий для HTTP-хендлера ручного синка и фонового планировщика
-	// (schedule у фида — длительность Go: "1h", "30m", ...; cron-формат —
-	// следующие чанки).
+	// Синхронизация фидов (чанки 18–26 — коннекторы): syncer общий для
+	// HTTP-хендлера ручного синка и фонового планировщика (schedule у фида —
+	// длительность Go "1h"/"30m" или 5-полевой cron, чанк 27).
 	feedSync := &feedsync.Syncer{Store: db, Log: log}
 	if (cfg.Role == "api" || cfg.Role == "all") && cfg.FeedSyncInterval.D() > 0 {
 		go runFeedScheduler(ctx, feedSync, cfg.FeedSyncInterval.D(), log)
@@ -366,10 +365,11 @@ func runIocSweeper(ctx context.Context, db *store.Store, interval time.Duration,
 }
 
 // runFeedScheduler — фоновый авто-синк фидов (чанк 18): раз в interval
-// выбирает enabled-фиды с schedule (длительность Go: "1h", "30m") и синкает
-// те, у которых наступил срок (last_sync_at + schedule <= now() либо синка
-// ещё не было). Автопрогон генерации правил выполняет только ручной sync
-// (POST /feeds/{id}/sync); плановый — только импорт IOC.
+// выбирает enabled-фиды с schedule и синкает те, у которых наступил срок.
+// schedule — длительность Go ("1h", "30m") или 5-полевой cron
+// ("*/15 * * * *", @daily; локальное время сервера) — чанк 27.
+// Автопрогон генерации правил выполняет только ручной sync
+// (POST /feeds/{id}/sync); плановый — только импорт.
 func runFeedScheduler(ctx context.Context, syncer *feedsync.Syncer, interval time.Duration, log *slog.Logger) {
 	log.Info("планировщик авто-синка фидов запущен", "interval", interval.String())
 	t := time.NewTicker(interval)
@@ -387,16 +387,17 @@ func runFeedScheduler(ctx context.Context, syncer *feedsync.Syncer, interval tim
 				continue
 			}
 			for _, f := range feeds {
-				d, err := time.ParseDuration(*f.Schedule)
-				if err != nil || d <= 0 {
+				sc, err := feedsync.ParseSchedule(*f.Schedule)
+				if err != nil {
 					if !badSchedule[f.ID] {
 						badSchedule[f.ID] = true
-						log.Warn("планировщик фидов: schedule не длительность Go — авто-синк пропущен",
-							"feed_id", f.ID, "name", f.Name, "schedule", *f.Schedule)
+						log.Warn("планировщик фидов: schedule не распознан — авто-синк пропущен",
+							"feed_id", f.ID, "name", f.Name, "schedule", *f.Schedule, "err", err)
 					}
 					continue
 				}
-				if f.LastSyncAt != nil && time.Since(*f.LastSyncAt) < d {
+				delete(badSchedule, f.ID) // расписание исправлено
+				if !sc.Due(f.LastSyncAt, time.Now()) {
 					continue // ещё рано
 				}
 				syncCtx, cancel := context.WithTimeout(ctx, 3*time.Minute)

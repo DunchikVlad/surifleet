@@ -86,6 +86,12 @@ func (h *handlers) createFeed(w http.ResponseWriter, r *http.Request) {
 	} else {
 		validateFeedInput(fe, &in.Name, &in.URL, &in.Type)
 	}
+	// schedule (если задан): длительность Go или 5-полевой cron (чанк 27).
+	if in.Schedule != nil && strings.TrimSpace(*in.Schedule) != "" {
+		if _, err := feedsync.ParseSchedule(*in.Schedule); err != nil {
+			fe.add("schedule", "длительность Go (\"1h\") или cron (\"*/15 * * * *\")")
+		}
+	}
 	if fe.any() {
 		writeValidation(w, fe)
 		return
@@ -125,6 +131,11 @@ func (h *handlers) updateFeed(w http.ResponseWriter, r *http.Request) {
 	}
 	fe := fieldErrors{}
 	validateFeedInput(fe, p.Name, p.URL, nil)
+	if p.Schedule != nil && strings.TrimSpace(*p.Schedule) != "" {
+		if _, err := feedsync.ParseSchedule(*p.Schedule); err != nil {
+			fe.add("schedule", "длительность Go (\"1h\") или cron (\"*/15 * * * *\")")
+		}
+	}
 	if fe.any() {
 		writeValidation(w, fe)
 		return
