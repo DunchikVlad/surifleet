@@ -60,8 +60,11 @@ docker-стек поднимается сам (restart-политика); сер
     составные команды только через `sudo "bash -c '...'"`.
 - **SFTP**: `export MSYS_NO_PATHCONV=1 && python .tools/scp.py 28 put <local> <remote>`
   (и `get`; для 67 аналогично). После scp бинаря — `chmod +x` (exec-бит теряется).
-- **npm/node**: системного нет; shim `"$PWD/.tools/bin/npm"` (node v24).
-  Сборка фронта: `cd web && ../.tools/bin/npm run build`.
+- **npm/node**: project-local Node.js в `.tools/node` (v24.15.0; npm 11).
+  Shim `"$PWD/.tools/bin/npm"` → `.tools/node/npm.cmd`. Сборка фронта:
+  `cd web && PATH="$PWD/../.tools/node:$PATH" ../.tools/bin/npm run build`
+  (PATH нужен: vite ищет `node` в PATH). Раньше shim ссылался на рантайм
+  Kimi Desktop (KIMI_DESKTOP_RUNTIME_NODE) — в CLI-сессиях он недоступен.
 - **protoc** — в .tools, регенерация через scripts/gen-proto.sh.
 
 ### Ключевые ID (живые в БД)

@@ -2,7 +2,8 @@
 // type=generic — IOC-листы (plain text / CSV / JSON) с угадыванием типа
 // IOC и идемпотентным импортом в iocs (UpsertImport); type=et_open/et_pro —
 // фиды ПРАВИЛ Emerging Threats Open/Pro (.rules-файл) с импортом в
-// репозиторий rules (см. rulesfeed.go).
+// репозиторий rules (см. rulesfeed.go); type=taxii — TAXII 2.x/STIX
+// (индикаторы → iocs, см. taxii.go).
 //
 // Поддерживаемые форматы тела:
 //   - plain text: один IOC на строку, '#' и '//' — комментарии;
@@ -103,11 +104,11 @@ func (s *Syncer) Sync(ctx context.Context, feed store.Feed) (store.FeedRun, erro
 	}
 
 	switch feed.Type {
-	case "generic", "et_open", "et_pro":
+	case "generic", "et_open", "et_pro", "taxii":
 		// поддерживаемые коннекторы: generic — IOC-листы,
-		// et_open/et_pro — фиды правил ET.
+		// et_open/et_pro — фиды правил ET, taxii — TAXII/STIX (см. taxii.go).
 	default:
-		return fail(fmt.Sprintf("синхронизация типа %q не поддерживается (generic — IOC-фиды, et_open/et_pro — фиды правил ET)", feed.Type))
+		return fail(fmt.Sprintf("синхронизация типа %q не поддерживается (generic — IOC-фиды, et_open/et_pro — фиды правил ET, taxii — TAXII/STIX)", feed.Type))
 	}
 
 	// et_pro: код подписки — из credentials; пустой URL строится из кода.
@@ -117,6 +118,11 @@ func (s *Syncer) Sync(ctx context.Context, feed store.Feed) (store.FeedRun, erro
 			return fail(err.Error())
 		}
 		feed.URL = u
+	}
+
+	// taxii: своя загрузка (discovery + пагинация envelope), не fetch().
+	if feed.Type == "taxii" {
+		return s.syncTaxii(ctx, feed, run, fail)
 	}
 
 	body, err := s.fetch(ctx, feed)
@@ -136,8 +142,16 @@ func (s *Syncer) Sync(ctx context.Context, feed store.Feed) (store.FeedRun, erro
 		}
 		return fail(msg)
 	}
+	return s.importIocs(ctx, feed, run, items, lineErrs)
+}
 
-	// Импорт: идемпотентный upsert по (org, type, value); source — имя фида.
+// importIocs — общий импорт IOC-коннекторов (generic, taxii): идемпотентный
+// upsert по (org, type, value); source — имя фида, feed_id — id фида.
+// Закрывает run (success + частичные ошибки — в error) и last_sync_* фида.
+func (s *Syncer) importIocs(ctx context.Context, feed store.Feed, run store.FeedRun,
+	items []store.IocInput, lineErrs []rules.LineError) (store.FeedRun, error) {
+	log := s.log()
+
 	imported, updated, skipped := 0, 0, 0
 	var firstErr string
 	for i, item := range items {
@@ -171,7 +185,7 @@ func (s *Syncer) Sync(ctx context.Context, feed store.Feed) (store.FeedRun, erro
 		syncErr = &msg // частичный успех: статус success, детали — в last_error
 	}
 
-	run, err = s.Store.Feeds.FinishRun(ctx, run.ID, status, imported, updated, skipped, syncErr)
+	run, err := s.Store.Feeds.FinishRun(ctx, run.ID, status, imported, updated, skipped, syncErr)
 	if err != nil {
 		return store.FeedRun{}, fmt.Errorf("закрытие feed_run: %w", err)
 	}

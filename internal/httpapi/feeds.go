@@ -14,8 +14,9 @@ import (
 
 // feedTypes — допустимые типы фидов (CHECK в DDL + enum openapi).
 // Синхронизация (POST /feeds/{id}/sync) поддерживает generic (IOC-листы
-// plain/CSV/JSON → таблица iocs) и et_open (.rules-файл ET Open →
-// репозиторий rules); остальные типы — под будущие коннекторы.
+// plain/CSV/JSON → таблица iocs), et_open/et_pro (.rules-файл ET →
+// репозиторий rules) и taxii (TAXII 2.x/STIX → iocs); stix/misp — под
+// будущие коннекторы.
 var feedTypes = map[string]bool{
 	"et_open": true, "et_pro": true, "taxii": true,
 	"stix": true, "misp": true, "generic": true,
@@ -161,10 +162,10 @@ type feedSyncResult struct {
 }
 
 // syncFeed — POST /api/v1/feeds/{id}/sync: синхронная синхронизация фида
-// (HTTP GET → разбор → импорт: generic → iocs, et_open → rules). Ошибки
-// загрузки/разбора — не 5xx, а status=failed + error в теле (и last_error у
-// фида). После успешного импорта generic-фида — автопрогон генерации
-// правил из IOC (без деплоя).
+// (загрузка → разбор → импорт: generic/taxii → iocs, et_open/et_pro →
+// rules). Ошибки загрузки/разбора — не 5xx, а status=failed + error в теле
+// (и last_error у фида). После успешного импорта IOC-фида — автопрогон
+// генерации правил из IOC (без деплоя).
 func (h *handlers) syncFeed(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathUUID(w, chi.URLParam(r, "id"), "id")
 	if !ok {
@@ -187,10 +188,11 @@ func (h *handlers) syncFeed(w http.ResponseWriter, r *http.Request) {
 	}
 
 	res := feedSyncResult{FeedRun: run}
-	// Автопрогон генерации правил из IOC (без деплоя) — только для generic
-	// (IOC-фиды) и только если импорт что-то принёс; et_open сам импортирует
-	// правила. Ошибка генерации не валит ответ синка: логируем.
-	if feed.Type == "generic" && run.Status == "success" && run.Imported+run.Updated > 0 {
+	// Автопрогон генерации правил из IOC (без деплоя) — только для IOC-фидов
+	// (generic, taxii) и только если импорт что-то принёс; et_open/et_pro
+	// сами импортируют правила. Ошибка генерации не валит ответ синка:
+	// логируем.
+	if (feed.Type == "generic" || feed.Type == "taxii") && run.Status == "success" && run.Imported+run.Updated > 0 {
 		gen := iocGenerateResult{Skipped: []iocSkip{}}
 		v, err := h.generateIocRulesCore(r.Context(), feed.OrganizationID, &gen)
 		if err != nil {

@@ -10,14 +10,12 @@
 
 ## Следующий шаг (конкретно)
 
-**Статус на 2026-10-01 (вечер)**: чанк 23 закрывает инцидент 16.09 —
-«тихая» смерть агента теперь детектируется свипером heartbeat-таймаута
-(проверено живьём: SIGSTOP → offline за ~2–2.5 мин, SIGCONT → revive),
-а обёртка start-agent.sh логирует код выхода/сигнал агента.
+**Статус на 2026-10-01 (вечер)**: чанки 23–24 закрыты. Дальше:
 
-**Следующий шаг после 23**:
-1. IOC/TI, следующий срез (п. 5.2 FEATURES): коннекторы taxii/stix/misp
-   и cron-расписания фидов. Либо auth/RBAC (DevAuth → токены, п. 8–9).
+**Следующий шаг после 24**:
+1. IOC/TI (п. 5.2 FEATURES): коннекторы stix (файл/bundle) и misp,
+   cron-расписания фидов (schedule сейчас — только длительность Go).
+   Либо auth/RBAC (DevAuth → токены, п. 8–9).
 2. **Стенд**: часы ВМ .28 скачут после перезагрузки (RTC отстаёт на 5+
    мин, `timedatectl` — «System clock synchronized: no» при активном
    timesyncd) — разобраться с синхронизацией времени (гипервизор/NTP),
@@ -25,7 +23,42 @@
 3. **Аномалия (не блокер)**: из ssh `sudo rm` в /etc/suricata → Permission
    denied при работающем touch; обход — агент от root правит сам (12a).
 
-Чанк 23 ГОТОВ (2026-10-01, этот коммит): детект «тихой» смерти агента +
+Чанк 24 ГОТОВ (2026-10-01, этот коммит): коннектор taxii — фиды IOC по
+TAXII 2.x/STIX. `internal/feedsync/taxii.go`: URL фида — endpoint объектов
+коллекции (`.../collections/{id}/objects/`, или коллекция — /objects
+добавляется) либо API root (discovery: GET {url}/collections/ → объекты
+всех коллекций с can_read != false); пагинация envelope more/next (предел
+100 страниц); Accept application/taxii+json;version=2.1; credentials —
+"user:pass" → Basic, иначе Bearer (как generic). STIX-разбор (ParseStix):
+только indicator (pattern_type stix/пустой; yara/suricata — в skipped с
+пояснением), revoked и истёкшие valid_until — молча пропускаются,
+confidence (0..100) → score, valid_until → expires_at IOC; из паттерна
+извлекаются сравнения lhs='value' (OR/AND-композит → по IOC на сравнение):
+ipv4/ipv6-addr:value→ip, domain-name→domain, url→url, email-addr→email,
+file:hashes.MD5/'SHA-1'/'SHA-256'→md5/sha1/sha256; дедуп (type,value)
+внутри выборки. Импорт IOC вынесен в общий `Syncer.importIocs` (generic +
+taxii); автопрогон генерации правил после ручного синка — и для taxii.
+Юнит-тесты: TestParseStix (маппинг/confidence/expires/пропуски/дедуп/
+ошибки), TestFetchTaxiiObjects на httptest (discovery, can_read=false,
+пагинация, Basic-auth, коллекция без /objects, пустой URL). OpenAPI,
+React-подсказки, docs/access.md под факт. Живой e2e (mock TAXII python
+http.server на .28:8899): фид по API root → sync success imported=4/
+skipped=1 (yara — понятный текст), rules_created=3, ruleset
+ioc-current-1eb1ceea; IOC в БД с source/feed_id, score=85 из confidence;
+повтор — imported=0/updated=4 (идемпотентно); прямая коллекция
+(STIX bundle без пагинации) → imported=1 (email), ruleset не изменился
+(email не маппится в правило); runs-история корректна. Тестовые фиды
+удалены (IOC остались, feed_id → NULL), mock остановлен, compliance
+in_sync 1/1. Реальный TAXII-сервер не проверялся (нет доступа) — только
+mock по спецификации envelope. Инфра: сборка фронта переведена на
+project-local Node.js `.tools/node` (v24.15.0, npm 11) — старый shim
+.tools/bin/npm ссылался на npm.cmd рантайма Kimi Desktop
+(%KIMI_DESKTOP_RUNTIME_NODE%), недоступный в CLI-сессии; shim переписан
+на .tools/node, vite требует node в PATH (команда в handover §4).
+Побочно замечено: один GET /iocs?source=... отвечал ~112 с (разово,
+сеть/PG) — при повторении смотреть.
+
+Чанк 23 ГОТОВ (2026-10-01, a94087e): детект «тихой» смерти агента +
 логирование завершения агента. Сервер: heartbeat в hub теперь троттлингом
 (`touchLastSeenMin` = 30 с — разрыв между пульсами ≤ ~60 с при heartbeat
 30 с) пишет `last_seen_at` в PG через `AgentsRepo.HeartbeatPulse`; пульс
@@ -498,7 +531,8 @@ managed-файле (245 правил).
 | 13d | Матрица «правила × инстансы» (требование А): API GET /api/v1/matrix/rules (openapi get_rules_matrix) — независимые keyset-курсоры rule_cursor (по sid) / instance_cursor (по id), фильтры rule_status/category/sid/cluster_id/cell_status, limit ≤1000; ячейка loaded/failed/missing/extra из desired_state.computed_rules + actual_state (loaded/failed StateReport); store — `internal/store/matrix.go` (страницы осей + батч состояний 2 запросами), handler — `internal/httpapi/matrix.go`; тесты sid-курсора и cellStatusOf. UI — вкладка «Матрица» (строки sid+msg, столбцы hostname вертикально, цветные ячейки + легенда, фильтр по статусу ячейки, поиск по sid, дозагрузка по 50). Живой e2e: ?limit=5 → 200 с ячейками loaded для инстанса 468c9c71; пагинация/фильтры/400-валидация; кейс missing живьём (битое правило 9999991 отклонено агентом через suricata -T → desired без actual → missing, сводка 244 loaded + 1 missing); disable+ребилд+деплой → ячейка исчезла; стенд восстановлен (245/245 loaded). Ограничение MVP: cell_status фильтрует ячейки внутри текущей страницы оси правил | d868a9b |
 | 14 | React-фронтенд в `web/`: Vite 5 + React 18 + TS strict, без UI-китов (стили из webui/style.css); 7 экранов в паритете с ванильным MVP (Обзор/Инстансы/Правила/Ruleset'ы/Деплои/Логи/Матрица) + улучшение (вкладки не размонтируются — фильтры/пагинация сохраняются, сводка ячеек матрицы). Vite base=/app/, dev-proxy /api → .28:8080. Раздача из бинаря: `web/embed.go` (go:embed dist) + `internal/httpapi/reactui.go` (/app/*, SPA-fallback, заглушка когда dist не собран; placeholder.txt в git, postbuild восстанавливает). Старый UI на / не тронут. Проверки: npm install/build/dev чисто, go build/vet/test зелёные, перекат .28 — /app/ + ассеты + SPA-fallback + /api/v1/fleet/compliance 200; браузер недоступен — только HTTP | 96c777e |
 | 15 | Развитие React UI: конструктор ruleset'ов во вкладке «Ruleset'ы» (выбор правил чекбоксами с фильтром/поиском/дозагрузкой, накопление выбора между страницами, чипы/счётчик/снятие, сборка POST /rulesets с rule_ids, различение 201 «создан»/200 «уже существует» через новый apiPostEx); страница инстанса (требование А) — drill-down `pages/InstanceDetail.tsx`: параметры, compliance, desired/actual hash, loaded/failed, last_reload, failed-правила, diff missing/extra, история деплоев (существующий GET /instances/{id}/deploy_history), логи агента хоста. Проверки: npm build + go build/vet/test чисто, перекат .28 (health ok, /app/ 200, новый бандл отдаётся, deploy_history 200 с деплоями 09200803/102c688b), живой e2e конструктора: 3 sid → 201 ruleset 8ce1b381 (chunk15-e2e), повтор → 200 (идемпотентность); браузер недоступен — только HTTP | 0ccd7b2 |
-| 23 | Детект «тихой» смерти агента (инцидент 16.09): heartbeat троттлингом (30 с) пишет last_seen_at в PG (`AgentsRepo.HeartbeatPulse`, заодно revive offline→online при живом стриме, reason heartbeat-resumed); свипер offline (роль hub\|all, `server.offline_sweep_interval` 30s / `agent_offline_after` 120s) — `SweepStaleOnline` (last_seen не перетирается, история reason heartbeat-timeout) + `hub.SweepOfflineAgents` (чистка presence в Redis, compliance → stale); диагностика завершения агента — обёртка `deploy/start-agent.sh` логирует exit_code/signal в data/agent-exit.log (развёрнута на .67). Живой e2e: SIGSTOP → offline (heartbeat-timeout в истории), SIGCONT → revive online без реконнекта, живой агент ложно не гаснет; architecture.md §5.2/§5.4 под факт. Заметка: часы ВМ .28 скачут (RTC −5 мин) — тайминги свиперов в тестах трактовать с поправкой | (этот коммит) |
+| 24 | Коннектор taxii — фиды IOC по TAXII 2.x/STIX (`internal/feedsync/taxii.go`): url = API root (discovery /collections/, can_read) или .../collections/{id}/objects, пагинация more/next ≤100 стр, Accept taxii+json;version=2.1, credentials user:pass→Basic/Bearer; ParseStix — только indicator pattern_type stix, revoked/истёкшие valid_until молча skip, confidence→score, valid_until→expires_at, паттерн → сравнения lhs='value' (ipv4/ipv6-addr→ip, domain-name→domain, url→url, email-addr→email, file:hashes→md5/sha1/sha256), дедуп; общий `importIocs` с generic; автопрогон генерации правил и для taxii. Юнит-тесты ParseStix/fetchTaxiiObjects (httptest: discovery, пагинация, Basic). Живой e2e (mock TAXII на .28): API root → imported=4/skipped=1 (yara), rules_created=3, ruleset ioc-current-1eb1ceea; повтор imported=0/updated=4; прямая коллекция → imported=1 (email); фиды удалены, compliance in_sync 1/1. Инфра: node теперь project-local в .tools/node (v24.15.0), shim .tools/bin/npm переписан (старый ссылался на рантайм Kimi Desktop) | (этот коммит) |
+| 23 | Детект «тихой» смерти агента (инцидент 16.09): heartbeat троттлингом (30 с) пишет last_seen_at в PG (`AgentsRepo.HeartbeatPulse`, заодно revive offline→online при живом стриме, reason heartbeat-resumed); свипер offline (роль hub\|all, `server.offline_sweep_interval` 30s / `agent_offline_after` 120s) — `SweepStaleOnline` (last_seen не перетирается, история reason heartbeat-timeout) + `hub.SweepOfflineAgents` (чистка presence в Redis, compliance → stale); диагностика завершения агента — обёртка `deploy/start-agent.sh` логирует exit_code/signal в data/agent-exit.log (развёрнута на .67). Живой e2e: SIGSTOP → offline (heartbeat-timeout в истории), SIGCONT → revive online без реконнекта, живой агент ложно не гаснет; architecture.md §5.2/§5.4 под факт. Заметка: часы ВМ .28 скачут (RTC −5 мин) — тайминги свиперов в тестах трактовать с поправкой | a94087e |
 | 20 | Фикс «column reference status is ambiguous» в подхвате pending-задач: в PendingTasksForAgent (`internal/store/deploy.go`) `SELECT t.`+taskColumns квалифицировал только первую колонку — остальные неоднозначны в JOIN deployments/instances/agents; ошибка при каждом (пере)подключении агента (DispatchPending). Добавлена константа taskColumnsT (все колонки с t.) + регрессионный тест TestTaskColumnsTQualified; остальные JOIN-запросы проверены. Перекат .28: ошибка в server.log исчезла (было 5 повторов), health ok, SQL прогнан в PG напрямую, compliance in_sync 1/1 | bee8248 |
 | 22 | Коннектор et_pro — фиды ПРАВИЛ ET Pro: тот же .rules-коннектор, что et_open (syncRules + параметр sourceType), код подписки из credentials (просто код, не user:pass — иначе failed с пояснением); пустой url → https://rules.emergingthreatspro.com/<code>/suricata/rules/etpro-all.rules (явный url — как есть); миграция 000007 (rules.source_type + 'et_pro'); создание et_pro-фида с пустым url разрешено; GET /rules source + et_pro; openapi/UI-подсказки под факт; юнит-тест TestETProURL. Живой e2e: без credentials → failed с понятным текстом (last_error в БД); credentials=test-code + явный url (http.server 8899) → imported=2/skipped=1, правила source_type='et_pro' under_review/disabled; без url → запрос на emergingthreatspro.com → 404 (URL из кода). Реального кода ET Pro нет — production-синк не проверен. Тестовые фиды удалены, правила 9940001/9940002 оставлены; compliance in_sync 1/1 | 486ddc3 |
 | 21 | Коннектор et_open — фиды ПРАВИЛ ET Open: `internal/feedsync/rulesfeed.go` (ParseRules — активные + выключенные «#alert …» → status=disabled при создании; syncRules — upsert в rules по (org,sid), source_type='et_open' + feed_id); миграция 000006 (rules.source_type + 'et_open'); ImportItem +FeedID/InitialStatus (тюнинг и первичный источник существующих правил не перетираются); дефолтный URL emerging-all.rules; автопрогон IOC-генерации после sync — только generic; GET /rules source + et_open; openapi под факт. Живой e2e: imported=5/skipped=1 → повтор «без изменений 5» без дублей → правка фида updated=1 с новой ревизией; et_pro — failed; compliance in_sync 1/1 | 4b81139 |

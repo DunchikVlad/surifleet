@@ -101,7 +101,7 @@ export default function Feeds({ active }: { active: boolean }) {
           style={{ minWidth: "24em" }}
         />
         <select value={fType} onChange={e => setFType(e.target.value)}
-          title="синхронизируются: generic (IOC-листы plain/CSV/JSON), et_open/et_pro (фиды правил ET; для et_pro URL можно не задавать — укажите код подписки в credentials через API)">
+          title="синхронизируются: generic (IOC-листы plain/CSV/JSON), et_open/et_pro (фиды правил ET; для et_pro URL можно не задавать — укажите код подписки в credentials через API), taxii (TAXII/STIX: URL — API root или .../collections/{id}/objects/)">
           {TYPES.map(t => <option key={t} value={t}>{t}</option>)}
         </select>
         <input
@@ -195,6 +195,10 @@ export default function Feeds({ active }: { active: boolean }) {
         автоматически (ruleset ioc-current-*, без деплоя). Фиды et_open/et_pro
         импортируют правила в репозиторий «Правила»; для et_pro без URL код
         подписки задаётся в поле credentials (через API, просто код).
+        Фиды taxii (TAXII 2.x/STIX) импортируют индикаторы в IOC: URL —
+        API root сервера или endpoint объектов коллекции
+        (.../collections/{"{id}"}/objects/), credentials — "user:pass" (Basic)
+        или токен (Bearer).
       </p>
     </>
   );

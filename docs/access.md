@@ -229,7 +229,7 @@ default 50) и `cursor`; в ответе `next_cursor` (null — страниц 
   `ioc-revoked` (чанк 19); повторная генерация отозванное правило не
   включает, пока IOC не вернулся в active.
 
-### 4.8 Фиды IOC и правил (чанки 18, 21, 22)
+### 4.8 Фиды IOC и правил (чанки 18, 21, 22, 24)
 - `GET /feeds` — список фидов с фильтром `type` (et_open/et_pro/taxii/
   stix/misp/generic) и keyset-пагинацией.
 - `POST /feeds` — подключение: `{name, type, url, schedule?,
@@ -276,11 +276,25 @@ default 50) и `cursor`; в ответе `next_cursor` (null — страниц 
     явно заданный url используется как есть. Правила — с
     `source_type=et_pro` (миграция 000007). Без credentials sync —
     failed «для et_pro укажите код подписки в поле credentials».
-  Остальные типы (taxii/stix/misp) — failed с пояснением.
+  - `type=taxii` (чанк 24) — TAXII 2.x/STIX: `url` — endpoint объектов
+    коллекции (`.../collections/{id}/objects/`, так и коллекция без
+    /objects) или API root сервера (тогда discovery:
+    `GET {url}/collections/` → объекты всех коллекций с can_read);
+    пагинация envelope `more`/`next` (предел 100 страниц);
+    `credentials` — "user:pass" (Basic) или токен (Bearer). Разбираются
+    только STIX-объекты `indicator` с `pattern_type` = stix (отсутствие —
+    тоже stix); revoked и истёкшие по `valid_until` пропускаются молча,
+    `valid_until` → `expires_at` IOC, `confidence` (0..100) → score.
+    Паттерн разбирается упрощённо — извлекаются сравнения `lhs = 'value'`
+    (составной OR/AND-паттерн даёт по IOC на сравнение): ipv4/ipv6-addr
+    → ip, domain-name → domain, url → url, email-addr → email,
+    file:hashes.MD5/SHA-1/SHA-256 → md5/sha1/sha256. Импорт — общий с
+    generic (upsert в iocs, source = имя фида) + автопрогон генерации
+    правил. Прочие типы (stix/misp) — failed с пояснением.
   Ошибки загрузки/разбора — не 5xx, а `status=failed` + `error` в теле
   (дублируются в `feeds.last_error`); мусорные строки не прерывают импорт.
   Ответ — FeedRun `{status, imported, updated, skipped, error}` плюс для
-  generic итог автопрогона (`rules_created/rules_updated/rules_unchanged`,
+  IOC-фидов (generic, taxii) итог автопрогона (`rules_created/rules_updated/rules_unchanged`,
   `ruleset_version`).
 - `GET /feeds/{id}/runs` — история запусков (feed_runs, миграция
   000005), свежие первыми, keyset по (started_at, id).
@@ -289,12 +303,12 @@ default 50) и `cursor`; в ответе `next_cursor` (null — страниц 
   с `schedule` в виде длительности Go ("1h", "30m"; cron — следующие
   чанки) синкаются при `last_sync_at + schedule <= now()`; плановый
   синк только импортирует (автогенерация правил — у ручного синка
-  generic-фида). Работает для всех коннекторов (generic, et_open, et_pro).
+  IOC-фида). Работает для всех коннекторов (generic, et_open, et_pro, taxii).
 - React UI: вкладка «Фиды» (таблица, форма добавления, кнопка
   «Синхронизировать» со строкой результата, переключатель enabled,
   удаление).
 
-Не реализовано пока: коннекторы taxii/stix/misp (синк возвращает
+Не реализовано пока: коннекторы stix/misp (синк возвращает
 failed с пояснением), cron-расписания.
 
 ## 5. Сквозной сценарий «от нуля до задеплоенных правил»

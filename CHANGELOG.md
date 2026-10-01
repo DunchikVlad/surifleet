@@ -7,6 +7,35 @@
 
 ### Added
 
+- Чанк 24 (2026-10-01): коннектор taxii — фиды IOC по TAXII 2.x/STIX
+  (`internal/feedsync/taxii.go`). URL фида: endpoint объектов коллекции
+  (`.../collections/{id}/objects/` или коллекция без /objects) либо
+  API root (discovery: GET {url}/collections/ → все коллекции с
+  can_read != false); пагинация envelope more/next (предел 100 страниц);
+  Accept application/taxii+json;version=2.1; credentials — "user:pass"
+  (Basic) или Bearer. STIX-разбор: только indicator (pattern_type stix
+  или пустой), revoked/истёкшие valid_until пропускаются, confidence
+  (0..100) → score, valid_until → expires_at; паттерн — извлечение
+  сравнений lhs='value' (OR/AND-композиты дают по IOC на сравнение):
+  ipv4/ipv6-addr→ip, domain-name→domain, url→url, email-addr→email,
+  file:hashes.MD5/'SHA-1'/'SHA-256'→md5/sha1/sha256; дедуп (type,value)
+  внутри выборки. Импорт IOC вынесен в общий `Syncer.importIocs`
+  (generic и taxii); автопрогон генерации правил после ручного синка —
+  теперь и для taxii. Юнит-тесты: ParseStix (маппинг, confidence,
+  expires, revoked/истёкшие/не-indicator, дедуп, ошибки) и
+  fetchTaxiiObjects на httptest (discovery, can_read=false, пагинация,
+  Basic-auth, коллекция без /objects, пустой URL). OpenAPI/UI/access.md
+  под факт. Живой e2e на стенде (mock TAXII на .28): API root →
+  imported=4/skipped=1 (yara — понятная ошибка), rules_created=3,
+  ruleset ioc-current-1eb1ceea; повтор — imported=0/updated=4
+  (идемпотентно); прямая коллекция (STIX bundle) — imported=1 (email);
+  score=85 из confidence, feed_id проставлен; runs-история ok; тестовые
+  фиды удалены (IOC остались, feed_id → NULL), compliance in_sync 1/1.
+  Инфра-нужда: сборка фронта переведена на project-local Node.js
+  `.tools/node` (v24.15.0) — старый shim ссылался на рантайм Kimi
+  Desktop, недоступный в CLI-сессиях; обновлён `.tools/bin/npm`.
+  (server, ui, docs)
+
 - Чанк 23 (2026-10-01): детект «тихой» смерти агента (инцидент
   2026-09-16 — мёртвый процесс 2 часа отображался online). Heartbeat
   теперь не только продлевает Redis-TTL, но и троттлингом (не чаще 30 с,
