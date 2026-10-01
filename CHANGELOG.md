@@ -7,6 +7,18 @@
 
 ### Added
 
+- Чанк 25 (2026-10-01): коннектор stix — статический STIX 2.x bundle
+  (`{"objects":[...]}`) или голый JSON-массив объектов по URL, без
+  TAXII-протокола. `ParseStixBody` (bundle/массив/BOM/мусор), разбор
+  индикаторов — общий ParseStix чанка 24; загрузка общая (fetch,
+  Basic/Bearer). Автопрогон генерации правил после ручного синка —
+  теперь generic|taxii|stix. Юнит-тест TestParseStixBody. Живой e2e
+  (http.server на .28): imported=3/skipped=1 (неподдерживаемый паттерн —
+  понятный текст), score из confidence, rules_created=3, ruleset
+  ioc-current-4acbe140; повтор imported=0/updated=3 (идемпотентно);
+  битый URL → failed «HTTP 404». Тестовые фиды удалены, compliance
+  in_sync 1/1. (server, docs)
+
 - Чанк 24 (2026-10-01): коннектор taxii — фиды IOC по TAXII 2.x/STIX
   (`internal/feedsync/taxii.go`). URL фида: endpoint объектов коллекции
   (`.../collections/{id}/objects/` или коллекция без /objects) либо

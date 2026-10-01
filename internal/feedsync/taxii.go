@@ -23,6 +23,7 @@
 package feedsync
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -234,6 +235,35 @@ var stixToIocType = map[string]string{
 	"file:hashes.sha-256":   "sha256",
 	"file:hashes.'sha-1'":   "sha1",
 	"file:hashes.'sha-256'": "sha256",
+}
+
+// ParseStixBody разбирает тело STIX-фида (чанк 25, коннектор stix):
+// STIX bundle {"objects": [...]} (2.0/2.1) или голый массив объектов.
+func ParseStixBody(body []byte) ([]json.RawMessage, error) {
+	trimmed := bytes.TrimSpace(bytes.TrimPrefix(body, []byte("\xef\xbb\xbf")))
+	if len(trimmed) == 0 {
+		return nil, fmt.Errorf("пустое тело фида")
+	}
+	switch trimmed[0] {
+	case '[':
+		var objects []json.RawMessage
+		if err := json.Unmarshal(trimmed, &objects); err != nil {
+			return nil, fmt.Errorf("разбор STIX-массива: %w", err)
+		}
+		return objects, nil
+	case '{':
+		var bundle struct {
+			Objects []json.RawMessage `json:"objects"`
+		}
+		if err := json.Unmarshal(trimmed, &bundle); err != nil {
+			return nil, fmt.Errorf("разбор STIX bundle: %w", err)
+		}
+		if bundle.Objects == nil {
+			return nil, fmt.Errorf("STIX bundle без поля objects")
+		}
+		return bundle.Objects, nil
+	}
+	return nil, fmt.Errorf("тело не STIX (ожидается bundle {...} или массив объектов)")
 }
 
 // ParseStix разбирает STIX-объекты в IocInput. Берутся только indicator

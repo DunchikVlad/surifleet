@@ -15,8 +15,8 @@ import (
 // feedTypes — допустимые типы фидов (CHECK в DDL + enum openapi).
 // Синхронизация (POST /feeds/{id}/sync) поддерживает generic (IOC-листы
 // plain/CSV/JSON → таблица iocs), et_open/et_pro (.rules-файл ET →
-// репозиторий rules) и taxii (TAXII 2.x/STIX → iocs); stix/misp — под
-// будущие коннекторы.
+// репозиторий rules), taxii (TAXII 2.x/STIX → iocs) и stix (STIX bundle
+// по URL → iocs); misp — под будущий коннектор.
 var feedTypes = map[string]bool{
 	"et_open": true, "et_pro": true, "taxii": true,
 	"stix": true, "misp": true, "generic": true,
@@ -162,7 +162,7 @@ type feedSyncResult struct {
 }
 
 // syncFeed — POST /api/v1/feeds/{id}/sync: синхронная синхронизация фида
-// (загрузка → разбор → импорт: generic/taxii → iocs, et_open/et_pro →
+// (загрузка → разбор → импорт: generic/taxii/stix → iocs, et_open/et_pro →
 // rules). Ошибки загрузки/разбора — не 5xx, а status=failed + error в теле
 // (и last_error у фида). После успешного импорта IOC-фида — автопрогон
 // генерации правил из IOC (без деплоя).
@@ -189,10 +189,10 @@ func (h *handlers) syncFeed(w http.ResponseWriter, r *http.Request) {
 
 	res := feedSyncResult{FeedRun: run}
 	// Автопрогон генерации правил из IOC (без деплоя) — только для IOC-фидов
-	// (generic, taxii) и только если импорт что-то принёс; et_open/et_pro
-	// сами импортируют правила. Ошибка генерации не валит ответ синка:
-	// логируем.
-	if (feed.Type == "generic" || feed.Type == "taxii") && run.Status == "success" && run.Imported+run.Updated > 0 {
+	// (generic, taxii, stix) и только если импорт что-то принёс;
+	// et_open/et_pro сами импортируют правила. Ошибка генерации не валит
+	// ответ синка: логируем.
+	if (feed.Type == "generic" || feed.Type == "taxii" || feed.Type == "stix") && run.Status == "success" && run.Imported+run.Updated > 0 {
 		gen := iocGenerateResult{Skipped: []iocSkip{}}
 		v, err := h.generateIocRulesCore(r.Context(), feed.OrganizationID, &gen)
 		if err != nil {

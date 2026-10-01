@@ -3,7 +3,8 @@
 // IOC и идемпотентным импортом в iocs (UpsertImport); type=et_open/et_pro —
 // фиды ПРАВИЛ Emerging Threats Open/Pro (.rules-файл) с импортом в
 // репозиторий rules (см. rulesfeed.go); type=taxii — TAXII 2.x/STIX
-// (индикаторы → iocs, см. taxii.go).
+// и type=stix — статический STIX bundle/JSON по URL (индикаторы → iocs,
+// см. taxii.go).
 //
 // Поддерживаемые форматы тела:
 //   - plain text: один IOC на строку, '#' и '//' — комментарии;
@@ -104,11 +105,12 @@ func (s *Syncer) Sync(ctx context.Context, feed store.Feed) (store.FeedRun, erro
 	}
 
 	switch feed.Type {
-	case "generic", "et_open", "et_pro", "taxii":
+	case "generic", "et_open", "et_pro", "taxii", "stix":
 		// поддерживаемые коннекторы: generic — IOC-листы,
-		// et_open/et_pro — фиды правил ET, taxii — TAXII/STIX (см. taxii.go).
+		// et_open/et_pro — фиды правил ET, taxii — TAXII 2.x (см. taxii.go),
+		// stix — статический STIX bundle/JSON по URL (там же).
 	default:
-		return fail(fmt.Sprintf("синхронизация типа %q не поддерживается (generic — IOC-фиды, et_open/et_pro — фиды правил ET, taxii — TAXII/STIX)", feed.Type))
+		return fail(fmt.Sprintf("синхронизация типа %q не поддерживается (generic — IOC-фиды, et_open/et_pro — фиды правил ET, taxii — TAXII 2.x, stix — STIX bundle)", feed.Type))
 	}
 
 	// et_pro: код подписки — из credentials; пустой URL строится из кода.
@@ -132,6 +134,23 @@ func (s *Syncer) Sync(ctx context.Context, feed store.Feed) (store.FeedRun, erro
 
 	if feed.Type == "et_open" || feed.Type == "et_pro" {
 		return s.syncRules(ctx, feed, run, body, feed.Type, fail)
+	}
+
+	// stix: тело — STIX bundle/массив, разбор тем же ParseStix, что taxii.
+	if feed.Type == "stix" {
+		objects, err := ParseStixBody(body)
+		if err != nil {
+			return fail("stix: " + err.Error())
+		}
+		items, lineErrs := ParseStix(objects, time.Now())
+		if len(items) == 0 {
+			msg := "фид не содержит валидных IOC"
+			if len(lineErrs) > 0 {
+				msg = fmt.Sprintf("%s (%d ошибочных индикаторов, первый: %s)", msg, len(lineErrs), lineErrs[0].Reason)
+			}
+			return fail(msg)
+		}
+		return s.importIocs(ctx, feed, run, items, lineErrs)
 	}
 
 	items, lineErrs := Parse(body)

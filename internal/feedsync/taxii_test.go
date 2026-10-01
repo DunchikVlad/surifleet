@@ -83,6 +83,31 @@ func TestParseStix(t *testing.T) {
 	}
 }
 
+// TestParseStixBody — тело stix-фида: bundle, голый массив, мусор.
+func TestParseStixBody(t *testing.T) {
+	bundle := `{"type":"bundle","id":"bundle--x","objects":[{"type":"indicator","pattern":"[ipv4-addr:value = '198.51.100.9']"}]}`
+	arr := `[{"type":"indicator","pattern":"[domain-name:value = 'stix.example.com']"}]`
+
+	objs, err := ParseStixBody([]byte(bundle))
+	if err != nil || len(objs) != 1 {
+		t.Fatalf("bundle: objs=%d err=%v", len(objs), err)
+	}
+	objs, err = ParseStixBody([]byte(" \n" + arr))
+	if err != nil || len(objs) != 1 {
+		t.Fatalf("array: objs=%d err=%v", len(objs), err)
+	}
+	// BOM
+	objs, err = ParseStixBody([]byte("\xef\xbb\xbf" + bundle))
+	if err != nil || len(objs) != 1 {
+		t.Fatalf("bom: objs=%d err=%v", len(objs), err)
+	}
+	for _, bad := range []string{"", "not json", `{"type":"bundle"}`, `[123`} {
+		if _, err := ParseStixBody([]byte(bad)); err == nil {
+			t.Errorf("мусор %q: ожидалась ошибка", bad)
+		}
+	}
+}
+
 // TestFetchTaxiiObjects — загрузка с httptest: прямой URL коллекции с
 // пагинацией more/next, discovery через API root, Basic-auth из credentials.
 func TestFetchTaxiiObjects(t *testing.T) {
