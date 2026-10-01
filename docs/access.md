@@ -229,7 +229,7 @@ default 50) и `cursor`; в ответе `next_cursor` (null — страниц 
   `ioc-revoked` (чанк 19); повторная генерация отозванное правило не
   включает, пока IOC не вернулся в active.
 
-### 4.8 Фиды IOC и правил (чанки 18, 21, 22, 24, 25)
+### 4.8 Фиды IOC и правил (чанки 18, 21, 22, 24–26)
 - `GET /feeds` — список фидов с фильтром `type` (et_open/et_pro/taxii/
   stix/misp/generic) и keyset-пагинацией.
 - `POST /feeds` — подключение: `{name, type, url, schedule?,
@@ -294,11 +294,20 @@ default 50) и `cursor`; в ответе `next_cursor` (null — страниц 
   - `type=stix` (чанк 25) — статический STIX 2.x bundle (`{"objects":…}`)
     или голый JSON-массив объектов по URL, БЕЗ TAXII-протокола; загрузка
     общая (fetch, Basic/Bearer по credentials), разбор — тот же ParseStix,
-    что у taxii. Прочие типы (misp) — failed с пояснением.
+    что у taxii.
+  - `type=misp` (чанк 26) — MISP core format feed: `url` — базовый адрес
+    фида; загружаются `manifest.json` и файлы событий `{uuid}.json`
+    (свежие первыми по timestamp манифеста, предел 2000 событий за синк,
+    последовательно). Атрибуты с `to_ids=false` или `deleted` пропускаются;
+    типы ip-src/ip-dst → ip, domain/hostname → domain, url → url,
+    md5/sha1/sha256 → хэши, email-src/email-dst/email → email; составные:
+    domain|ip → доменная часть, ip-*|port → IP-часть, filename|md5 →
+    хэш-часть. Score — по `threat_level_id` события (1 High→80, 2→60,
+    3→40, прочее→50). MISP Event Object не разбираются (MVP).
   Ошибки загрузки/разбора — не 5xx, а `status=failed` + `error` в теле
   (дублируются в `feeds.last_error`); мусорные строки не прерывают импорт.
   Ответ — FeedRun `{status, imported, updated, skipped, error}` плюс для
-  IOC-фидов (generic, taxii, stix) итог автопрогона (`rules_created/rules_updated/rules_unchanged`,
+  IOC-фидов (generic, taxii, stix, misp) итог автопрогона (`rules_created/rules_updated/rules_unchanged`,
   `ruleset_version`).
 - `GET /feeds/{id}/runs` — история запусков (feed_runs, миграция
   000005), свежие первыми, keyset по (started_at, id).
@@ -307,13 +316,13 @@ default 50) и `cursor`; в ответе `next_cursor` (null — страниц 
   с `schedule` в виде длительности Go ("1h", "30m"; cron — следующие
   чанки) синкаются при `last_sync_at + schedule <= now()`; плановый
   синк только импортирует (автогенерация правил — у ручного синка
-  IOC-фида). Работает для всех коннекторов (generic, et_open, et_pro, taxii, stix).
+  IOC-фида). Работает для всех коннекторов (generic, et_open, et_pro, taxii, stix, misp).
 - React UI: вкладка «Фиды» (таблица, форма добавления, кнопка
   «Синхронизировать» со строкой результата, переключатель enabled,
   удаление).
 
-Не реализовано пока: коннектор misp (синк возвращает
-failed с пояснением), cron-расписания.
+Не реализовано пока: cron-расписания фидов (schedule — только
+длительность Go).
 
 ## 5. Сквозной сценарий «от нуля до задеплоенных правил»
 

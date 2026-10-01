@@ -7,6 +7,21 @@
 
 ### Added
 
+- Чанк 26 (2026-10-01): коннектор misp — MISP core format feed
+  (`internal/feedsync/misp.go`): manifest.json → события {uuid}.json
+  (свежие первыми по timestamp, предел 2000 за синк); атрибуты с
+  to_ids=false/deleted пропускаются; типы ip-src/ip-dst, domain/hostname,
+  url, md5/sha1/sha256, email-* (+ составные domain|ip, ip-*|port,
+  filename|hash); score по threat_level_id события (1→80, 2→60, 3→40,
+  прочее→50); дедуп (type,value) между событиями; ошибки событий не
+  прерывают синк. Автопрогон генерации правил — и для misp. Юнит-тесты
+  ParseMispEvent (маппинг, составные, to_ids/deleted, score) и
+  httptest-тест manifest/дедупа. Живой e2e на стенде (mock):
+  imported=4/updated=1/skipped=1, score 80/60, rules_created=4, ruleset
+  ioc-current-4d1d5b99; повтор — imported=0/updated=5 (идемпотентно);
+  compliance in_sync 1/1. Все 6 типов фидов (generic, et_open, et_pro,
+  taxii, stix, misp) теперь синхронизируются. (server, docs)
+
 - Чанк 25 (2026-10-01): коннектор stix — статический STIX 2.x bundle
   (`{"objects":[...]}`) или голый JSON-массив объектов по URL, без
   TAXII-протокола. `ParseStixBody` (bundle/массив/BOM/мусор), разбор

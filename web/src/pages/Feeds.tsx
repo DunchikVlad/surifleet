@@ -101,7 +101,7 @@ export default function Feeds({ active }: { active: boolean }) {
           style={{ minWidth: "24em" }}
         />
         <select value={fType} onChange={e => setFType(e.target.value)}
-          title="синхронизируются: generic (IOC-листы plain/CSV/JSON), et_open/et_pro (фиды правил ET; для et_pro URL можно не задавать — укажите код подписки в credentials через API), taxii (TAXII/STIX: URL — API root или .../collections/{id}/objects/), stix (STIX bundle/JSON по URL)">
+          title="синхронизируются: generic (IOC-листы plain/CSV/JSON), et_open/et_pro (фиды правил ET; для et_pro URL можно не задавать — укажите код подписки в credentials через API), taxii (TAXII/STIX: URL — API root или .../collections/{id}/objects/), stix (STIX bundle/JSON по URL), misp (MISP core format: URL — база фида с manifest.json)">
           {TYPES.map(t => <option key={t} value={t}>{t}</option>)}
         </select>
         <input
@@ -199,7 +199,9 @@ export default function Feeds({ active }: { active: boolean }) {
         API root сервера или endpoint объектов коллекции
         (.../collections/{"{id}"}/objects/), credentials — "user:pass" (Basic)
         или токен (Bearer). Фиды stix — статический STIX bundle/JSON по URL
-        (тот же разбор индикаторов, без TAXII-протокола).
+        (тот же разбор индикаторов, без TAXII-протокола). Фиды misp —
+        MISP core format: URL — база фида (грузятся manifest.json и файлы
+        событий), атрибуты to_ids=false пропускаются.
       </p>
     </>
   );

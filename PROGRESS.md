@@ -10,12 +10,12 @@
 
 ## Следующий шаг (конкретно)
 
-**Статус на 2026-10-01 (вечер)**: чанки 23–25 закрыты. Дальше:
+**Статус на 2026-10-01 (вечер)**: чанки 23–26 закрыты. Дальше:
 
-**Следующий шаг после 25**:
-1. IOC/TI (п. 5.2 FEATURES): коннектор misp (манифест + event JSON),
-   cron-расписания фидов (schedule сейчас — только длительность Go).
-   Либо auth/RBAC (DevAuth → токены, п. 8–9).
+**Следующий шаг после 26**:
+1. Коннекторы фидов ЗАВЕРШЕНЫ (generic/et_open/et_pro/taxii/stix/misp) —
+   остались cron-расписания фидов (schedule сейчас — только длительность
+   Go). Либо auth/RBAC (DevAuth → токены, п. 8–9).
 2. **Стенд**: часы ВМ .28 скачут после перезагрузки (RTC отстаёт на 5+
    мин, `timedatectl` — «System clock synchronized: no» при активном
    timesyncd) — разобраться с синхронизацией времени (гипервизор/NTP),
@@ -23,7 +23,30 @@
 3. **Аномалия (не блокер)**: из ssh `sudo rm` в /etc/suricata → Permission
    denied при работающем touch; обход — агент от root правит сам (12a).
 
-Чанк 25 ГОТОВ (2026-10-01, этот коммит): коннектор stix — статический
+Чанк 26 ГОТОВ (2026-10-01, этот коммит): коннектор misp — MISP core
+format feed. `internal/feedsync/misp.go`: url фида — базовый адрес
+фида; GET {url}/manifest.json → события (timestamp строкой или числом —
+mispTimestamp), свежие первыми, предел 2000 событий за синк
+(mispMaxEvents, warn в лог при обрезке), последовательная загрузка
+{uuid}.json. ParseMispEvent: атрибуты с to_ids=false/deleted пропускаются
+молча; маппинг ip-src/ip-dst→ip, domain/hostname→domain, url→url,
+md5/sha1/sha256, email-src/dst/email→email; составные domain|ip → домен,
+ip-*|port → IP, filename|hash → хэш; score по threat_level_id события
+(1→80, 2→60, 3→40, прочее→50); MISP Event Object не разбираются (MVP).
+Дедуп (type,value) между событиями; ошибки событий не прерывают синк.
+Импорт — общий importIocs; автопрогон генерации правил — и для misp.
+Юнит-тесты TestParseMispEvent (маппинг, составные, to_ids/deleted, score,
+битый JSON) и TestFetchMispFeed (httptest: manifest, timestamp
+строка/число, дедуп между событиями). Живой e2e (http.server 8899 на
+.28, manifest + 2 события): sync success imported=4/updated=1 (sha256
+уже был от chunk24-taxi — upsert по (org,type,value))/skipped=1 (snort —
+понятный текст), score 80/60 по threat_level, to_ids=false и deleted
+пропущены, rules_created=4, ruleset ioc-current-4d1d5b99; повтор —
+imported=0/updated=5 (идемпотентно). Фид удалён (IOC остались), mock
+остановлен, compliance in_sync 1/1. Реальный MISP-фид не проверялся
+(нет доступа) — только mock по core format.
+
+Чанк 25 ГОТОВ (2026-10-01, bc32381): коннектор stix — статический
 STIX 2.x bundle (`{"objects":[...]}`) или голый JSON-массив объектов по
 URL, без TAXII-протокола. `ParseStixBody` (taxii.go): bundle/массив/BOM/
 мусор; разбор индикаторов — общий ParseStix чанка 24. Загрузка общая
@@ -547,7 +570,8 @@ managed-файле (245 правил).
 | 13d | Матрица «правила × инстансы» (требование А): API GET /api/v1/matrix/rules (openapi get_rules_matrix) — независимые keyset-курсоры rule_cursor (по sid) / instance_cursor (по id), фильтры rule_status/category/sid/cluster_id/cell_status, limit ≤1000; ячейка loaded/failed/missing/extra из desired_state.computed_rules + actual_state (loaded/failed StateReport); store — `internal/store/matrix.go` (страницы осей + батч состояний 2 запросами), handler — `internal/httpapi/matrix.go`; тесты sid-курсора и cellStatusOf. UI — вкладка «Матрица» (строки sid+msg, столбцы hostname вертикально, цветные ячейки + легенда, фильтр по статусу ячейки, поиск по sid, дозагрузка по 50). Живой e2e: ?limit=5 → 200 с ячейками loaded для инстанса 468c9c71; пагинация/фильтры/400-валидация; кейс missing живьём (битое правило 9999991 отклонено агентом через suricata -T → desired без actual → missing, сводка 244 loaded + 1 missing); disable+ребилд+деплой → ячейка исчезла; стенд восстановлен (245/245 loaded). Ограничение MVP: cell_status фильтрует ячейки внутри текущей страницы оси правил | d868a9b |
 | 14 | React-фронтенд в `web/`: Vite 5 + React 18 + TS strict, без UI-китов (стили из webui/style.css); 7 экранов в паритете с ванильным MVP (Обзор/Инстансы/Правила/Ruleset'ы/Деплои/Логи/Матрица) + улучшение (вкладки не размонтируются — фильтры/пагинация сохраняются, сводка ячеек матрицы). Vite base=/app/, dev-proxy /api → .28:8080. Раздача из бинаря: `web/embed.go` (go:embed dist) + `internal/httpapi/reactui.go` (/app/*, SPA-fallback, заглушка когда dist не собран; placeholder.txt в git, postbuild восстанавливает). Старый UI на / не тронут. Проверки: npm install/build/dev чисто, go build/vet/test зелёные, перекат .28 — /app/ + ассеты + SPA-fallback + /api/v1/fleet/compliance 200; браузер недоступен — только HTTP | 96c777e |
 | 15 | Развитие React UI: конструктор ruleset'ов во вкладке «Ruleset'ы» (выбор правил чекбоксами с фильтром/поиском/дозагрузкой, накопление выбора между страницами, чипы/счётчик/снятие, сборка POST /rulesets с rule_ids, различение 201 «создан»/200 «уже существует» через новый apiPostEx); страница инстанса (требование А) — drill-down `pages/InstanceDetail.tsx`: параметры, compliance, desired/actual hash, loaded/failed, last_reload, failed-правила, diff missing/extra, история деплоев (существующий GET /instances/{id}/deploy_history), логи агента хоста. Проверки: npm build + go build/vet/test чисто, перекат .28 (health ok, /app/ 200, новый бандл отдаётся, deploy_history 200 с деплоями 09200803/102c688b), живой e2e конструктора: 3 sid → 201 ruleset 8ce1b381 (chunk15-e2e), повтор → 200 (идемпотентность); браузер недоступен — только HTTP | 0ccd7b2 |
-| 25 | Коннектор stix — статический STIX 2.x bundle/JSON-массив по URL без TAXII-протокола: `ParseStixBody` (bundle/массив/BOM), разбор — общий ParseStix чанка 24, загрузка общая (fetch, Basic/Bearer); автопрогон генерации правил и для stix. Юнит-тест TestParseStixBody. Живой e2e (http.server на .28): imported=3/skipped=1 (неподдерживаемый паттерн — понятный текст), score=70 из confidence, rules_created=3, ruleset ioc-current-4acbe140; повтор imported=0/updated=3; битый URL → failed «HTTP 404»; фиды удалены, compliance in_sync 1/1 | (этот коммит) |
+| 26 | Коннектор misp — MISP core format feed (`internal/feedsync/misp.go`): manifest.json → события (свежие первыми, ≤2000 за синк, timestamp строка/число), атрибуты to_ids=false/deleted молча skip, маппинг ip-src/dst, domain/hostname, url, md5/sha1/sha256, email-* + составные (domain\|ip, ip-*\|port, filename\|hash), score по threat_level_id (1→80/2→60/3→40); дедуп между событиями, ошибки событий не прерывают; общий importIocs + автопрогон генерации. Юнит-тесты ParseMispEvent/fetch (httptest). Живой e2e (mock на .28): imported=4/updated=1/skipped=1 (snort — понятный текст), score 80/60, rules_created=4; повтор imported=0/updated=5; фид удалён, compliance in_sync 1/1. ВСЕ 6 коннекторов фидов готовы | (этот коммит) |
+| 25 | Коннектор stix — статический STIX 2.x bundle/JSON-массив по URL без TAXII-протокола: `ParseStixBody` (bundle/массив/BOM), разбор — общий ParseStix чанка 24, загрузка общая (fetch, Basic/Bearer); автопрогон генерации правил и для stix. Юнит-тест TestParseStixBody. Живой e2e (http.server на .28): imported=3/skipped=1 (неподдерживаемый паттерн — понятный текст), score=70 из confidence, rules_created=3, ruleset ioc-current-4acbe140; повтор imported=0/updated=3; битый URL → failed «HTTP 404»; фиды удалены, compliance in_sync 1/1 | bc32381 |
 | 24 | Коннектор taxii — фиды IOC по TAXII 2.x/STIX (`internal/feedsync/taxii.go`): url = API root (discovery /collections/, can_read) или .../collections/{id}/objects, пагинация more/next ≤100 стр, Accept taxii+json;version=2.1, credentials user:pass→Basic/Bearer; ParseStix — только indicator pattern_type stix, revoked/истёкшие valid_until молча skip, confidence→score, valid_until→expires_at, паттерн → сравнения lhs='value' (ipv4/ipv6-addr→ip, domain-name→domain, url→url, email-addr→email, file:hashes→md5/sha1/sha256), дедуп; общий `importIocs` с generic; автопрогон генерации правил и для taxii. Юнит-тесты ParseStix/fetchTaxiiObjects (httptest: discovery, пагинация, Basic). Живой e2e (mock TAXII на .28): API root → imported=4/skipped=1 (yara), rules_created=3, ruleset ioc-current-1eb1ceea; повтор imported=0/updated=4; прямая коллекция → imported=1 (email); фиды удалены, compliance in_sync 1/1. Инфра: node теперь project-local в .tools/node (v24.15.0), shim .tools/bin/npm переписан (старый ссылался на рантайм Kimi Desktop) | 248e13c |
 | 23 | Детект «тихой» смерти агента (инцидент 16.09): heartbeat троттлингом (30 с) пишет last_seen_at в PG (`AgentsRepo.HeartbeatPulse`, заодно revive offline→online при живом стриме, reason heartbeat-resumed); свипер offline (роль hub\|all, `server.offline_sweep_interval` 30s / `agent_offline_after` 120s) — `SweepStaleOnline` (last_seen не перетирается, история reason heartbeat-timeout) + `hub.SweepOfflineAgents` (чистка presence в Redis, compliance → stale); диагностика завершения агента — обёртка `deploy/start-agent.sh` логирует exit_code/signal в data/agent-exit.log (развёрнута на .67). Живой e2e: SIGSTOP → offline (heartbeat-timeout в истории), SIGCONT → revive online без реконнекта, живой агент ложно не гаснет; architecture.md §5.2/§5.4 под факт. Заметка: часы ВМ .28 скачут (RTC −5 мин) — тайминги свиперов в тестах трактовать с поправкой | a94087e |
 | 20 | Фикс «column reference status is ambiguous» в подхвате pending-задач: в PendingTasksForAgent (`internal/store/deploy.go`) `SELECT t.`+taskColumns квалифицировал только первую колонку — остальные неоднозначны в JOIN deployments/instances/agents; ошибка при каждом (пере)подключении агента (DispatchPending). Добавлена константа taskColumnsT (все колонки с t.) + регрессионный тест TestTaskColumnsTQualified; остальные JOIN-запросы проверены. Перекат .28: ошибка в server.log исчезла (было 5 повторов), health ok, SQL прогнан в PG напрямую, compliance in_sync 1/1 | bee8248 |

@@ -4,7 +4,7 @@
 // фиды ПРАВИЛ Emerging Threats Open/Pro (.rules-файл) с импортом в
 // репозиторий rules (см. rulesfeed.go); type=taxii — TAXII 2.x/STIX
 // и type=stix — статический STIX bundle/JSON по URL (индикаторы → iocs,
-// см. taxii.go).
+// см. taxii.go); type=misp — MISP core format feed (см. misp.go).
 //
 // Поддерживаемые форматы тела:
 //   - plain text: один IOC на строку, '#' и '//' — комментарии;
@@ -105,12 +105,13 @@ func (s *Syncer) Sync(ctx context.Context, feed store.Feed) (store.FeedRun, erro
 	}
 
 	switch feed.Type {
-	case "generic", "et_open", "et_pro", "taxii", "stix":
+	case "generic", "et_open", "et_pro", "taxii", "stix", "misp":
 		// поддерживаемые коннекторы: generic — IOC-листы,
 		// et_open/et_pro — фиды правил ET, taxii — TAXII 2.x (см. taxii.go),
-		// stix — статический STIX bundle/JSON по URL (там же).
+		// stix — статический STIX bundle по URL (там же), misp — MISP core
+		// format feed (см. misp.go).
 	default:
-		return fail(fmt.Sprintf("синхронизация типа %q не поддерживается (generic — IOC-фиды, et_open/et_pro — фиды правил ET, taxii — TAXII 2.x, stix — STIX bundle)", feed.Type))
+		return fail(fmt.Sprintf("синхронизация типа %q не поддерживается (generic — IOC-фиды, et_open/et_pro — фиды правил ET, taxii — TAXII 2.x, stix — STIX bundle, misp — MISP core format)", feed.Type))
 	}
 
 	// et_pro: код подписки — из credentials; пустой URL строится из кода.
@@ -125,6 +126,11 @@ func (s *Syncer) Sync(ctx context.Context, feed store.Feed) (store.FeedRun, erro
 	// taxii: своя загрузка (discovery + пагинация envelope), не fetch().
 	if feed.Type == "taxii" {
 		return s.syncTaxii(ctx, feed, run, fail)
+	}
+
+	// misp: своя загрузка (manifest + файлы событий), не fetch().
+	if feed.Type == "misp" {
+		return s.syncMisp(ctx, feed, run, fail)
 	}
 
 	body, err := s.fetch(ctx, feed)
