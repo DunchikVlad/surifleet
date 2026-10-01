@@ -48,3 +48,10 @@ server:
 
   # debug | info | warn | error
   log_level: info
+
+  # Детект «тихой» смерти агента (роль hub|all): агент online, чей
+  # last_seen_at старше agent_offline_after, переводится в offline свипером,
+  # который запускается раз в offline_sweep_interval. Пульс last_seen пишется
+  # heartbeat'ами с разрывом до ~60 с — agent_offline_after ≥ 120 с. 0 — выкл.
+  agent_offline_after: "120s"
+  offline_sweep_interval: "30s"

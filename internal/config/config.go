@@ -84,24 +84,34 @@ type ServerConfig struct {
 	// (фиды с enabled и schedule-длительностью, наступившей по last_sync_at).
 	// 0 — планировщик выключен.
 	FeedSyncInterval Duration `yaml:"feed_sync_interval"`
-	S3               S3Config `yaml:"s3"`
-	LogLevel         string   `yaml:"log_level"`
+	// AgentOfflineAfter — таймаут heartbeat: агент в статусе online, чей
+	// last_seen_at старше этого интервала, свипер переводит в offline
+	// (детект «тихой» смерти процесса без разрыва по TCP). 0 — свипер
+	// выключен. Пульс last_seen пишется heartbeat'ами с разрывом до ~60 с
+	// (hub.touchLastSeenMin), поэтому значение должно быть ≥ 120 с.
+	AgentOfflineAfter Duration `yaml:"agent_offline_after"`
+	// OfflineSweepInterval — как часто свипер проверяет протухших агентов.
+	OfflineSweepInterval Duration `yaml:"offline_sweep_interval"`
+	S3                   S3Config `yaml:"s3"`
+	LogLevel             string   `yaml:"log_level"`
 }
 
 // DefaultServer возвращает конфигурацию сервера с дефолтами.
 func DefaultServer() *ServerConfig {
 	return &ServerConfig{
-		Role:             "all",
-		HTTPAddr:         ":8080",
-		GRPCAddr:         ":8443",
-		EnrollAddr:       ":8444",
-		MetricsAddr:      ":9090",
-		CADir:            "./data/ca",
-		HubEndpoints:     []string{"localhost:8443"},
-		CertSANs:         []string{"localhost", "127.0.0.1", "::1"},
-		IocSweepInterval: Duration(time.Minute),
-		FeedSyncInterval: Duration(time.Minute),
-		LogLevel:         "info",
+		Role:                 "all",
+		HTTPAddr:             ":8080",
+		GRPCAddr:             ":8443",
+		EnrollAddr:           ":8444",
+		MetricsAddr:          ":9090",
+		CADir:                "./data/ca",
+		HubEndpoints:         []string{"localhost:8443"},
+		CertSANs:             []string{"localhost", "127.0.0.1", "::1"},
+		IocSweepInterval:     Duration(time.Minute),
+		FeedSyncInterval:     Duration(time.Minute),
+		AgentOfflineAfter:    Duration(2 * time.Minute),
+		OfflineSweepInterval: Duration(30 * time.Second),
+		LogLevel:             "info",
 		S3: S3Config{
 			Endpoint: "localhost:9000",
 			Bucket:   "surifleet-rulesets",

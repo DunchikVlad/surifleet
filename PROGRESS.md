@@ -10,25 +10,56 @@
 
 ## Следующий шаг (конкретно)
 
-**Статус на 2026-10-01**: стенд оживлён после перезагрузки ВМ (docker-стек
-поднялся сам, сервер и агент запущены вручную), health ok, агент online,
-compliance in_sync 1/1. Создан `docs/handover-kimi-code.md` — инструкция
-по передаче проекта в Kimi Code (правило возобновления, дисциплина чанков,
-среда, процедуры переката, карта репозитория, первый промт).
+**Статус на 2026-10-01 (вечер)**: чанк 23 закрывает инцидент 16.09 —
+«тихая» смерть агента теперь детектируется свипером heartbeat-таймаута
+(проверено живьём: SIGSTOP → offline за ~2–2.5 мин, SIGCONT → revive),
+а обёртка start-agent.sh логирует код выхода/сигнал агента.
 
-**После 22** (2026-09-16):
-1. **Инцидент 21:30 (разобран ниже) → новый приоритетный чанк**: сервер
-   не детектирует мёртвого агента — статус «online» висел 2 часа при
-   мёртвом процессе (нет «агент отключился» в логе, last_seen протухает,
-   heartbeat-timeout/offline-sweeper отсутствует или не работает;
-   требование Б: Online/Offline). Заодно: причина тихой смерти агента
-   на .67 ~16:28 UTC не найдена (без паники в agent.log/agent-console.log,
-   без OOM в dmesg/journalctl) — добавить логирование exit/signal в
-   start-agent.sh (обёртка с кодом выхода) или systemd-юнит агента.
-2. IOC/TI, следующий срез (п. 5.2 FEATURES): коннекторы taxii/stix/misp
+**Следующий шаг после 23**:
+1. IOC/TI, следующий срез (п. 5.2 FEATURES): коннекторы taxii/stix/misp
    и cron-расписания фидов. Либо auth/RBAC (DevAuth → токены, п. 8–9).
+2. **Стенд**: часы ВМ .28 скачут после перезагрузки (RTC отстаёт на 5+
+   мин, `timedatectl` — «System clock synchronized: no» при активном
+   timesyncd) — разобраться с синхронизацией времени (гипервизор/NTP),
+   wall-шаги искажают тайминги свиперов и heartbeat.
 3. **Аномалия (не блокер)**: из ssh `sudo rm` в /etc/suricata → Permission
    denied при работающем touch; обход — агент от root правит сам (12a).
+
+Чанк 23 ГОТОВ (2026-10-01, этот коммит): детект «тихой» смерти агента +
+логирование завершения агента. Сервер: heartbeat в hub теперь троттлингом
+(`touchLastSeenMin` = 30 с — разрыв между пульсами ≤ ~60 с при heartbeat
+30 с) пишет `last_seen_at` в PG через `AgentsRepo.HeartbeatPulse`; пульс
+заодно возвращает online агента, погашенного свипером, но чей стрим жив
+(разморозка/заживший TCP — reason heartbeat-resumed в истории; статусы
+degraded/updating/error heartbeat не меняет). `AgentsRepo.SweepStaleOnline`
+(tx, FOR UPDATE): online + (last_seen_at IS NULL ИЛИ старше порога) →
+offline, last_seen_at НЕ перезаписывается (остаётся фактическим моментом
+последнего heartbeat), история agent_state_history с reason
+heartbeat-timeout + last_seen_at. `hub.Server.SweepOfflineAgents`: свип +
+очистка presence в Redis + пересчёт compliance инстансов хоста в stale.
+Фоновый свипер `runAgentOfflineSweeper` (роль hub|all) в cmd/server:
+`server.offline_sweep_interval` (default 30s), `server.agent_offline_after`
+(default 120s — ≥ 2× разрыва пульса; изначально взяли 90s при пульсе 60s →
+ложное срабатывание на живом агенте в зазоре 0.02 с, параметры ужесточены).
+Конфиги: `deploy/config/server.example.yaml` обновлён; server.yaml на .28
+без этих ключей → действуют дефолты. Агент: `deploy/start-agent.sh`
+(каноничная копия в репо, развёрнута на .67) — обёртка вместо `exec`:
+код выхода/сигнал (kill -l) с UTC-меткой → `data/agent-exit.log`;
+процедура переката агента не меняется (kill pgrep -x surifleet-agent →
+обёртка пишет exit и завершается). Доки: architecture.md §5.2/§5.4,
+FEATURES.md (статусы online/offline). Проверки: go build/vet/test
+зелёные, gofmt чисто. Живой e2e (.28/.67): пульс last_seen_at обновляется
+при живом агенте (15:59:45→16:00:45); graceful kill → agent-exit.log
+«exit_code=0» (SIGTERM обрабатывается агентом чисто); SIGSTOP (заморозка,
+стрим выглядит живым) → свипер: WARN «агент помечен offline:
+heartbeat-timeout», статус offline, история reason=heartbeat-timeout,
+compliance пересчитан; SIGCONT → heartbeat-resumed → online без
+переподключения (2 раза); живой агент после ужесточения параметров 2.5+
+мин ложно не гасится. Замечена квазианомалия стенда: часы .28 скачут
+(см. следующий шаг) — видимые задержки срабатывания свипера (77с–2.5мин
+«позже») объясняются wall-шагами часов, не кодом (тикер монотонный,
+сравнение last_seen/now идёт в одних часах). Стенд финально: health ok,
+агент online, compliance in_sync 1/1, suricata active.
 
 Инцидент 2026-09-16 ~21:25–21:35 (без коммита кода): пользователь создал
 деплой 5130b21f (ruleset 05d71563) из UI — задача повисла pending
@@ -467,8 +498,9 @@ managed-файле (245 правил).
 | 13d | Матрица «правила × инстансы» (требование А): API GET /api/v1/matrix/rules (openapi get_rules_matrix) — независимые keyset-курсоры rule_cursor (по sid) / instance_cursor (по id), фильтры rule_status/category/sid/cluster_id/cell_status, limit ≤1000; ячейка loaded/failed/missing/extra из desired_state.computed_rules + actual_state (loaded/failed StateReport); store — `internal/store/matrix.go` (страницы осей + батч состояний 2 запросами), handler — `internal/httpapi/matrix.go`; тесты sid-курсора и cellStatusOf. UI — вкладка «Матрица» (строки sid+msg, столбцы hostname вертикально, цветные ячейки + легенда, фильтр по статусу ячейки, поиск по sid, дозагрузка по 50). Живой e2e: ?limit=5 → 200 с ячейками loaded для инстанса 468c9c71; пагинация/фильтры/400-валидация; кейс missing живьём (битое правило 9999991 отклонено агентом через suricata -T → desired без actual → missing, сводка 244 loaded + 1 missing); disable+ребилд+деплой → ячейка исчезла; стенд восстановлен (245/245 loaded). Ограничение MVP: cell_status фильтрует ячейки внутри текущей страницы оси правил | d868a9b |
 | 14 | React-фронтенд в `web/`: Vite 5 + React 18 + TS strict, без UI-китов (стили из webui/style.css); 7 экранов в паритете с ванильным MVP (Обзор/Инстансы/Правила/Ruleset'ы/Деплои/Логи/Матрица) + улучшение (вкладки не размонтируются — фильтры/пагинация сохраняются, сводка ячеек матрицы). Vite base=/app/, dev-proxy /api → .28:8080. Раздача из бинаря: `web/embed.go` (go:embed dist) + `internal/httpapi/reactui.go` (/app/*, SPA-fallback, заглушка когда dist не собран; placeholder.txt в git, postbuild восстанавливает). Старый UI на / не тронут. Проверки: npm install/build/dev чисто, go build/vet/test зелёные, перекат .28 — /app/ + ассеты + SPA-fallback + /api/v1/fleet/compliance 200; браузер недоступен — только HTTP | 96c777e |
 | 15 | Развитие React UI: конструктор ruleset'ов во вкладке «Ruleset'ы» (выбор правил чекбоксами с фильтром/поиском/дозагрузкой, накопление выбора между страницами, чипы/счётчик/снятие, сборка POST /rulesets с rule_ids, различение 201 «создан»/200 «уже существует» через новый apiPostEx); страница инстанса (требование А) — drill-down `pages/InstanceDetail.tsx`: параметры, compliance, desired/actual hash, loaded/failed, last_reload, failed-правила, diff missing/extra, история деплоев (существующий GET /instances/{id}/deploy_history), логи агента хоста. Проверки: npm build + go build/vet/test чисто, перекат .28 (health ok, /app/ 200, новый бандл отдаётся, deploy_history 200 с деплоями 09200803/102c688b), живой e2e конструктора: 3 sid → 201 ruleset 8ce1b381 (chunk15-e2e), повтор → 200 (идемпотентность); браузер недоступен — только HTTP | 0ccd7b2 |
+| 23 | Детект «тихой» смерти агента (инцидент 16.09): heartbeat троттлингом (30 с) пишет last_seen_at в PG (`AgentsRepo.HeartbeatPulse`, заодно revive offline→online при живом стриме, reason heartbeat-resumed); свипер offline (роль hub\|all, `server.offline_sweep_interval` 30s / `agent_offline_after` 120s) — `SweepStaleOnline` (last_seen не перетирается, история reason heartbeat-timeout) + `hub.SweepOfflineAgents` (чистка presence в Redis, compliance → stale); диагностика завершения агента — обёртка `deploy/start-agent.sh` логирует exit_code/signal в data/agent-exit.log (развёрнута на .67). Живой e2e: SIGSTOP → offline (heartbeat-timeout в истории), SIGCONT → revive online без реконнекта, живой агент ложно не гаснет; architecture.md §5.2/§5.4 под факт. Заметка: часы ВМ .28 скачут (RTC −5 мин) — тайминги свиперов в тестах трактовать с поправкой | (этот коммит) |
 | 20 | Фикс «column reference status is ambiguous» в подхвате pending-задач: в PendingTasksForAgent (`internal/store/deploy.go`) `SELECT t.`+taskColumns квалифицировал только первую колонку — остальные неоднозначны в JOIN deployments/instances/agents; ошибка при каждом (пере)подключении агента (DispatchPending). Добавлена константа taskColumnsT (все колонки с t.) + регрессионный тест TestTaskColumnsTQualified; остальные JOIN-запросы проверены. Перекат .28: ошибка в server.log исчезла (было 5 повторов), health ok, SQL прогнан в PG напрямую, compliance in_sync 1/1 | bee8248 |
-| 22 | Коннектор et_pro — фиды ПРАВИЛ ET Pro: тот же .rules-коннектор, что et_open (syncRules + параметр sourceType), код подписки из credentials (просто код, не user:pass — иначе failed с пояснением); пустой url → https://rules.emergingthreatspro.com/<code>/suricata/rules/etpro-all.rules (явный url — как есть); миграция 000007 (rules.source_type + 'et_pro'); создание et_pro-фида с пустым url разрешено; GET /rules source + et_pro; openapi/UI-подсказки под факт; юнит-тест TestETProURL. Живой e2e: без credentials → failed с понятным текстом (last_error в БД); credentials=test-code + явный url (http.server 8899) → imported=2/skipped=1, правила source_type='et_pro' under_review/disabled; без url → запрос на emergingthreatspro.com → 404 (URL из кода). Реального кода ET Pro нет — production-синк не проверен. Тестовые фиды удалены, правила 9940001/9940002 оставлены; compliance in_sync 1/1 | (этот коммит) |
+| 22 | Коннектор et_pro — фиды ПРАВИЛ ET Pro: тот же .rules-коннектор, что et_open (syncRules + параметр sourceType), код подписки из credentials (просто код, не user:pass — иначе failed с пояснением); пустой url → https://rules.emergingthreatspro.com/<code>/suricata/rules/etpro-all.rules (явный url — как есть); миграция 000007 (rules.source_type + 'et_pro'); создание et_pro-фида с пустым url разрешено; GET /rules source + et_pro; openapi/UI-подсказки под факт; юнит-тест TestETProURL. Живой e2e: без credentials → failed с понятным текстом (last_error в БД); credentials=test-code + явный url (http.server 8899) → imported=2/skipped=1, правила source_type='et_pro' under_review/disabled; без url → запрос на emergingthreatspro.com → 404 (URL из кода). Реального кода ET Pro нет — production-синк не проверен. Тестовые фиды удалены, правила 9940001/9940002 оставлены; compliance in_sync 1/1 | 486ddc3 |
 | 21 | Коннектор et_open — фиды ПРАВИЛ ET Open: `internal/feedsync/rulesfeed.go` (ParseRules — активные + выключенные «#alert …» → status=disabled при создании; syncRules — upsert в rules по (org,sid), source_type='et_open' + feed_id); миграция 000006 (rules.source_type + 'et_open'); ImportItem +FeedID/InitialStatus (тюнинг и первичный источник существующих правил не перетираются); дефолтный URL emerging-all.rules; автопрогон IOC-генерации после sync — только generic; GET /rules source + et_open; openapi под факт. Живой e2e: imported=5/skipped=1 → повтор «без изменений 5» без дублей → правка фида updated=1 с новой ревизией; et_pro — failed; compliance in_sync 1/1 | 4b81139 |
 | 19 | Отзыв IOC-правил при revoke/delete/expire источника: `internal/iocrules/revoke.go` (RevokeForIoc — пробинг слота sid как у генератора, правило → disabled + тег ioc-revoked, msg нетронут); вызовы из PATCH (status→revoked)/DELETE /iocs/{id} и свипа expires (фоновый свипер + внутри /iocs/generate, ответ + revoked); SweepExpired RETURNING погашенные, IocForGeneration +OrganizationID; юнит-тесты revoke на фейке RuleStore; openapi + revoked/описания. Живой e2e: revoke → правило 8891280 disabled, delete → 8836534 disabled, повторный generate не воскрешает (ruleset ioc-current-1eccbd2c), свип expires → swept=1/revoked=1; compliance in_sync; тестовые IOC оставлены revoked/expired | 38f00e2 |
 | 18 | Фиды IOC: store `internal/store/feeds.go` (CRUD/keyset/MarkSync, feed_runs с композитным курсором), миграция 000005 (feeds.last_error + feed_runs), пакет `internal/feedsync` (HTTP GET 30s/32 МБ, plain/CSV/JSON, угадывание типа IOC, импорт через UpsertImport source=имя фида + feed_id), API GET/POST /feeds + GET/PATCH/DELETE /feeds/{id} + POST /feeds/{id}/sync (синхронно, failed — не 5xx) + GET /feeds/{id}/runs; автопрогон генерации правил после ручного синка (generateIocRulesCore, без деплоя); планировщик авто-синка по schedule-длительности Go (`server.feed_sync_interval`); React-вкладка «Фиды» (форма/таблица/синк с результатом/enabled/удаление, apiPatch). Живой e2e: imported=7/skipped=1 → повтор imported=0/updated=7 тот же ruleset; битый URL → failed + last_error; 409/400/404/204; runs-история. Вкладка «Фиды» проверена в браузере (чанк 19) | 4598d05 |
@@ -572,9 +604,10 @@ curl http://localhost:8080/api/v1/health
   интерфейс enp0s3, правила ET Open скачаны suricata-update.
 - Enrollment использует InsecureSkipVerify (проблема «нет CA до enrollment») —
   TODO: TOFU-пиннинг/отпечаток CA в токене.
-- TTL-свипер offline по истечении ключа Redis не реализован — при «тихой»
-  смерти агента статус в PG останется online до переподключения; last_seen_at
-  пишется только на connect/disconnect (heartbeat в PG не пишется, §5.4).
+- Часы ВМ .28 скачут после перезагрузки (01.10: RTC отстаёт на 5+ мин,
+  timedatectl «System clock synchronized: no» при активном timesyncd) —
+  wall-шаги искажают наблюдаемые тайминги свиперов/heartbeat в тестах.
+  Разобраться с синхронизацией времени (NTP/гипервизор).
 - Heartbeat пока без ResourceSummary/статусов инстансов (чанк 9);
   TaskResult — заглушка not implemented (чанк 10+).
 - В середине чанка 8 sshd на .28 ~15 минут не обслуживал подключения

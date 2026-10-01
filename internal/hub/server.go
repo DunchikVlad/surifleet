@@ -39,6 +39,12 @@ const (
 	presenceTTL   = 120 * time.Second // TTL ключа stream:{agent_id} в Redis
 	clockSkewWarn = 60_000            // |clock_offset_ms| свыше — warn
 	protocolMajor = 1                 // поддерживаемая версия протокола
+	// touchLastSeenMin — heartbeat пишет last_seen_at в PostgreSQL не чаще
+	// этого интервала (по нему свипер детектирует «тихую» смерть агента).
+	// 30 с = heartbeat-интервал: худший разрыв между пульсами ~60 с
+	// (тик на 29.98 с пропускается), поэтому agent_offline_after должен
+	// быть ≥ 2× этого значения (дефолт 120 с).
+	touchLastSeenMin = 30 * time.Second
 )
 
 // presence — значение ключа stream:{agent_id} в Redis.
@@ -64,6 +70,10 @@ type Server struct {
 	// streams — реестр подключённых стримов (agentID → *streamHandle),
 	// in-process доставка задач (chunk 11).
 	streams sync.Map
+
+	// lastTouch — agentID → момент последней записи last_seen_at в PG
+	// (троттлинг heartbeat-пульса, chunk 23).
+	lastTouch sync.Map
 
 	// OnTaskResult — подписчик результатов задач (оркестратор деплоев).
 	OnTaskResult func(ctx context.Context, agentID uuid.UUID, res *agentv1.TaskResult)
@@ -136,9 +146,12 @@ func (s *Server) Channel(stream grpc.BidiStreamingServer[agentv1.AgentMessage, a
 	if err := s.setPresence(ctx, agentID, sessionID); err != nil {
 		log.Error("регистрация presence в Redis", "err", err)
 	}
+	// SetStatus уже записал last_seen_at=now() — считаем пульс свежим.
+	s.lastTouch.Store(agentID, time.Now())
 
 	// Отключение — при выходе из функции (разрыв, ошибка, shutdown).
 	defer func() {
+		s.lastTouch.Delete(agentID)
 		bgCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		if err := s.db.Agents.SetStatus(bgCtx, agentID, "offline", map[string]any{"hub_id": s.hubID, "session_id": sessionID}); err != nil {
@@ -245,9 +258,24 @@ func (s *Server) handleMessage(ctx context.Context, log *slog.Logger, agentID uu
 		if off := hb.GetClockOffsetMs(); off > clockSkewWarn || off < -clockSkewWarn {
 			log.Warn("большой clock_offset агента", "clock_offset_ms", off)
 		}
-		// Heartbeat продлевает только Redis-TTL (§5.4: без записи в PG).
+		// Heartbeat продлевает Redis-TTL и (не чаще touchLastSeenMin) пишет
+		// last_seen_at в PG — по нему свипер детектирует «тихую» смерть
+		// процесса агента (чанк 23).
 		if err := s.touchPresence(ctx, agentID); err != nil {
 			log.Error("продление presence", "err", err)
+		}
+		if last, ok := s.lastTouch.Load(agentID); !ok || time.Since(last.(time.Time)) >= touchLastSeenMin {
+			revived, err := s.db.Agents.HeartbeatPulse(ctx, agentID)
+			if err != nil {
+				log.Error("heartbeat: запись last_seen_at", "err", err)
+			} else {
+				s.lastTouch.Store(agentID, time.Now())
+				if revived {
+					// Свипер успел погасить агента, но стрим жив — вернули online.
+					log.Warn("агент снова online: heartbeat возобновился")
+					s.recomputeHostCompliance(ctx, log, agentID, true)
+				}
+			}
 		}
 		res := hb.GetResources()
 		log.Debug("heartbeat",
@@ -385,6 +413,31 @@ func (s *Server) setPresence(ctx context.Context, agentID uuid.UUID, sessionID s
 // touchPresence продлевает TTL ключа presence (на каждый heartbeat).
 func (s *Server) touchPresence(ctx context.Context, agentID uuid.UUID) error {
 	return s.rdb.Expire(ctx, presenceKey(agentID), presenceTTL).Err()
+}
+
+// SweepOfflineAgents — проход свипера «тихой» смерти (чанк 23): агенты со
+// статусом online и протухшим last_seen_at (старше offlineAfter) переводятся
+// в offline с записью в agent_state_history, их presence в Redis удаляется,
+// compliance инстансов хоста пересчитывается в stale. Возвращает число
+// погашенных агентов. Живой стрим, чей heartbeat свеж, не затрагивается.
+func (s *Server) SweepOfflineAgents(ctx context.Context, offlineAfter time.Duration) (int, error) {
+	ids, err := s.db.Agents.SweepStaleOnline(ctx, time.Now().Add(-offlineAfter))
+	if err != nil {
+		return 0, err
+	}
+	for _, id := range ids {
+		if err := s.rdb.Del(ctx, presenceKey(id)).Err(); err != nil {
+			s.log.Error("свипер offline: удаление presence", "agent_id", id, "err", err)
+		}
+		if err := s.rdb.SRem(ctx, "hub:"+s.hubID+":agents", id.String()).Err(); err != nil {
+			s.log.Error("свипер offline: srem hub-set", "agent_id", id, "err", err)
+		}
+		s.lastTouch.Delete(id)
+		s.log.Warn("агент помечен offline: heartbeat-timeout",
+			"agent_id", id, "offline_after", offlineAfter.String())
+		s.recomputeHostCompliance(ctx, s.log, id, false)
+	}
+	return len(ids), nil
 }
 
 // peerAgentID — CN клиентского сертификата из mTLS-контекста gRPC.

@@ -7,6 +7,34 @@
 
 ### Added
 
+- Чанк 23 (2026-10-01): детект «тихой» смерти агента (инцидент
+  2026-09-16 — мёртвый процесс 2 часа отображался online). Heartbeat
+  теперь не только продлевает Redis-TTL, но и троттлингом (не чаще 30 с,
+  `hub.touchLastSeenMin`) пишет `last_seen_at` в PostgreSQL через
+  `AgentsRepo.HeartbeatPulse`; пульс также возвращает в online агента,
+  ошибочно погашенного свипером, чей стрим на самом деле жив
+  (reason heartbeat-resumed; статусы degraded/updating/error не
+  трогаются). Фоновый свипер (роль hub|all,
+  `server.offline_sweep_interval` default 30s) переводит online-агентов
+  с протухшим `last_seen_at` (старше `server.agent_offline_after`,
+  default 120s) в offline: `AgentsRepo.SweepStaleOnline` (last_seen_at
+  не перезаписывается — остаётся фактическим временем последнего
+  heartbeat), история `agent_state_history` (reason heartbeat-timeout),
+  очистка presence в Redis, пересчёт compliance инстансов в stale —
+  `hub.Server.SweepOfflineAgents`. Живой e2e на стенде: SIGSTOP агенту
+  (замороженный процесс, стрим выглядит живым) → offline за ~2–2.5 мин
+  с записью в истории; SIGCONT → heartbeat-resumed → online без
+  переподключения; живой агент ложно не гаснет.
+  Диагностика тихой смерти агента: `deploy/start-agent.sh` (каноничная
+  копия в репозитории, развёрнута на .67) — обёртка вместо `exec`,
+  логирует код выхода/сигнал завершения агента в
+  `data/agent-exit.log` (SIGTERM → exit_code=0, агент завершается
+  gracefully; проверено). Замечание по стенду: часы ВМ .28 скачут
+  (RTC отстаёт на 5+ мин, timesyncd «not synchronized» после
+  перезагрузки) — wall-шаги искажают наблюдаемые задержки свипера,
+  самодельный тайминг в тестах трактовать с поправкой. (server, agent,
+  docs)
+
 - 2026-10-01 (фиксация и передача): `docs/handover-kimi-code.md` —
   полная инструкция по продолжению проекта в Kimi Code: правило
   возобновления (PROGRESS.md + git log), дисциплина чанков и живых

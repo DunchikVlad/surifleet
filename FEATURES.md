@@ -27,7 +27,7 @@
 
 | Пункт ТЗ | Статус | Где реализовано | Чанк |
 |---|---|---|---|
-| Heartbeat, статусы Online/Degraded/Offline/Updating/Error | 🚧 | `internal/hub` (presence Redis, HelloAck), `cmd/agent` (heartbeat 30 с); работают online/offline, остальные статусы позже | чанк 8 |
+| Heartbeat, статусы Online/Degraded/Offline/Updating/Error | 🚧 | `internal/hub` (presence Redis, HelloAck), `cmd/agent` (heartbeat 30 с); работают online/offline; heartbeat троттлингом (30 с) пишет `last_seen_at` в PG, свипер (`server.agent_offline_after` 120 с / `offline_sweep_interval` 30 с) гасит «тихо» умерших агентов в offline (история reason heartbeat-timeout, compliance → stale), возобновившийся heartbeat возвращает online (heartbeat-resumed); остальные статусы позже | чанки 8, 23 |
 | Автодетект инцидентов (10 типов) | ⬜ | — | — |
 | Автооткат при падении сервиса после деплоя | ⬜ | — | — |
 | Реагирование: уведомления, действия из UI, диагностический бандл | ⬜ | — | — |

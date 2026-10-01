@@ -231,7 +231,15 @@ sequenceDiagram
 - Ключ `hub:{hub_id}:agents` — set агентов узла (для выборки при старте/стопе).
 - Задача агенту: Orchestrator читает `stream:{agent_id}` → публикует в NATS
   subject `tasks.{hub_id}` → только нужный Hub получает и пушит в стрим.
-- Агент offline: Redis-ключ истёк + Hub опубликовал `agent.disconnected`.
+- Агент offline: Hub зафиксировал разрыв стрима (`agent.disconnected`) ЛИБО
+  свипер heartbeat-таймаута погасил агента: heartbeat продлевает Redis-TTL
+  и троттлингом (не чаще 30 с) пишет `last_seen_at` в PG; фоновый свипер
+  (роль hub|all, `server.offline_sweep_interval`, default 30 с) переводит
+  online-агентов с `last_seen_at` старше `server.agent_offline_after`
+  (default 120 с) в offline + `agent_state_history` (reason
+  heartbeat-timeout). Если heartbeat возобновляется у уже погашенного
+  агента (разморозка процесса, заживший TCP), пульс возвращает его в
+  online (reason heartbeat-resumed).
 
 ### 5.3 Fan-out задач через NATS JetStream
 
@@ -256,8 +264,10 @@ flowchart LR
 - Jitter + backoff на агенте (§4.7).
 - Hub при старте ограничивает темп принятия стримов (token bucket) и
   растягивает обработку Hello.
-- Heartbeat'ы обрабатываются без записи в PostgreSQL — только Redis (TTL).
-  В PG пишутся только смены состояния (online→offline и т.п.).
+- Heartbeat'ы обрабатываются без записи в PostgreSQL на каждое сообщение —
+  Redis (TTL) + троттлированный (не чаще 30 с) пульс `last_seen_at` для
+  свипера offline. В историю (`agent_state_history`) пишутся только смены
+  состояния (online→offline и т.п.).
 
 ### 5.5 Телеметрия
 

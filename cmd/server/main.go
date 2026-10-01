@@ -181,6 +181,14 @@ func main() {
 		go runFeedScheduler(ctx, feedSync, cfg.FeedSyncInterval.D(), log)
 	}
 
+	// Свипер «тихой» смерти агентов (чанк 23): агенты в статусе online, чей
+	// last_seen_at старше agent_offline_after, переводятся в offline (с
+	// историей и пересчётом compliance в stale). Роль hub|all — там живут
+	// стримы агентов и их heartbeat-пульс.
+	if (cfg.Role == "hub" || cfg.Role == "all") && cfg.OfflineSweepInterval.D() > 0 && cfg.AgentOfflineAfter.D() > 0 {
+		go runAgentOfflineSweeper(ctx, hubSrv, cfg.OfflineSweepInterval.D(), cfg.AgentOfflineAfter.D(), log)
+	}
+
 	app := &App{cfg: cfg, log: log, db: db, ca: ca, rdb: rdb, hubID: hubID, blob: blobStore, orch: orch, chLogs: chLogs, feedSync: feedSync}
 
 	errCh := make(chan error, 4)
@@ -400,6 +408,31 @@ func runFeedScheduler(ctx context.Context, syncer *feedsync.Syncer, interval tim
 					log.Warn("планировщик фидов: sync failed",
 						"feed_id", f.ID, "name", f.Name, "error", run.Error)
 				}
+			}
+		}
+	}
+}
+
+// runAgentOfflineSweeper — фоновый детект «тихой» смерти агента (чанк 23):
+// раз в interval гасит агентов online с протухшим last_seen_at (старше
+// offlineAfter). Закрывает инцидент 2026-09-16: мёртвый процесс агента 2 часа
+// отображался online, т.к. статус менялся только при разрыве gRPC-стрима.
+func runAgentOfflineSweeper(ctx context.Context, hubSrv *hub.Server, interval, offlineAfter time.Duration, log *slog.Logger) {
+	log.Info("свипер offline-агентов запущен", "interval", interval.String(), "offline_after", offlineAfter.String())
+	t := time.NewTicker(interval)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			sweepCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+			n, err := hubSrv.SweepOfflineAgents(sweepCtx, offlineAfter)
+			cancel()
+			if err != nil {
+				log.Error("свипер offline-агентов", "err", err)
+			} else if n > 0 {
+				log.Info("свипер offline-агентов: погашены", "count", n)
 			}
 		}
 	}

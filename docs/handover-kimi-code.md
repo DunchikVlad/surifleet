@@ -44,7 +44,7 @@
 | Хост | Назначение | Что там |
 |---|---|---|
 | 192.168.31.28 | сервер | docker-стек (PostgreSQL :5432, Redis :6379, NATS, ClickHouse native :9900 / HTTP :8123, MinIO :9000/:9001); dev-сервер `~/surifleet/surifleet-server --config server.yaml` (API+UI :8080, Hub :8443 mTLS, Enrollment :8444) |
-| 192.168.31.67 | сенсор | Suricata 8.0.3 (systemd `suricata.service`), агент от root, старт `/home/test/surifleet/start-agent.sh` |
+| 192.168.31.67 | сенсор | Suricata 8.0.3 (systemd `suricata.service`), агент от root, старт `/home/test/surifleet/start-agent.sh` (обёртка с логированием exit/signal в `data/agent-exit.log`; каноничная копия в репо — `deploy/start-agent.sh`) |
 
 Логин/пароль везде `test`/`test` (ssh и sudo). После перезагрузки ВМ:
 docker-стек поднимается сам (restart-политика); сервер и агент — вручную
@@ -138,15 +138,15 @@ python .tools/ssh.py 67 sudo "systemctl is-active suricata"                # act
 
 - Всё работает: стенд поднят, compliance in_sync 1/1, UI на
   `http://192.168.31.28:8080/app/` (React) и `/` (ванильный).
-- 22 чанка + инциденты закоммичены; история — `git log` и PROGRESS.md.
+- 23 чанка + инциденты закоммичены; история — `git log` и PROGRESS.md.
+- Чанк 23 закрыл инцидент 16.09: «тихая» смерть агента детектируется
+  свипером heartbeat-таймаута (`server.agent_offline_after` 120s /
+  `offline_sweep_interval` 30s), обёртка start-agent.sh логирует
+  exit/signal в `data/agent-exit.log`.
 - **Следующие шаги** (актуальные — в PROGRESS.md, дублирую):
-  1. Детект offline-агентов (heartbeat-timeout, свипер протухших
-     last_seen) — найдено инцидентом 16.09: мёртвый агент 2 часа
-     отображался «online».
-  2. Диагностика тихой смерти агента: логирование exit/signal в
-     start-agent.sh или systemd-юнит агента.
-  3. Коннекторы фидов taxii/stix/misp, cron-расписания фидов.
-  4. auth/RBAC (DevAuth → токены, п. 8–9 ТЗ).
+  1. Коннекторы фидов taxii/stix/misp, cron-расписания фидов.
+  2. auth/RBAC (DevAuth → токены, п. 8–9 ТЗ).
+  3. Починить синхронизацию времени на .28 (часы скачут, RTC −5 мин).
 
 ## 8. Известные аномалии (не блокеры)
 

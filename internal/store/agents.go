@@ -112,8 +112,8 @@ func (r *AgentsRepo) CreateEnrolled(ctx context.Context, tx pgx.Tx, id, hostID u
 }
 
 // SetStatus обновляет статус/last_seen_at агента и при смене статуса пишет
-// запись в agent_state_history (heartbeat в PG не пишется — только смены
-// состояния, docs/architecture.md §5.4). Атомарно, в одной транзакции.
+// запись в agent_state_history (heartbeat пишет last_seen_at троттлированно
+// через TouchLastSeen, в историю попадают только смены состояния — §5.4). Атомарно, в одной транзакции.
 // Нет записи → ErrNotFound.
 func (r *AgentsRepo) SetStatus(ctx context.Context, id uuid.UUID, status string, details map[string]any) error {
 	tx, err := r.pool.Begin(ctx)
@@ -143,12 +143,106 @@ func (r *AgentsRepo) SetStatus(ctx context.Context, id uuid.UUID, status string,
 	return translate(tx.Commit(ctx))
 }
 
-// TouchLastSeen обновляет last_seen_at без смены статуса и без истории
-// (вызывается Hub'ом не чаще раза в минуту — редкий «пульс» для UI).
-func (r *AgentsRepo) TouchLastSeen(ctx context.Context, id uuid.UUID) error {
-	_, err := r.pool.Exec(ctx,
-		`UPDATE agents SET last_seen_at = now() WHERE id = $1`, id)
-	return translate(err)
+// HeartbeatPulse — пульс heartbeat (chunk 23): обновляет last_seen_at. Если
+// агент был 'offline' (погашен свипером, но стрим на самом деле жив —
+// размороженный процесс, заживший TCP), возвращает его в 'online' с записью
+// в историю (reason heartbeat-resumed); статусы degraded/updating/error
+// heartbeat не трогает. Возвращает true, если статус восстановлен из offline.
+func (r *AgentsRepo) HeartbeatPulse(ctx context.Context, id uuid.UUID) (bool, error) {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return false, translate(err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	var prev string
+	err = tx.QueryRow(ctx, `SELECT status FROM agents WHERE id = $1 FOR UPDATE`, id).Scan(&prev)
+	if err != nil {
+		return false, translate(err)
+	}
+	revived := prev == "offline"
+	newStatus := prev
+	if revived {
+		newStatus = "online"
+	}
+	if _, err := tx.Exec(ctx,
+		`UPDATE agents SET status = $2, last_seen_at = now(), updated_at = now() WHERE id = $1`,
+		id, newStatus); err != nil {
+		return false, translate(err)
+	}
+	if revived {
+		if _, err := tx.Exec(ctx,
+			`INSERT INTO agent_state_history (agent_id, previous_status, status, details)
+			 VALUES ($1, 'offline', 'online', $2)`,
+			id, map[string]any{"reason": "heartbeat-resumed"}); err != nil {
+			return false, translate(err)
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return false, translate(err)
+	}
+	return revived, nil
+}
+
+// SweepStaleOnline переводит в offline агентов со статусом 'online', чей
+// last_seen_at старше before (или NULL — никогда не виден). last_seen_at при
+// этом НЕ перезаписывается (это фактическое время последнего heartbeat, а не
+// момент детекта). Каждая смена пишется в agent_state_history с reason
+// heartbeat-timeout. Возвращает id погашенных агентов.
+func (r *AgentsRepo) SweepStaleOnline(ctx context.Context, before time.Time) ([]uuid.UUID, error) {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return nil, translate(err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	rows, err := tx.Query(ctx,
+		`SELECT id, last_seen_at FROM agents
+		 WHERE status = 'online' AND (last_seen_at IS NULL OR last_seen_at < $1)
+		 FOR UPDATE`, before)
+	if err != nil {
+		return nil, translate(err)
+	}
+	type staleAgent struct {
+		id         uuid.UUID
+		lastSeenAt *time.Time
+	}
+	var stale []staleAgent
+	for rows.Next() {
+		var sa staleAgent
+		if err := rows.Scan(&sa.id, &sa.lastSeenAt); err != nil {
+			rows.Close()
+			return nil, translate(err)
+		}
+		stale = append(stale, sa)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, translate(err)
+	}
+
+	ids := make([]uuid.UUID, 0, len(stale))
+	for _, sa := range stale {
+		if _, err := tx.Exec(ctx,
+			`UPDATE agents SET status = 'offline', updated_at = now() WHERE id = $1`, sa.id); err != nil {
+			return nil, translate(err)
+		}
+		var lastSeen string
+		if sa.lastSeenAt != nil {
+			lastSeen = sa.lastSeenAt.UTC().Format(time.RFC3339)
+		}
+		if _, err := tx.Exec(ctx,
+			`INSERT INTO agent_state_history (agent_id, previous_status, status, details)
+			 VALUES ($1, 'online', 'offline', $2)`,
+			sa.id, map[string]any{"reason": "heartbeat-timeout", "last_seen_at": lastSeen}); err != nil {
+			return nil, translate(err)
+		}
+		ids = append(ids, sa.id)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, translate(err)
+	}
+	return ids, nil
 }
 
 // FindHostByHostname — переиспользование карточки хоста при enrollment:
