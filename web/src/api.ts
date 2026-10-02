@@ -310,3 +310,65 @@ export interface FeedRun {
   rules_unchanged?: number;
   ruleset_version?: string;
 }
+
+// --- пользователи, роли, токены, аудит (чанки 28–30) ---
+
+export interface RoleAssignment {
+  role_id: string;
+  role_name?: string;
+  scope_type?: string;
+  cluster_ids?: string[];
+}
+
+export interface User {
+  id: string;
+  email: string;
+  display_name: string;
+  is_active: boolean;
+  is_break_glass: boolean;
+  last_login_at?: string | null;
+  created_at?: string;
+  roles?: RoleAssignment[];
+}
+
+export interface Role {
+  id: string;
+  organization_id?: string | null;
+  name: string;
+  description?: string | null;
+  permissions: string[];
+  is_builtin: boolean;
+}
+
+export interface ApiToken {
+  id: string;
+  name: string;
+  scopes: string[];
+  expires_at?: string | null;
+  last_used_at?: string | null;
+  created_at?: string;
+}
+
+export interface ApiTokenCreated extends ApiToken { token: string }
+
+export interface AuditEntry {
+  id: string;
+  created_at: string;
+  actor_type: string;
+  actor_name?: string | null;
+  action: string;
+  object_type?: string | null;
+  object_id?: string | null;
+  result: string;
+  reason?: string | null;
+  ip?: string | null;
+}
+
+// PERMS — каталог разрешений (мультивыбор в формах ролей/токенов).
+export const PERMS = [
+  "fleet.read", "hosts.read", "hosts.write", "agents.read",
+  "rules.read", "rules.write", "rules.deploy",
+  "ioc.read", "ioc.write", "feeds.read", "feeds.write",
+  "users.read", "users.write", "tokens.read", "tokens.write",
+  "roles.read", "roles.write", "audit.read",
+] as const;

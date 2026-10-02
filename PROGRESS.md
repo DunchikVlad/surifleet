@@ -26,17 +26,38 @@ stale (раньше висел бы online). TODO: проверять, что а
 стартует ТОЛЬКО через start-agent.sh; рассмотреть systemd-юнит
 агента (Restart=always) — это закроет и автоподнятие после ребута ВМ.
 
-**Статус на 2026-10-02**: чанки 23–29 закрыты. Стенд в `auth_mode: token`
+**Статус на 2026-10-02**: чанки 23–30 закрыты. Стенд в `auth_mode: token`
 (admin@surifleet.local / admin12345), сервер и агент под systemd.
 
-**Следующий шаг после 29**:
+**Следующий шаг после 30**:
 1. OIDC-SSO (п. 9 ТЗ), scoping ролей по кластерам, аудит diff
    «было→стало» + цепочка хэшей.
-2. React UI: вкладки «Пользователи/Роли/Токены» и «Аудит».
-3. Ванильный UI на `/` в token-режиме не работает — либо выпилить, либо
+2. Ванильный UI на `/` в token-режиме не работает — либо выпилить, либо
    научить логину (решить; React — основной).
+3. UI: скрытие ДЕЙСТВИЙ по правам внутри вкладок (кнопки деплоя, создания
+   и т.п. — сейчас скрываются только вкладки целиком).
 
-Чанк 29 ГОТОВ (2026-10-02, этот коммит): API-токены автоматизации со
+Чанк 30 ГОТОВ (2026-10-02, этот коммит): React UI — вкладки
+«Пользователи», «Роли», «Токены», «Аудит» + видимость вкладок по правам
+из /auth/me (ТЗ: UI скрывает недоступное; авторизация — на backend).
+Страницы: Users.tsx (список с поиском, создание с ролью из GET /roles и
+чекбоксом break-glass, вкл/откл active, revoke_sessions, удаление с
+подтверждением), Roles.tsx (builtin/custom бейджи, permissions,
+создание кастомной с мультивыбором PERMS, удаление), Tokens.tsx (форма
+выпуска с мультивыбором scopes и expires, панель с одноразовым
+показом токена + copy, листинг, отзыв), Audit.tsx (таблица
+время/актор/action/объект/результат/ip, фильтр по префиксу action,
+дозагрузка по 50 через составной курсор). api.ts + типы User/Role/
+ApiToken/AuditEntry/PERMS. App.tsx: TABS с perm-полем, фильтр по
+permissions ('*' — всё; dev-режим — всё). ПОПУТНЫЙ ФИКС (регрессия
+чанка 28): статика UI (/app/, /ui/, /) была защищена токеном — форма
+входа не грузилась; authMiddleware теперь применяет auth только к
+/api/v1/*. Проверки: npm build чисто (195.77 КБ index-1hOqOPPj.js),
+go build/vet/test зелёные; перекат .28: /app/ отдаёт новый бандл
+(api_tokens в нём есть), API без токена 401, compliance in_sync 1/1,
+агент online. Браузер недоступен — только HTTP-проверки.
+
+Чанк 29 ГОТОВ (2026-10-02, c256cbb): API-токены автоматизации со
 scopes (п. 8 ТЗ; таблица api_tokens была с 000001). `internal/store/
 tokens.go` — ApiTokensRepo (Create с хэшем, List только активные
 keyset, GetValidByHash — revoked/expired отсекаются, Revoke мягкий,
@@ -672,6 +693,7 @@ managed-файле (245 правил).
 | 13d | Матрица «правила × инстансы» (требование А): API GET /api/v1/matrix/rules (openapi get_rules_matrix) — независимые keyset-курсоры rule_cursor (по sid) / instance_cursor (по id), фильтры rule_status/category/sid/cluster_id/cell_status, limit ≤1000; ячейка loaded/failed/missing/extra из desired_state.computed_rules + actual_state (loaded/failed StateReport); store — `internal/store/matrix.go` (страницы осей + батч состояний 2 запросами), handler — `internal/httpapi/matrix.go`; тесты sid-курсора и cellStatusOf. UI — вкладка «Матрица» (строки sid+msg, столбцы hostname вертикально, цветные ячейки + легенда, фильтр по статусу ячейки, поиск по sid, дозагрузка по 50). Живой e2e: ?limit=5 → 200 с ячейками loaded для инстанса 468c9c71; пагинация/фильтры/400-валидация; кейс missing живьём (битое правило 9999991 отклонено агентом через suricata -T → desired без actual → missing, сводка 244 loaded + 1 missing); disable+ребилд+деплой → ячейка исчезла; стенд восстановлен (245/245 loaded). Ограничение MVP: cell_status фильтрует ячейки внутри текущей страницы оси правил | d868a9b |
 | 14 | React-фронтенд в `web/`: Vite 5 + React 18 + TS strict, без UI-китов (стили из webui/style.css); 7 экранов в паритете с ванильным MVP (Обзор/Инстансы/Правила/Ruleset'ы/Деплои/Логи/Матрица) + улучшение (вкладки не размонтируются — фильтры/пагинация сохраняются, сводка ячеек матрицы). Vite base=/app/, dev-proxy /api → .28:8080. Раздача из бинаря: `web/embed.go` (go:embed dist) + `internal/httpapi/reactui.go` (/app/*, SPA-fallback, заглушка когда dist не собран; placeholder.txt в git, postbuild восстанавливает). Старый UI на / не тронут. Проверки: npm install/build/dev чисто, go build/vet/test зелёные, перекат .28 — /app/ + ассеты + SPA-fallback + /api/v1/fleet/compliance 200; браузер недоступен — только HTTP | 96c777e |
 | 15 | Развитие React UI: конструктор ruleset'ов во вкладке «Ruleset'ы» (выбор правил чекбоксами с фильтром/поиском/дозагрузкой, накопление выбора между страницами, чипы/счётчик/снятие, сборка POST /rulesets с rule_ids, различение 201 «создан»/200 «уже существует» через новый apiPostEx); страница инстанса (требование А) — drill-down `pages/InstanceDetail.tsx`: параметры, compliance, desired/actual hash, loaded/failed, last_reload, failed-правила, diff missing/extra, история деплоев (существующий GET /instances/{id}/deploy_history), логи агента хоста. Проверки: npm build + go build/vet/test чисто, перекат .28 (health ok, /app/ 200, новый бандл отдаётся, deploy_history 200 с деплоями 09200803/102c688b), живой e2e конструктора: 3 sid → 201 ruleset 8ce1b381 (chunk15-e2e), повтор → 200 (идемпотентность); браузер недоступен — только HTTP | 0ccd7b2 |
+| 30 | React UI: вкладки «Пользователи» (список/создание с ролью/active-toggle/revoke/удаление), «Роли» (builtin/custom, мультивыбор permissions), «Токены» (выпуск с одноразовым показом, отзыв), «Аудит» (таблица, фильтр action, дозагрузка); видимость вкладок — по правам /auth/me (hasPerm, '*' — всё). Попутный фикс регрессии чанка 28: статика UI (/app/, /ui/, /) была защищена токеном — authMiddleware теперь только на /api/v1/*. npm build чисто (index-1hOqOPPj.js 195.77 КБ), перекат: бандл отдаётся, API 401 без токена, in_sync 1/1 | (этот коммит) |
 | 29 | API-токены автоматизации со scopes (п. 8): `internal/store/tokens.go` (Create/List активных keyset/GetValidByHash/Revoke мягкий/TouchUsed троттлинг 1 мин), REST /api_tokens (tokens.read/write; значение один раз; валидация scopes/expires 400), X-API-Key в authMiddleware (приоритетнее Bearer, Perms=scopes, APITokenID), аудит actor_type=api_token + tokens.create/revoke, каталог + tokens.read/write. Живой e2e: ci-reader [rules.read] → 200 rules / 403 iocs/users, 400 на мусор, last_used_at, 200 → отзыв 204 → 401; compliance in_sync 1/1 | (этот коммит) |
 | 28 | Auth/RBAC (п. 8–9, без SSO): миграция 000008 (builtin роли admin/operator/analyst/viewer), `internal/authn` (bcrypt, opaque-токен, SHA-256 в БД), store users/roles/sessions/audit репозитории, authMiddleware (dev\|token) + requirePerm на всех маршрутах, /auth/login+refresh(ротация)+logout+me, /users CRUD + revoke_sessions (последний break-glass 409, себя 409), /roles кастомные (builtin 409, perms по каталогу 400), GET /audit_log, аудит auth.*/authz.denied/users.*/roles.*, bootstrapBreakGlass (env/конфиг или генерация пароля в лог), resolveOrgID из identity, React-логин + Bearer во всех вызовах. Попутно: фикс дубль-стрима в hub (sessionID-гард), systemd-юниты сервера/агента (корень тихих смертей — session-scope kill + ребут ВМ), Redis AOF fix после ребута. Живой e2e: 401 без токена, логин, права analyst (403 на deployments/users/audit), ротация, logout, break-glass защита, аудит-цепочка; compliance in_sync 1/1 | 1ad3764 |
 | 27 | Cron-расписания авто-синка фидов: `feedsync.ParseSchedule` — длительность Go или 5-полевой cron (robfig/cron/v3, новая зависимость; @daily и др. дескрипторы, локальное время сервера), `Schedule.Due(last_sync_at, now)`; планировщик переведён на него (исправленный schedule снова подхватывается); валидация schedule в POST/PATCH /feeds → 400. Юнит-тесты ParseSchedule/Due. Живой e2e: фид со schedule "* * * * *" → авто-запуски каждую минуту без ручного синка (imported=2 → updated=2), невалидный schedule → 400; compliance in_sync 1/1. Эпик фидов завершён (6 коннекторов + расписания) | (этот коммит) |

@@ -121,6 +121,12 @@ func (h *handlers) authMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
+		// Auth — только для API; статика UI (/app/, /ui/, /) публична,
+		// иначе форма входа не загрузится (чанк 30).
+		if !strings.HasPrefix(r.URL.Path, "/api/v1/") {
+			next.ServeHTTP(w, r)
+			return
+		}
 		if authPublicPaths[r.URL.Path] {
 			next.ServeHTTP(w, r)
 			return

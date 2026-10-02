@@ -11,12 +11,19 @@ import Matrix from "./pages/Matrix";
 import Iocs from "./pages/Iocs";
 import Feeds from "./pages/Feeds";
 import Login from "./pages/Login";
+import Users from "./pages/Users";
+import Roles from "./pages/Roles";
+import Tokens from "./pages/Tokens";
+import Audit from "./pages/Audit";
 
 type TabName =
   | "overview" | "instances" | "rules" | "rulesets"
-  | "deployments" | "logs" | "matrix" | "iocs" | "feeds";
+  | "deployments" | "logs" | "matrix" | "iocs" | "feeds"
+  | "users" | "roles" | "tokens" | "audit";
 
-const TABS: { name: TabName; label: string }[] = [
+// perm — разрешение для показа вкладки (ТЗ: UI скрывает недоступное;
+// авторизация всё равно на backend). Пусто — видна всем.
+const TABS: { name: TabName; label: string; perm?: string }[] = [
   { name: "overview", label: "Обзор" },
   { name: "instances", label: "Инстансы" },
   { name: "rules", label: "Правила" },
@@ -26,6 +33,10 @@ const TABS: { name: TabName; label: string }[] = [
   { name: "matrix", label: "Матрица" },
   { name: "iocs", label: "IOC" },
   { name: "feeds", label: "Фиды" },
+  { name: "users", label: "Пользователи", perm: "users.read" },
+  { name: "roles", label: "Роли", perm: "roles.read" },
+  { name: "tokens", label: "Токены", perm: "tokens.read" },
+  { name: "audit", label: "Аудит", perm: "audit.read" },
 ];
 
 // Страницы не размонтируем при переключении (display:none), чтобы
@@ -40,7 +51,14 @@ const PAGES: Record<TabName, React.ComponentType<{ active: boolean }>> = {
   matrix: Matrix,
   iocs: Iocs,
   feeds: Feeds,
+  users: Users,
+  roles: Roles,
+  tokens: Tokens,
+  audit: Audit,
 };
+
+const hasPerm = (perms: string[] | undefined, p?: string) =>
+  !p || !perms || perms.includes("*") || perms.includes(p);
 
 export default function App() {
   const [tab, setTab] = React.useState<TabName>("overview");
@@ -111,7 +129,7 @@ export default function App() {
         </div>
       </header>
       <nav>
-        {TABS.map(t => (
+        {TABS.filter(t => hasPerm(me?.permissions, t.perm)).map(t => (
           <button
             key={t.name}
             className={"tab" + (tab === t.name ? " active" : "")}
