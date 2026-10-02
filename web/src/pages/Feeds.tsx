@@ -1,6 +1,7 @@
 import React from "react";
 import { apiDelete, apiGet, apiPatch, apiPost, Feed, FeedRun, Page } from "../api";
 import { Badge, ErrorBox, fmtTime } from "../components";
+import { useCan } from "../perms";
 
 const LIMIT = 50;
 const TYPES = ["generic", "et_open", "et_pro", "taxii", "stix", "misp"];
@@ -9,6 +10,7 @@ const TYPES = ["generic", "et_open", "et_pro", "taxii", "stix", "misp"];
 type SyncResults = Record<string, FeedRun>;
 
 export default function Feeds({ active }: { active: boolean }) {
+  const can = useCan();
   const [items, setItems] = React.useState<Feed[]>([]);
   const [cursor, setCursor] = React.useState<string | null>(null);
   const [err, setErr] = React.useState<unknown>(null);
@@ -86,6 +88,7 @@ export default function Feeds({ active }: { active: boolean }) {
   return (
     <>
       <h2>Фиды IOC</h2>
+      {can("feeds.write") && (
       <div className="toolbar">
         <input
           placeholder="имя фида…"
@@ -113,6 +116,7 @@ export default function Feeds({ active }: { active: boolean }) {
         />
         <button className="btn" disabled={busy} onClick={add}>Добавить</button>
       </div>
+      )}
       <ErrorBox error={err} />
       {loaded && !items.length && !err && <p className="muted">Фидов нет.</p>}
       {items.length > 0 && (
@@ -131,6 +135,7 @@ export default function Feeds({ active }: { active: boolean }) {
                   <tr>
                     <td>
                       {f.name}{" "}
+                      {can("feeds.write") && (
                       <button
                         className={"btn" + (f.enabled ? "" : " primary")}
                         title={f.enabled ? "отключить авто/ручной синк" : "включить"}
@@ -138,6 +143,7 @@ export default function Feeds({ active }: { active: boolean }) {
                       >
                         {f.enabled ? "on" : "off"}
                       </button>
+                      )}
                     </td>
                     <td className="muted" style={{ maxWidth: "26em", overflow: "hidden", textOverflow: "ellipsis" }}>
                       {f.url}
@@ -156,10 +162,14 @@ export default function Feeds({ active }: { active: boolean }) {
                       )}
                     </td>
                     <td style={{ whiteSpace: "nowrap" }}>
+                      {can("feeds.write") && (
+                        <>
                       <button className="btn primary" disabled={syncing[f.id]} onClick={() => sync(f)}>
                         {syncing[f.id] ? "Синк…" : "Синхронизировать"}
                       </button>{" "}
                       <button className="btn" onClick={() => remove(f)}>удалить</button>
+                        </>
+                      )}
                     </td>
                   </tr>
                   {res && (

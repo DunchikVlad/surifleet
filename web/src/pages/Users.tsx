@@ -1,10 +1,12 @@
 import React from "react";
 import { apiGet, apiPost, apiPatch, apiDelete, User, Role, Page } from "../api";
 import { ErrorBox, fmtTime, short } from "../components";
+import { useCan } from "../perms";
 
 // Users — вкладка «Пользователи» (чанк 30): список, создание с ролью,
 // вкл/откл, revoke sessions, удаление.
 export default function Users(_: { active: boolean }) {
+  const can = useCan();
   const [items, setItems] = React.useState<User[]>([]);
   const [roles, setRoles] = React.useState<Role[]>([]);
   const [err, setErr] = React.useState<unknown>(null);
@@ -60,6 +62,7 @@ export default function Users(_: { active: boolean }) {
     <>
       <h2>Пользователи</h2>
       <ErrorBox error={err} />
+      {can("users.write") && (
       <div className="panel">
         <input placeholder="email" value={email} onChange={e => setEmail(e.target.value)} />{" "}
         <input placeholder="имя" value={name} onChange={e => setName(e.target.value)} />{" "}
@@ -75,6 +78,7 @@ export default function Users(_: { active: boolean }) {
           Создать
         </button>
       </div>
+      )}
       <p>
         <input placeholder="поиск по email/имени…" value={q} onChange={e => setQ(e.target.value)} style={{ minWidth: "18em" }} />
       </p>
@@ -90,13 +94,19 @@ export default function Users(_: { active: boolean }) {
               <td className="muted">{(u.roles ?? []).map(r => r.role_name || short(r.role_id)).join(", ") || "—"}</td>
               <td className="muted">{fmtTime(u.last_login_at ?? undefined)}</td>
               <td>
+                {can("users.write") && (
                 <button className={"btn" + (u.is_active ? "" : " primary")} onClick={() => toggle(u)}>
                   {u.is_active ? "active" : "off"}
                 </button>
+                )}
               </td>
               <td style={{ whiteSpace: "nowrap" }}>
+                {can("users.write") && (
+                  <>
                 <button className="btn" title="принудительный logout всех сессий" onClick={() => revoke(u)}>сессии ✕</button>{" "}
                 <button className="btn" onClick={() => remove(u)}>удалить</button>
+                  </>
+                )}
               </td>
             </tr>
           ))}

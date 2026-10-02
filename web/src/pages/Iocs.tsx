@@ -1,6 +1,7 @@
 import React from "react";
 import { apiDelete, apiGet, apiPost, Ioc, IocGenerateResult, Page } from "../api";
 import { Badge, ErrorBox, fmtTime } from "../components";
+import { useCan } from "../perms";
 
 const LIMIT = 50;
 const TYPES = ["ip", "domain", "url", "md5", "sha1", "sha256", "email"];
@@ -16,6 +17,7 @@ function extLink(i: Ioc): { href: string; label: string } | null {
 }
 
 export default function Iocs({ active }: { active: boolean }) {
+  const can = useCan();
   const [items, setItems] = React.useState<Ioc[]>([]);
   const [cursor, setCursor] = React.useState<string | null>(null);
   const [type, setType] = React.useState("");
@@ -95,6 +97,7 @@ export default function Iocs({ active }: { active: boolean }) {
   return (
     <>
       <h2>IOC / Threat Intel</h2>
+      {can("ioc.write") && (
       <div className="toolbar">
         <select value={fType} onChange={e => setFType(e.target.value)}>
           {TYPES.map(t => <option key={t} value={t}>{t}</option>)}
@@ -125,6 +128,7 @@ export default function Iocs({ active }: { active: boolean }) {
         />
         <button className="btn" disabled={busy} onClick={add}>Добавить</button>
       </div>
+      )}
       <div className="toolbar">
         <select value={type} onChange={e => { setType(e.target.value); setLoaded(false); }}>
           <option value="">все типы</option>
@@ -142,10 +146,12 @@ export default function Iocs({ active }: { active: boolean }) {
         />
         <button className="btn" onClick={() => setLoaded(false)}>Найти</button>
         <span style={{ flex: 1 }} />
+        {can("ioc.write") && (
         <button className="btn primary" disabled={genBusy} onClick={generate}
           title="Сгенерировать Suricata-правила из активных IOC (sid 8800000+, ruleset ioc-current)">
           {genBusy ? "Генерация…" : "Сгенерировать правила"}
         </button>
+        )}
       </div>
       {genErr && <ErrorBox error={genErr} />}
       {genResult && (
@@ -188,7 +194,10 @@ export default function Iocs({ active }: { active: boolean }) {
                   <td className="muted">{i.source || "—"}</td>
                   <td className="muted">{i.expires_at ? fmtTime(i.expires_at) : "—"}</td>
                   <td className="muted">{fmtTime(i.created_at)}</td>
-                  <td><button className="btn" onClick={() => remove(i.id)}>удалить</button></td>
+                  <td>
+                    {can("ioc.write") &&
+                      <button className="btn" onClick={() => remove(i.id)}>удалить</button>}
+                  </td>
                 </tr>
               );
             })}

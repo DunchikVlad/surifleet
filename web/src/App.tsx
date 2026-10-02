@@ -1,6 +1,7 @@
 import React from "react";
 import { apiGet, logout, getToken, Health, Version, CurrentUser } from "./api";
 import { Badge, useInterval } from "./components";
+import { PermsContext } from "./perms";
 import Overview from "./pages/Overview";
 import Instances from "./pages/Instances";
 import Rules from "./pages/Rules";
@@ -112,7 +113,7 @@ export default function App() {
   }
 
   return (
-    <>
+    <PermsContext.Provider value={me?.permissions ?? ["*"]}>
       <header>
         <div className="brand">Suri<span>Fleet</span></div>
         <div className="hdr-status">
@@ -153,6 +154,6 @@ export default function App() {
       <footer className="muted">
         SuriFleet React UI · ванильный MVP остаётся на <a href="/">/</a> · API /api/v1
       </footer>
-    </>
+    </PermsContext.Provider>
   );
 }

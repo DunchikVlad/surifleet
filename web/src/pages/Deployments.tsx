@@ -3,6 +3,7 @@ import {
   apiGet, apiPost, Deployment, DeployTask, Instance, Page, Ruleset,
 } from "../api";
 import { Badge, ErrorBox, fmtTime, Progress, short } from "../components";
+import { useCan } from "../perms";
 
 function TaskList({ depId }: { depId: string }) {
   const [tasks, setTasks] = React.useState<DeployTask[] | null>(null);
@@ -98,6 +99,7 @@ export function DeploymentTable({
 }
 
 export default function Deployments({ active }: { active: boolean }) {
+  const can = useCan();
   const [items, setItems] = React.useState<Deployment[] | null>(null);
   const [err, setErr] = React.useState<unknown>(null);
   const [rulesets, setRulesets] = React.useState<Ruleset[]>([]);
@@ -150,7 +152,11 @@ export default function Deployments({ active }: { active: boolean }) {
       <h2>Деплои</h2>
       <ErrorBox error={err} />
       {items && !items.length && <p className="muted">Деплоев нет.</p>}
-      {items && items.length > 0 && <DeploymentTable items={items} onAction={action} />}
+      {items && items.length > 0 && (
+        <DeploymentTable items={items} onAction={can("rules.deploy") ? action : undefined} />
+      )}
+      {can("rules.deploy") && (
+        <>
       <h3>Новый деплой</h3>
       <div className="toolbar">
         <select value={rsId} onChange={e => setRsId(e.target.value)}>
@@ -168,6 +174,8 @@ export default function Deployments({ active }: { active: boolean }) {
         <button className="btn" onClick={create}>Создать деплой</button>
       </div>
       {result && <p className="muted">{result}</p>}
+        </>
+      )}
     </>
   );
 }

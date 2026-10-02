@@ -1,10 +1,12 @@
 import React from "react";
 import { apiGet, apiPost, apiDelete, ApiToken, ApiTokenCreated, Page, PERMS } from "../api";
 import { ErrorBox, fmtTime } from "../components";
+import { useCan } from "../perms";
 
 // Tokens — вкладка «Токены» (чанк 30): выпуск (значение один раз),
 // листинг, отзыв.
 export default function Tokens(_: { active: boolean }) {
+  const can = useCan();
   const [items, setItems] = React.useState<ApiToken[]>([]);
   const [err, setErr] = React.useState<unknown>(null);
   const [name, setName] = React.useState("");
@@ -49,6 +51,7 @@ export default function Tokens(_: { active: boolean }) {
     <>
       <h2>API-токены</h2>
       <ErrorBox error={err} />
+      {can("tokens.write") && (
       <div className="panel">
         <p>
           <input placeholder="имя токена (напр. ci-deploy)" value={name} onChange={e => setName(e.target.value)} style={{ minWidth: "16em" }} />{" "}
@@ -63,6 +66,7 @@ export default function Tokens(_: { active: boolean }) {
           ))}
         </p>
       </div>
+      )}
       {created && (
         <div className="panel" style={{ borderColor: "var(--ok, #4a4)" }}>
           <p><b>Токен выпущен — скопируйте сейчас, больше не показывается:</b></p>
@@ -82,7 +86,10 @@ export default function Tokens(_: { active: boolean }) {
               <td className="muted">{t.scopes.join(" ")}</td>
               <td className="muted">{fmtTime(t.expires_at ?? undefined)}</td>
               <td className="muted">{fmtTime(t.last_used_at ?? undefined)}</td>
-              <td><button className="btn" onClick={() => revoke(t)}>отозвать</button></td>
+              <td>
+                {can("tokens.write") &&
+                  <button className="btn" onClick={() => revoke(t)}>отозвать</button>}
+              </td>
             </tr>
           ))}
         </tbody>

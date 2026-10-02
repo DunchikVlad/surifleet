@@ -1,10 +1,12 @@
 import React from "react";
 import { apiGet, apiPost, Page, Rule } from "../api";
 import { Badge, ErrorBox } from "../components";
+import { useCan } from "../perms";
 
 const LIMIT = 50;
 
 export default function Rules({ active }: { active: boolean }) {
+  const can = useCan();
   const [items, setItems] = React.useState<Rule[]>([]);
   const [cursor, setCursor] = React.useState<string | null>(null);
   const [status, setStatus] = React.useState("");
@@ -72,9 +74,9 @@ export default function Rules({ active }: { active: boolean }) {
                 <td className="muted">{r.category || "—"}</td>
                 <td className="muted">{r.source_type}</td>
                 <td>
-                  {r.status === "enabled" &&
+                  {can("rules.write") && r.status === "enabled" &&
                     <button className="btn" onClick={() => toggle(r.id, "disable")}>откл.</button>}
-                  {r.status === "disabled" &&
+                  {can("rules.write") && r.status === "disabled" &&
                     <button className="btn" onClick={() => toggle(r.id, "enable")}>вкл.</button>}
                 </td>
               </tr>

@@ -1,10 +1,12 @@
 import React from "react";
 import { apiGet, apiPostEx, Page, Rule, Ruleset } from "../api";
 import { Badge, ErrorBox, fmtTime, short } from "../components";
+import { useCan } from "../perms";
 
 const LIMIT = 50;
 
 export default function Rulesets({ active }: { active: boolean }) {
+  const can = useCan();
   const [items, setItems] = React.useState<Ruleset[] | null>(null);
   const [err, setErr] = React.useState<unknown>(null);
 
@@ -106,6 +108,8 @@ export default function Rulesets({ active }: { active: boolean }) {
         </table>
       )}
 
+      {can("rules.write") && (
+        <>
       <h3>Конструктор ruleset'а — сборка из выбранных правил</h3>
       <div className="toolbar">
         <select value={status} onChange={e => { setStatus(e.target.value); setRulesLoaded(false); }}>
@@ -199,6 +203,8 @@ export default function Rulesets({ active }: { active: boolean }) {
         новый — создаст (201).
       </p>
       {result && <p className="muted">{result}</p>}
+        </>
+      )}
     </>
   );
 }

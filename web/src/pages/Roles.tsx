@@ -1,9 +1,11 @@
 import React from "react";
 import { apiGet, apiPost, apiDelete, Role, Page, PERMS } from "../api";
 import { ErrorBox } from "../components";
+import { useCan } from "../perms";
 
 // Roles — вкладка «Роли» (чанк 30): встроенные (неизменяемы) и кастомные.
 export default function Roles(_: { active: boolean }) {
+  const can = useCan();
   const [items, setItems] = React.useState<Role[]>([]);
   const [err, setErr] = React.useState<unknown>(null);
   const [name, setName] = React.useState("");
@@ -44,6 +46,7 @@ export default function Roles(_: { active: boolean }) {
     <>
       <h2>Роли</h2>
       <ErrorBox error={err} />
+      {can("roles.write") && (
       <div className="panel">
         <p>
           <input placeholder="имя кастомной роли" value={name} onChange={e => setName(e.target.value)} />{" "}
@@ -58,6 +61,7 @@ export default function Roles(_: { active: boolean }) {
           ))}
         </p>
       </div>
+      )}
       <table>
         <thead>
           <tr><th>Имя</th><th>Тип</th><th>Разрешения</th><th></th></tr>
@@ -68,7 +72,10 @@ export default function Roles(_: { active: boolean }) {
               <td>{r.name}{r.description && <div className="muted" style={{ fontSize: "0.85em" }}>{r.description}</div>}</td>
               <td>{r.is_builtin ? <span className="badge badge-muted">builtin</span> : <span className="badge badge-ok">custom</span>}</td>
               <td className="muted">{r.permissions.join(" ")}</td>
-              <td>{!r.is_builtin && <button className="btn" onClick={() => remove(r)}>удалить</button>}</td>
+              <td>
+                {can("roles.write") && !r.is_builtin &&
+                  <button className="btn" onClick={() => remove(r)}>удалить</button>}
+              </td>
             </tr>
           ))}
         </tbody>
