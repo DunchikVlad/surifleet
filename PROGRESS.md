@@ -49,7 +49,7 @@ React на `/app/` (`/` — редирект).
 sandbox: feedsync.TestFetchMispFeed (httptest listen loopback запрещён) и
 pki.TestLoadOrCreateCA (umask даёт 0755 вместо 0700) — не регрессии.
 
-Чанк 35 ГОТОВ (2026-10-03, этот коммит): OIDC-SSO (п. 9 ТЗ; Authorization
+Чанк 35 ГОТОВ (2026-10-03, 9f7203f): OIDC-SSO (п. 9 ТЗ; Authorization
 Code + PKCE) — логин через корпоративный IdP с маппингом групп в роли и
 JIT-провижинингом. `internal/oidc` (coreos/go-oidc/v3 + x/oauth2 —
 проверенные библиотеки по ТЗ, без самодельной криптографии): flow с PKCE
