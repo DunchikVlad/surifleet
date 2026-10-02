@@ -1,5 +1,5 @@
 // reactui.go — раздача React-фронтенда (web/dist, чанк 14) из-под /app/.
-// Старый ванильный MVP UI остаётся на / и /ui/* без изменений.
+// Ванильный MVP UI выпилен (чанк 30): / — редирект на /app/.
 // Если dist не собран (только placeholder) — /app/ отдаёт страницу-заглушку.
 package httpapi
 
@@ -22,11 +22,11 @@ const reactNotBuilt = `<!doctype html>
 <h1>React UI не встроен в этот бинарь</h1>
 <p>Каталог <code>web/dist</code> содержит только placeholder. Сборка:
 <code>cd web && npm install && npm run build</code>, затем пересобрать сервер.</p>
-<p>Ванильный MVP UI доступен на <a style="color:#4da3ff" href="/">/</a>.</p>
 </body></html>`
 
-// mountReactUI регистрирует /app/*: статика из embed web/dist с SPA-fallback
-// на index.html (client-side вкладки), либо заглушка, если dist не собран.
+// mountReactUI регистрирует / → /app/ и /app/*: статика из embed web/dist
+// с SPA-fallback на index.html (client-side вкладки), либо заглушка,
+// если dist не собран.
 func mountReactUI(r chi.Router) {
 	static, err := fs.Sub(webui.Dist, "dist")
 	if err != nil {
@@ -34,6 +34,10 @@ func mountReactUI(r chi.Router) {
 	}
 	index, indexErr := fs.ReadFile(static, "index.html")
 
+	// Корень — сразу на React UI (ванильный MVP UI выпилен, чанк 30).
+	r.Get("/", func(w http.ResponseWriter, req *http.Request) {
+		http.Redirect(w, req, "/app/", http.StatusMovedPermanently)
+	})
 	r.Get("/app", func(w http.ResponseWriter, req *http.Request) {
 		http.Redirect(w, req, "/app/", http.StatusMovedPermanently)
 	})

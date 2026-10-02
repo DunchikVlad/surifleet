@@ -68,9 +68,8 @@ func NewRouter(d Deps) http.Handler {
 		writeError(w, http.StatusMethodNotAllowed, CodeNotFound, "метод не поддерживается", nil)
 	})
 
-	// Встроенный Web UI (MVP): / и /ui/* — статика из embed.
-	mountWebUI(r)
-	// React-фронтенд (чанк 14): /app/* из embed web/dist (или заглушка).
+	// React-фронтенд (чанк 14): / → /app/, /app/* из embed web/dist
+	// (или заглушка). Ванильный MVP UI выпилен (чанк 30).
 	mountReactUI(r)
 
 	r.Route("/api/v1", func(r chi.Router) {
