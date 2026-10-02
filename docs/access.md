@@ -96,23 +96,68 @@ npm run build        # tsc --noEmit + vite build → web/dist (встраива�
 Дополнительно — консоль MinIO (порт 9001): бакет `surifleet-rulesets`
 с собранными ruleset-блобами (имя объекта = SHA-256 содержимого).
 
-## 3. Аутентификация API (dev-режим)
+## 3. Аутентификация API
 
-Сейчас работает **заглушка DevAuth**: настоящей auth нет, identity берётся
-из заголовка `X-Dev-User` (если не передан — `dev-admin`). API-токены и
-аудит-лог запланированы (FEATURES.md, п. 5.5).
+Стенд работает в режиме `server.auth_mode: token` (чанк 28): локальные
+пользователи + Bearer-токен сессии. Break-glass администратор стенда:
+`admin@surifleet.local` / `admin12345` (создаётся автоматически при старте,
+если нет ни одного активного break-glass; сменить пароль — PATCH /users/{id}).
 
 ```bash
-curl -H "X-Dev-User: analyst1" http://192.168.31.28:8080/api/v1/health
+# вход → токен
+TOKEN=$(curl -s -X POST -H "Content-Type: application/json" \
+  -d '{"email":"admin@surifleet.local","password":"admin12345"}' \
+  http://192.168.31.28:8080/api/v1/auth/login | python -c "import sys,json;print(json.load(sys.stdin)['access_token'])")
+curl -H "Authorization: Bearer $TOKEN" http://192.168.31.28:8080/api/v1/agents
 ```
 
+- Публичные без токена: `/api/v1/health`, `/api/v1/version`,
+  `/auth/login`, `/auth/refresh`. Всё остальное — 401 без токена.
+- Токен — непрозрачный (opaque), сессия в БД (хэш), TTL `server.session_ttl`
+  (default 12h); `/auth/refresh` ротирует токен (старый отзывается),
+  `/auth/logout` отзывает сессию.
+- RBAC: роли admin (`*`), operator, analyst, viewer (миграция 000008) +
+  кастомные (`/roles`); проверка прав — middleware на каждом маршруте
+  (каталог: fleet/hosts/agents/rules/ioc/feeds/users/roles/audit .read/.write,
+  rules.deploy); отказ — 403 + запись `authz.denied` в аудит.
+- Пользователи: CRUD `/users`, `POST /users/{id}/revoke_sessions`
+  (принудительный logout); последний break-glass админ неудаляем (409);
+  себя удалить нельзя (409). Пароль ≥ 8 символов (bcrypt).
+- Аудит: auth.login (break-glass — отдельным action auth.login_break_glass),
+  auth.logout/refresh, authz.denied, users.\*, roles.\* — чтение
+  `GET /audit_log?action=&limit=&cursor=` (право audit.read).
+- Режим `auth_mode: dev` (по умолчанию в коде) — прежняя заглушка
+  X-Dev-User, все права; только для локальной разработки.
+- Ванильный MVP UI на `/` в token-режиме НЕ работает (не шлёт
+  Authorization) — основной UI — React на `/app/` (форма входа).
+
 Формат ошибок единый: `{"error": {"code": "...", "message": "...",
-"fields": {...}?}}`. Пагинация — keyset: параметры `limit` (1..200,
-default 50) и `cursor`; в ответе `next_cursor` (null — страниц больше нет).
+"fields": {...}?}}` (коды: validation_failed, unauthorized, forbidden,
+not_found, conflict, internal). Пагинация — keyset: параметры `limit`
+(1..200, default 50) и `cursor`; в ответе `next_cursor` (null — страниц
+больше нет).
 
 ## 4. Что можно делать через API (карта эндпоинтов)
 
 Все пути — под префиксом `/api/v1`.
+
+### 4.0 Auth, пользователи, роли, аудит (чанк 28)
+- `POST /auth/login` (публичный) — `{email, password}` → `{access_token,
+  refresh_token, token_type, expires_in}` (MVP: access = refresh — один
+  токен сессии; refresh ротирует). 401 — неверные креды (в аудит).
+- `POST /auth/refresh` (публичный) — ротация токена (старый отзывается).
+- `POST /auth/logout` — отзыв текущей сессии (идемпотентно, 204).
+- `GET /auth/me` — профиль, роли, итоговые разрешения.
+- `GET/POST /users`, `GET/PATCH/DELETE /users/{id}`,
+  `POST /users/{id}/revoke_sessions` — права users.read/users.write.
+  POST: `{email, display_name, password (≥8), is_break_glass?, roles:
+  [{role_id, scope_type?, cluster_ids?}]}`; PATCH: display_name/is_active/
+  password/roles (полная замена назначений).
+- `GET/POST /roles`, `GET/PATCH/DELETE /roles/{id}` — встроенные (admin/
+  operator/analyst/viewer) неизменяемы и неудаляемы (409); кастомные —
+  `permissions` только из каталога (иначе 400).
+- `GET /audit_log?action=&limit=&cursor=` — аудит (audit.read), свежие
+  первыми, курсор `<RFC3339Nano>,<uuid>`.
 
 ### 4.1 Служебные
 - `GET /health` — живость процесса и PostgreSQL.
@@ -376,15 +421,17 @@ curl "$API/fleet/compliance"
 3. `GET /hosts/{id}/discovery` → `POST /hosts/{id}/confirm_discovery` →
    инстанс готов к деплоям.
 
-## 7. Известные ограничения (на 2026-09-16)
+## 7. Известные ограничения (на 2026-10-02)
 
-- Нет настоящей аутентификации (DevAuth-заглушка); UI — React SPA на
-  `/app/` (чанки 14–16: деплои, вкл/откл правил, конструктор ruleset'ов
-  с выбором чекбоксами, страница инстанса с историей деплоев и логами
-  агента, матрица «правила × инстансы», вкладка «IOC» — список,
-  добавление, поиск, удаление индикаторов), ванильный MVP остаётся
-  на `/`; React UI проверен только по HTTP (браузерная проверка — при
-  первом открытии).
+- Аутентификация — локальные пользователи + сессионные токены + RBAC
+  (чанк 28, стенд в `auth_mode: token`); SSO (OIDC/SAML/LDAP), API-токены
+  со scopes, scoping ролей по кластерам и аудит-diff/цепочка хэшей —
+  следующие чанки. UI — React SPA на `/app/` (форма входа); ванильный
+  MVP на `/` в token-режиме не работает (не шлёт Authorization).
+- Сервер и агент на стенде — под systemd (surifleet-server.service на
+  .28, surifleet-agent.service на .67; enable+Restart=always): переживают
+  ребут ВМ; перекат — `systemctl restart` (процедуры — в
+  docs/handover-kimi-code.md §5).
 - Логи агентов стекаются в ClickHouse (чанк 13c): вкладка «Логи» в UI,
   API `GET /api/v1/agents/{id}/logs?limit=200`.
 - Автооткат при падении сервиса Suricata после деплоя (watchdog) — чанк 12b.

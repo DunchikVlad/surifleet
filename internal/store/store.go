@@ -30,6 +30,10 @@ type Store struct {
 	ActualState   *ActualStateRepo
 	Compliance    *ComplianceRepo
 	Capabilities  *CapabilitiesRepo
+	Users         *UsersRepo
+	Roles         *RolesRepo
+	Sessions      *SessionsRepo
+	Audit         *AuditRepo
 }
 
 // Connect открывает пул соединений по DSN и проверяет его ping'ом.
@@ -72,6 +76,10 @@ func Connect(ctx context.Context, dsn string) (*Store, error) {
 	s.ActualState = &ActualStateRepo{pool: pool}
 	s.Compliance = &ComplianceRepo{pool: pool}
 	s.Capabilities = &CapabilitiesRepo{pool: pool}
+	s.Users = &UsersRepo{pool: pool}
+	s.Roles = &RolesRepo{pool: pool}
+	s.Sessions = &SessionsRepo{pool: pool}
+	s.Audit = &AuditRepo{pool: pool}
 	return s, nil
 }
 

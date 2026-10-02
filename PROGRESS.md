@@ -26,19 +26,74 @@ stale (раньше висел бы online). TODO: проверять, что а
 стартует ТОЛЬКО через start-agent.sh; рассмотреть systemd-юнит
 агента (Restart=always) — это закроет и автоподнятие после ребута ВМ.
 
-**Статус на 2026-10-01 (вечер)**: чанки 23–27 закрыты. Эпик фидов
-завершён: все 6 коннекторов + cron-расписания. Дальше:
+**Статус на 2026-10-02**: закрыты все 3 пункта «после 27» — часы .28
+(chrony синхронизирует; скачки были boot-коррекцией), аномалия sudo rm
+(не воспроизводится — снято) и auth/RBAC (чанк 28). Стенд переведён на
+`auth_mode: token` (вход admin@surifleet.local / admin12345), сервер и
+агент — под systemd (переживают ребут).
 
-**Следующий шаг после 27**:
-1. auth/RBAC (DevAuth → токены, п. 8–9 ТЗ) — следующий крупный эпик.
-2. **Стенд**: часы ВМ .28 скачут после перезагрузки (RTC отстаёт на 5+
-   мин, `timedatectl` — «System clock synchronized: no» при активном
-   timesyncd) — разобраться с синхронизацией времени (гипервизор/NTP),
-   wall-шаги искажают тайминги свиперов и heartbeat.
-3. **Аномалия (не блокер)**: из ssh `sudo rm` в /etc/suricata → Permission
-   denied при работающем touch; обход — агент от root правит сам (12a).
+**Следующий шаг после 28**:
+1. OIDC-SSO (п. 9 ТЗ), API-токены со scopes, scoping ролей по кластерам,
+   аудит diff «было→стало» + цепочка хэшей.
+2. React UI: вкладки «Пользователи/Роли» и «Аудит».
+3. Ванильный UI на `/` в token-режиме не работает — либо выпилить, либо
+   научить логину (решить; React — основной).
 
-Чанк 27 ГОТОВ (2026-10-01, этот коммит): cron-расписания авто-синка
+Чанк 28 ГОТОВ (2026-10-02, этот коммит): auth/RBAC — локальные
+пользователи + сессии + роли (п. 8–9 ТЗ, без SSO). Миграция 000008:
+встроенные роли admin/operator/analyst/viewer с permissions (+зеркало).
+`internal/authn`: bcrypt (x/crypto → direct), opaque-токен 32B
+base64url, SHA-256-хэш в БД. `internal/store/users.go`: UsersRepo
+(Create c ролями в tx, GetByID/ByEmail, List keyset+q+is_active, Update
+с заменой ролей, Delete — последний активный break-glass неудаляем
+ErrConflict, TouchLogin, CountActiveBreakGlass), RolesRepo (встроенные +
+кастомные org; builtin неизменяемы/неудаляемы — ErrConflict;
+PermissionsForUser — объединение по назначениям), SessionsRepo (Create/
+GetValidByHash/Revoke/RevokeAllForUser), AuditRepo (Log + List keyset
+(created_at,id) DESC). `internal/httpapi/auth.go`: Identity (Perms map,
+'*'), authMiddleware (dev — прежний X-Dev-User; token — Bearer → сессия
+→ user.is_active → права; публичные health/version/login/refresh),
+requirePerm на всех маршрутах (каталог fleet/hosts/agents/rules/ioc/
+feeds/users/roles/audit .read/.write + rules.deploy; organizations CUD —
+admin-only), 401 unauthorized / 403 forbidden (openapi-коды), аудит
+отказов authz.denied. Хендлеры: /auth/login (break-glass вход — action
+auth.login_break_glass), /auth/refresh (ротация: старый токен отзывается),
+/auth/logout (идемпотентный 204), /auth/me; /users CRUD +
+revoke_sessions (самоудаление — 409); /roles CRUD кастомных
+(permissions валидируются по каталогу); GET /audit_log (audit.read,
+фильтр action-префиксом). resolveOrgID в token-режиме — org из identity
+(чужой organization_id → 404). deploy:true в /iocs/generate требует
+rules.deploy. Конфиг: server.auth_mode (dev|token, default dev),
+session_ttl (12h), bootstrap_admin_email/password (пароль лучше env;
+пусто → генерируется и один раз WARN в лог); bootstrapBreakGlass в
+cmd/server (org First или создаётся Default). React: токен в
+localStorage, Authorization во всех вызовах, 401 → сброс + форма входа
+(Login.tsx), email + «выйти» в шапке. Попутные фиксы: hub — защита от
+дубль-стрима (streamHandle.sessionID; разрыв старой сессии не гасит
+агента, Delete только своей сессии) — вскрыто при двух агентах после
+миграции на systemd. Юнит-тесты authn (пароль, токены). Проверки:
+go build/vet/test зелёные, npm build чисто (185 КБ). Живой e2e на
+стенде (token-режим): без токена 401; неверный пароль 401 (в аудите);
+login → токен; me → права ['*']; создан analyst (роль analyst): GET
+/rules 200, POST /iocs 201, POST /deployments 403, GET /users 403,
+GET /audit_log 403 (все отказы в аудите); refresh-ротация (старый 401,
+новый 200); logout 204 → токен 401; кастомная роль create/delete 204,
+неизвестное разрешение 400, удаление встроенной admin 409; удаление
+последнего break-glass 409; revoke_sessions 204; тестовые пользователь
+и IOC удалены; GET /audit_log показывает всю цепочку; compliance
+in_sync 1/1, агент online. ИНФРА (ночной инцидент 01→02.10): обе ВМ
+перезагружались; Redis падал в crash-loop (AOF corrupt после unclean
+shutdown — redis-check-aof --fix, данные presence эфемерны); сервер
+молча умирал — КОРЕНЬ найден: systemd session-scope SIGTERM при закрытии
+ssh-сессии (setsid не выходит из cgroup сессии) — лечение: systemd-юниты
+surifleet-server.service (.28) и surifleet-agent.service (.67, root,
+ExecStart=start-agent.sh), enable + Restart=always; процедуры переката
+обновлены (handover §5 — systemctl restart). Это же вероятная причина
+тихой смерти агента 16.09 (запускался из ssh-сессии). Часы .28: chrony
+активен и синхронизирован (суб-мс); утренние скачки — boot-коррекция
+после выключенной ночи.
+
+Чанк 27 ГОТОВ (2026-10-01, 3fa1beb): cron-расписания авто-синка
 фидов. `internal/feedsync/schedule.go`: ParseSchedule — длительность Go
 ("1h") ИЛИ 5-полевой cron ("*/15 * * * *", дескрипторы @daily и т.п.;
 robfig/cron/v3 — новая зависимость; локальное время сервера);
@@ -602,6 +657,7 @@ managed-файле (245 правил).
 | 13d | Матрица «правила × инстансы» (требование А): API GET /api/v1/matrix/rules (openapi get_rules_matrix) — независимые keyset-курсоры rule_cursor (по sid) / instance_cursor (по id), фильтры rule_status/category/sid/cluster_id/cell_status, limit ≤1000; ячейка loaded/failed/missing/extra из desired_state.computed_rules + actual_state (loaded/failed StateReport); store — `internal/store/matrix.go` (страницы осей + батч состояний 2 запросами), handler — `internal/httpapi/matrix.go`; тесты sid-курсора и cellStatusOf. UI — вкладка «Матрица» (строки sid+msg, столбцы hostname вертикально, цветные ячейки + легенда, фильтр по статусу ячейки, поиск по sid, дозагрузка по 50). Живой e2e: ?limit=5 → 200 с ячейками loaded для инстанса 468c9c71; пагинация/фильтры/400-валидация; кейс missing живьём (битое правило 9999991 отклонено агентом через suricata -T → desired без actual → missing, сводка 244 loaded + 1 missing); disable+ребилд+деплой → ячейка исчезла; стенд восстановлен (245/245 loaded). Ограничение MVP: cell_status фильтрует ячейки внутри текущей страницы оси правил | d868a9b |
 | 14 | React-фронтенд в `web/`: Vite 5 + React 18 + TS strict, без UI-китов (стили из webui/style.css); 7 экранов в паритете с ванильным MVP (Обзор/Инстансы/Правила/Ruleset'ы/Деплои/Логи/Матрица) + улучшение (вкладки не размонтируются — фильтры/пагинация сохраняются, сводка ячеек матрицы). Vite base=/app/, dev-proxy /api → .28:8080. Раздача из бинаря: `web/embed.go` (go:embed dist) + `internal/httpapi/reactui.go` (/app/*, SPA-fallback, заглушка когда dist не собран; placeholder.txt в git, postbuild восстанавливает). Старый UI на / не тронут. Проверки: npm install/build/dev чисто, go build/vet/test зелёные, перекат .28 — /app/ + ассеты + SPA-fallback + /api/v1/fleet/compliance 200; браузер недоступен — только HTTP | 96c777e |
 | 15 | Развитие React UI: конструктор ruleset'ов во вкладке «Ruleset'ы» (выбор правил чекбоксами с фильтром/поиском/дозагрузкой, накопление выбора между страницами, чипы/счётчик/снятие, сборка POST /rulesets с rule_ids, различение 201 «создан»/200 «уже существует» через новый apiPostEx); страница инстанса (требование А) — drill-down `pages/InstanceDetail.tsx`: параметры, compliance, desired/actual hash, loaded/failed, last_reload, failed-правила, diff missing/extra, история деплоев (существующий GET /instances/{id}/deploy_history), логи агента хоста. Проверки: npm build + go build/vet/test чисто, перекат .28 (health ok, /app/ 200, новый бандл отдаётся, deploy_history 200 с деплоями 09200803/102c688b), живой e2e конструктора: 3 sid → 201 ruleset 8ce1b381 (chunk15-e2e), повтор → 200 (идемпотентность); браузер недоступен — только HTTP | 0ccd7b2 |
+| 28 | Auth/RBAC (п. 8–9, без SSO): миграция 000008 (builtin роли admin/operator/analyst/viewer), `internal/authn` (bcrypt, opaque-токен, SHA-256 в БД), store users/roles/sessions/audit репозитории, authMiddleware (dev\|token) + requirePerm на всех маршрутах, /auth/login+refresh(ротация)+logout+me, /users CRUD + revoke_sessions (последний break-glass 409, себя 409), /roles кастомные (builtin 409, perms по каталогу 400), GET /audit_log, аудит auth.*/authz.denied/users.*/roles.*, bootstrapBreakGlass (env/конфиг или генерация пароля в лог), resolveOrgID из identity, React-логин + Bearer во всех вызовах. Попутно: фикс дубль-стрима в hub (sessionID-гард), systemd-юниты сервера/агента (корень тихих смертей — session-scope kill + ребут ВМ), Redis AOF fix после ребута. Живой e2e: 401 без токена, логин, права analyst (403 на deployments/users/audit), ротация, logout, break-glass защита, аудит-цепочка; compliance in_sync 1/1 | (этот коммит) |
 | 27 | Cron-расписания авто-синка фидов: `feedsync.ParseSchedule` — длительность Go или 5-полевой cron (robfig/cron/v3, новая зависимость; @daily и др. дескрипторы, локальное время сервера), `Schedule.Due(last_sync_at, now)`; планировщик переведён на него (исправленный schedule снова подхватывается); валидация schedule в POST/PATCH /feeds → 400. Юнит-тесты ParseSchedule/Due. Живой e2e: фид со schedule "* * * * *" → авто-запуски каждую минуту без ручного синка (imported=2 → updated=2), невалидный schedule → 400; compliance in_sync 1/1. Эпик фидов завершён (6 коннекторов + расписания) | (этот коммит) |
 | 26 | Коннектор misp — MISP core format feed (`internal/feedsync/misp.go`): manifest.json → события (свежие первыми, ≤2000 за синк, timestamp строка/число), атрибуты to_ids=false/deleted молча skip, маппинг ip-src/dst, domain/hostname, url, md5/sha1/sha256, email-* + составные (domain\|ip, ip-*\|port, filename\|hash), score по threat_level_id (1→80/2→60/3→40); дедуп между событиями, ошибки событий не прерывают; общий importIocs + автопрогон генерации. Юнит-тесты ParseMispEvent/fetch (httptest). Живой e2e (mock на .28): imported=4/updated=1/skipped=1 (snort — понятный текст), score 80/60, rules_created=4; повтор imported=0/updated=5; фид удалён, compliance in_sync 1/1. ВСЕ 6 коннекторов фидов готовы | (этот коммит) |
 | 25 | Коннектор stix — статический STIX 2.x bundle/JSON-массив по URL без TAXII-протокола: `ParseStixBody` (bundle/массив/BOM), разбор — общий ParseStix чанка 24, загрузка общая (fetch, Basic/Bearer); автопрогон генерации правил и для stix. Юнит-тест TestParseStixBody. Живой e2e (http.server на .28): imported=3/skipped=1 (неподдерживаемый паттерн — понятный текст), score=70 из confidence, rules_created=3, ruleset ioc-current-4acbe140; повтор imported=0/updated=3; битый URL → failed «HTTP 404»; фиды удалены, compliance in_sync 1/1 | bc32381 |
@@ -712,10 +768,9 @@ curl http://localhost:8080/api/v1/health
   интерфейс enp0s3, правила ET Open скачаны suricata-update.
 - Enrollment использует InsecureSkipVerify (проблема «нет CA до enrollment») —
   TODO: TOFU-пиннинг/отпечаток CA в токене.
-- Часы ВМ .28 скачут после перезагрузки (01.10: RTC отстаёт на 5+ мин,
-  timedatectl «System clock synchronized: no» при активном timesyncd) —
-  wall-шаги искажают наблюдаемые тайминги свиперов/heartbeat в тестах.
-  Разобраться с синхронизацией времени (NTP/гипервизор).
+- Часы ВМ .28: на 01.10 скачки после перезагрузки оказались boot-коррекцией
+  chrony (к 02.10 — синхронизирован, offset < 1 мс). Тайминги свиперов в
+  тестах того дня трактовались с поправкой — см. чанк 23.
 - Heartbeat пока без ResourceSummary/статусов инстансов (чанк 9);
   TaskResult — заглушка not implemented (чанк 10+).
 - В середине чанка 8 sshd на .28 ~15 минут не обслуживал подключения

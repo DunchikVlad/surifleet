@@ -92,8 +92,20 @@ type ServerConfig struct {
 	AgentOfflineAfter Duration `yaml:"agent_offline_after"`
 	// OfflineSweepInterval — как часто свипер проверяет протухших агентов.
 	OfflineSweepInterval Duration `yaml:"offline_sweep_interval"`
-	S3                   S3Config `yaml:"s3"`
-	LogLevel             string   `yaml:"log_level"`
+	// AuthMode — аутентификация REST API (чанк 28): dev — заглушка
+	// X-Dev-User (только тестовый контур), token — локальные пользователи
+	// (POST /auth/login, Bearer-токен сессии, RBAC по ролям).
+	AuthMode string `yaml:"auth_mode"`
+	// SessionTTL — срок жизни токена сессии (token-режим).
+	SessionTTL Duration `yaml:"session_ttl"`
+	// BootstrapAdmin* — break-glass администратор, создаётся при старте в
+	// token-режиме, если в организации нет ни одного активного break-glass.
+	// Пароль предпочтительно через env SURIFLEET_SERVER_BOOTSTRAP_ADMIN_PASSWORD;
+	// если пуст — генерируется случайный и пишется в лог один раз.
+	BootstrapAdminEmail    string   `yaml:"bootstrap_admin_email"`
+	BootstrapAdminPassword string   `yaml:"bootstrap_admin_password"`
+	S3                     S3Config `yaml:"s3"`
+	LogLevel               string   `yaml:"log_level"`
 }
 
 // DefaultServer возвращает конфигурацию сервера с дефолтами.
@@ -111,6 +123,9 @@ func DefaultServer() *ServerConfig {
 		FeedSyncInterval:     Duration(time.Minute),
 		AgentOfflineAfter:    Duration(2 * time.Minute),
 		OfflineSweepInterval: Duration(30 * time.Second),
+		AuthMode:             "dev",
+		SessionTTL:           Duration(12 * time.Hour),
+		BootstrapAdminEmail:  "admin@surifleet.local",
 		LogLevel:             "info",
 		S3: S3Config{
 			Endpoint: "localhost:9000",
@@ -155,6 +170,11 @@ func (c *ServerConfig) Validate() error {
 	}
 	if _, err := ParseLogLevel(c.LogLevel); err != nil {
 		return fmt.Errorf("server.log_level: %w", err)
+	}
+	switch c.AuthMode {
+	case "dev", "token":
+	default:
+		return fmt.Errorf("server.auth_mode: недопустимое значение %q (dev|token)", c.AuthMode)
 	}
 	return nil
 }

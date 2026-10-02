@@ -2326,8 +2326,8 @@ components:
     bearerAuth:
       type: http
       scheme: bearer
-      bearerFormat: JWT
-      description: Короткоживущий access token (JWT)
+      bearerFormat: opaque
+      description: Сессионный токен (непрозрачный; MVP чанка 28 — access и refresh совпадают, refresh ротирует; JWT — позже)
     apiKeyAuth:
       type: apiKey
       in: header
@@ -3319,8 +3319,10 @@ components:
       properties:
         display_name: {type: string}
         is_active: {type: boolean}
+        password: {type: string, format: password, writeOnly: true, description: 'Смена пароля (минимум 8 символов)'}
         roles:
           type: array
+          description: Полная замена назначений (пустой массив — снять все роли)
           items:
             type: object
             required: [role_id]

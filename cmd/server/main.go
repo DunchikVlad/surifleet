@@ -25,6 +25,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 
+	"github.com/surifleet/surifleet/internal/authn"
 	"github.com/surifleet/surifleet/internal/blob"
 	"github.com/surifleet/surifleet/internal/chlogs"
 	"github.com/surifleet/surifleet/internal/config"
@@ -166,6 +167,12 @@ func main() {
 		log.Error("восстановление оркестратора", "err", err)
 	}
 
+	// Break-glass администратор (чанк 28): в token-режиме гарантируем
+	// локального админа вне SSO — иначе войти в систему некому.
+	if cfg.AuthMode == "token" {
+		bootstrapBreakGlass(ctx, db, cfg, log)
+	}
+
 	// Свипер просроченных IOC (чанк 17): active с expires_at < now() → expired.
 	// Работает при роли api|all (там же, где HTTP API с генерацией правил).
 	if (cfg.Role == "api" || cfg.Role == "all") && cfg.IocSweepInterval.D() > 0 {
@@ -189,7 +196,6 @@ func main() {
 	}
 
 	app := &App{cfg: cfg, log: log, db: db, ca: ca, rdb: rdb, hubID: hubID, blob: blobStore, orch: orch, chLogs: chLogs, feedSync: feedSync}
-
 	errCh := make(chan error, 4)
 
 	// HTTP API (роль api|all).
@@ -310,6 +316,7 @@ func (a *App) routes() http.Handler {
 		Version:  version,
 		Commit:   commit,
 		Store:    a.db,
+		AuthMode: a.cfg.AuthMode, SessionTTL: a.cfg.SessionTTL.D(),
 		Blob:     a.blob,
 		Orch:     a.orch,
 		CHLogs:   a.chLogs,
@@ -443,4 +450,64 @@ func runAgentOfflineSweeper(ctx context.Context, hubSrv *hub.Server, interval, o
 func fatal(err error) {
 	fmt.Fprintln(os.Stderr, "surifleet-server:", err)
 	os.Exit(1)
+}
+
+// bootstrapBreakGlass — гарантия локального break-glass администратора в
+// token-режиме (чанк 28): если в старейшей организации нет активных
+// break-glass пользователей, создаётся admin с ролью admin. Пароль — из
+// конфига/env; если не задан, генерируется случайный и пишется в лог ОДИН
+// раз (WARN). Ошибки не фатальны: логируются (сервер поднимается, войти
+// пока будет нельзя — видно в логе).
+func bootstrapBreakGlass(ctx context.Context, db *store.Store, cfg *config.ServerConfig, log *slog.Logger) {
+	org, err := db.Organizations.First(ctx)
+	if errors.Is(err, store.ErrNotFound) {
+		org, err = db.Organizations.Create(ctx, store.OrganizationInput{Name: "Default", Slug: "default"})
+	}
+	if err != nil {
+		log.Error("bootstrap break-glass: организация", "err", err)
+		return
+	}
+	n, err := db.Users.CountActiveBreakGlass(ctx, org.ID)
+	if err != nil {
+		log.Error("bootstrap break-glass: проверка", "err", err)
+		return
+	}
+	if n > 0 {
+		return
+	}
+	password := cfg.BootstrapAdminPassword
+	generated := password == ""
+	if generated {
+		token, err := authn.NewToken()
+		if err != nil {
+			log.Error("bootstrap break-glass: генерация пароля", "err", err)
+			return
+		}
+		password = token
+	}
+	hash, err := authn.HashPassword(password)
+	if err != nil {
+		log.Error("bootstrap break-glass: хэш пароля", "err", err)
+		return
+	}
+	adminRole, err := db.Roles.BuiltinByName(ctx, "admin")
+	if err != nil {
+		log.Error("bootstrap break-glass: роль admin", "err", err)
+		return
+	}
+	u, err := db.Users.Create(ctx, org.ID, store.UserCreateInput{
+		Email: cfg.BootstrapAdminEmail, DisplayName: "Break-glass Administrator",
+		PasswordHash: hash, IsBreakGlass: true,
+		Roles: []store.RoleAssignmentInput{{RoleID: adminRole.ID}},
+	})
+	if err != nil {
+		log.Error("bootstrap break-glass: создание пользователя", "err", err)
+		return
+	}
+	if generated {
+		log.Warn("создан break-glass администратор — пароль сгенерирован, смените после входа",
+			"email", u.Email, "password", password)
+	} else {
+		log.Info("создан break-glass администратор", "email", u.Email)
+	}
 }

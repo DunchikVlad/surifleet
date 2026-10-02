@@ -150,8 +150,16 @@ func (s *Server) Channel(stream grpc.BidiStreamingServer[agentv1.AgentMessage, a
 	s.lastTouch.Store(agentID, time.Now())
 
 	// Отключение — при выходе из функции (разрыв, ошибка, shutdown).
+	// Защита от дубль-стрима: статус offline ставим, только если в реестре
+	// всё ещё ЭТА сессия (иначе агент переподключился и жив на новой).
 	defer func() {
 		s.lastTouch.Delete(agentID)
+		cur, registered := s.streams.Load(agentID)
+		if registered && cur.(*streamHandle).sessionID != sessionID {
+			log.Info("отключилась старая сессия — агент жив на новой, статус не меняем",
+				"old_session", sessionID)
+			return
+		}
 		bgCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		if err := s.db.Agents.SetStatus(bgCtx, agentID, "offline", map[string]any{"hub_id": s.hubID, "session_id": sessionID}); err != nil {
@@ -193,9 +201,15 @@ func (s *Server) Channel(stream grpc.BidiStreamingServer[agentv1.AgentMessage, a
 	// Реестр стрима: с этого момента открыт приём задач через SendTask.
 	// Отдельная горутина-отправитель — единственный писатель в stream.Send
 	// (seq сервера монотонен с 2; HelloAck ушёл с seq=1).
-	handle := &streamHandle{out: make(chan *agentv1.ServerMessage, 64)}
+	handle := &streamHandle{out: make(chan *agentv1.ServerMessage, 64), sessionID: sessionID}
 	s.streams.Store(agentID, handle)
-	defer s.streams.Delete(agentID)
+	defer func() {
+		// Удаляем только СВОЮ сессию: если агент переподключился, в реестре
+		// новый handle, его трогать нельзя (дубль-стрим, chunk 28).
+		if cur, ok := s.streams.Load(agentID); ok && cur.(*streamHandle).sessionID == sessionID {
+			s.streams.Delete(agentID)
+		}
+	}()
 	go func() {
 		seq := int64(2)
 		for {

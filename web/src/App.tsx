@@ -1,5 +1,5 @@
 import React from "react";
-import { apiGet, Health, Version } from "./api";
+import { apiGet, logout, getToken, Health, Version, CurrentUser } from "./api";
 import { Badge, useInterval } from "./components";
 import Overview from "./pages/Overview";
 import Instances from "./pages/Instances";
@@ -10,6 +10,7 @@ import Logs from "./pages/Logs";
 import Matrix from "./pages/Matrix";
 import Iocs from "./pages/Iocs";
 import Feeds from "./pages/Feeds";
+import Login from "./pages/Login";
 
 type TabName =
   | "overview" | "instances" | "rules" | "rulesets"
@@ -46,7 +47,27 @@ export default function App() {
   const [health, setHealth] = React.useState<Health | null>(null);
   const [healthErr, setHealthErr] = React.useState(false);
   const [version, setVersion] = React.useState<Version | null>(null);
+  // auth: null — проверяем; true — вход есть (token в localStorage или
+  // dev-режим); false — показать форму входа.
+  const [authed, setAuthed] = React.useState<boolean | null>(null);
+  const [me, setMe] = React.useState<CurrentUser | null>(null);
   const visited = React.useRef<Set<TabName>>(new Set(["overview"]));
+
+  const checkAuth = React.useCallback(async () => {
+    try {
+      setMe(await apiGet<CurrentUser>("/auth/me"));
+      setAuthed(true);
+    } catch {
+      setAuthed(false); // 401: token-режим без валидной сессии → форма входа
+    }
+  }, []);
+
+  React.useEffect(() => { checkAuth(); }, [checkAuth]);
+  React.useEffect(() => {
+    const onLogout = () => { setAuthed(false); setMe(null); };
+    window.addEventListener("surifleet-logout", onLogout);
+    return () => window.removeEventListener("surifleet-logout", onLogout);
+  }, []);
 
   const loadHeader = React.useCallback(async () => {
     try {
@@ -68,12 +89,22 @@ export default function App() {
     setTab(t);
   };
 
+  if (authed === false) {
+    return <Login onDone={() => { checkAuth(); }} />;
+  }
+
   return (
     <>
       <header>
         <div className="brand">Suri<span>Fleet</span></div>
         <div className="hdr-status">
           <span className="muted">{version ? `${version.version} · ${version.commit}` : ""}</span>
+          {me && <span className="muted">{me.user.email}</span>}
+          {me && !me.user.display_name?.startsWith("dev-") && getToken() && (
+            <button className="btn" onClick={async () => { await logout(); setAuthed(false); setMe(null); }}>
+              выйти
+            </button>
+          )}
           {healthErr
             ? <span className="badge badge-err">недоступен</span>
             : <Badge status={health?.status ?? "muted"} />}

@@ -15,10 +15,12 @@ var errLog = slog.Default()
 
 // Машиночитаемые коды ошибок — строго по openapi Error.code.
 const (
-	CodeValidation = "validation_failed"
-	CodeNotFound   = "not_found"
-	CodeConflict   = "conflict"
-	CodeInternal   = "internal"
+	CodeValidation      = "validation_failed"
+	CodeNotFound        = "not_found"
+	CodeConflict        = "conflict"
+	CodeInternal        = "internal"
+	CodeUnauthenticated = "unauthorized"
+	CodeForbidden       = "forbidden"
 )
 
 // errorBody — единый формат ошибки openapi: {"error": {code, message, details?}}.

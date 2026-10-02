@@ -1,18 +1,45 @@
-// API-клиент поверх /api/v1 (DevAuth-заглушка — без заголовков авторизации).
-// Base URL: в dev — vite proxy /api → стенд; в prod — тот же origin, что отдал /app/.
+// API-клиент поверх /api/v1. Auth (чанк 28): сессионный токен в
+// localStorage (surifleet_token), Authorization: Bearer; 401 → сброс
+// токена + событие surifleet-logout (App покажет форму входа). В
+// auth_mode=dev сервера токен не нужен — /auth/me отвечает 200 без него.
 const API: string = import.meta.env.VITE_API_BASE ?? "/api/v1";
 
-export class ApiError extends Error {}
+const TOKEN_KEY = "surifleet_token";
+export const getToken = (): string | null => localStorage.getItem(TOKEN_KEY);
+export const setToken = (t: string | null) => {
+  if (t) localStorage.setItem(TOKEN_KEY, t);
+  else localStorage.removeItem(TOKEN_KEY);
+};
+
+export class ApiError extends Error { status = 0 }
+
+function authHeaders(): Record<string, string> {
+  const t = getToken();
+  return t ? { Authorization: "Bearer " + t } : {};
+}
+
+function handle401(r: Response) {
+  if (r.status === 401 && getToken()) {
+    setToken(null);
+    window.dispatchEvent(new Event("surifleet-logout"));
+  }
+}
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const r = await fetch(API + path, init);
+  const r = await fetch(API + path, {
+    ...init,
+    headers: { ...authHeaders(), ...(init?.headers as Record<string, string> | undefined) },
+  });
   if (!r.ok) {
+    handle401(r);
     let msg = "HTTP " + r.status;
     try {
       const j = await r.json();
       if (j.error?.message) msg += ": " + j.error.message;
     } catch { /* тело не JSON — оставляем HTTP-код */ }
-    throw new ApiError(msg);
+    const e = new ApiError(msg);
+    e.status = r.status;
+    throw e;
   }
   return r.json() as Promise<T>;
 }
@@ -35,8 +62,9 @@ export const apiPatch = <T,>(path: string, body: unknown) =>
 
 // apiDelete — DELETE без тела; 204 (без контента) → undefined.
 export const apiDelete = async (path: string) => {
-  const r = await fetch(API + path, { method: "DELETE" });
+  const r = await fetch(API + path, { method: "DELETE", headers: authHeaders() });
   if (!r.ok) {
+    handle401(r);
     let msg = "HTTP " + r.status;
     try {
       const j = await r.json();
@@ -51,10 +79,11 @@ export const apiDelete = async (path: string) => {
 export const apiPostEx = async <T,>(path: string, body?: unknown) => {
   const r = await fetch(API + path, {
     method: "POST",
-    headers: body !== undefined ? { "Content-Type": "application/json" } : {},
+    headers: { ...authHeaders(), ...(body !== undefined ? { "Content-Type": "application/json" } : {}) },
     body: body !== undefined ? JSON.stringify(body) : null,
   });
   if (!r.ok) {
+    handle401(r);
     let msg = "HTTP " + r.status;
     try {
       const j = await r.json();
@@ -63,6 +92,42 @@ export const apiPostEx = async <T,>(path: string, body?: unknown) => {
     throw new ApiError(msg);
   }
   return { status: r.status, body: (await r.json()) as T };
+};
+
+// --- auth (чанк 28) ---
+
+export interface AuthTokens {
+  access_token: string;
+  refresh_token: string;
+  token_type: string;
+  expires_in: number;
+}
+
+export interface CurrentUser {
+  user: { email: string; display_name: string; is_break_glass?: boolean };
+  roles?: { name: string }[];
+  permissions: string[];
+}
+
+export const login = (email: string, password: string) =>
+  request<AuthTokens>("/auth/login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password }),
+  });
+
+export const logout = async () => {
+  const t = getToken();
+  if (t) {
+    try {
+      await request<unknown>("/auth/logout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ refresh_token: t }),
+      });
+    } catch { /* отзыв на сервере best-effort */ }
+  }
+  setToken(null);
 };
 
 // --- типы (соответствуют api/openapi/openapi.yaml, подмножество для UI) ---

@@ -46,6 +46,17 @@ server:
     #   access_key: surifleet
     #   secret_key: surifleet_dev_minio
 
+  # Аутентификация REST API (чанк 28): dev — заглушка X-Dev-User (только
+  # тестовый контур!), token — локальные пользователи (POST /auth/login,
+  # Bearer-токен сессии, RBAC по ролям admin/operator/analyst/viewer).
+  # В token-режиме при старте создаётся break-glass администратор (если
+  # нет ни одного): email ниже, пароль — через env
+  # SURIFLEET_SERVER_BOOTSTRAP_ADMIN_PASSWORD (если не задан — генерируется
+  # и пишется в лог один раз).
+  auth_mode: dev
+  session_ttl: "12h"
+  bootstrap_admin_email: "admin@surifleet.local"
+
   # debug | info | warn | error
   log_level: info
 

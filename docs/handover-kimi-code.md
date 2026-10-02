@@ -80,31 +80,35 @@ docker-стек поднимается сам (restart-политика); сер
 
 ### Перекат сервера (.28)
 
+Сервер под systemd (`surifleet-server.service`, Restart=always; лог —
+journalctl + append в ~/surifleet/server.log):
+
 ```bash
 export PATH="$PWD/.tools/go/bin:$PATH" GOTMPDIR="$PWD/.tools/tmp" GOCACHE="$PWD/.tools/gocache"
 GOOS=linux GOARCH=amd64 go build -o .tools/tmp/surifleet-server ./cmd/server
 export MSYS_NO_PATHCONV=1
 python .tools/scp.py 28 put .tools/tmp/surifleet-server /home/test/surifleet/surifleet-server.new
-python .tools/ssh.py 28 "bash -c 'chmod +x /home/test/surifleet/surifleet-server.new; kill \$(pgrep -f \"^\\./surifleet-server\"); sleep 12; cd /home/test/surifleet && mv surifleet-server.new surifleet-server && (setsid ./surifleet-server --config server.yaml >> server.log 2>&1 </dev/null &)'"
-python .tools/ssh.py 28 "curl -s localhost:8080/api/v1/health"
+python .tools/ssh.py 28 sudo "bash -c 'chmod +x /home/test/surifleet/surifleet-server.new && mv /home/test/surifleet/surifleet-server.new /home/test/surifleet/surifleet-server && systemctl restart surifleet-server'"
+sleep 15  # возможен ложный bind-фейл на gRPC-drain — systemd сам перезапустит
+python .tools/ssh.py 28 "systemctl is-active surifleet-server; curl -s localhost:8080/api/v1/health"
 ```
 
-Нюансы: старый сервер держит :8080 ~10 с (gRPC-drain) — `sleep 12`
-обязателен; pgrep-паттерн `^\./surifleet-server` — чтобы не убить ssh-сессию.
-
 ### Перекат агента (.67)
+
+Агент под systemd (`surifleet-agent.service`, root, Restart=always;
+ExecStart — обёртка start-agent.sh, логирующая exit/signal):
 
 ```bash
 GOOS=linux GOARCH=amd64 go build -o .tools/tmp/surifleet-agent ./cmd/agent
 python .tools/scp.py 67 put .tools/tmp/surifleet-agent /home/test/surifleet/surifleet-agent.new
-python .tools/ssh.py 67 sudo "bash -c 'kill \$(pgrep -x surifleet-agent); sleep 2; cd /home/test/surifleet && chmod +x surifleet-agent.new && mv surifleet-agent.new surifleet-agent && (setsid ./start-agent.sh >/dev/null 2>&1 </dev/null &)'"
-python .tools/ssh.py 67 "pgrep -x surifleet-agent && tail -5 /home/test/surifleet/data/agent.log"
+python .tools/ssh.py 67 sudo "bash -c 'chmod +x /home/test/surifleet/surifleet-agent.new && mv /home/test/surifleet/surifleet-agent.new /home/test/surifleet/surifleet-agent && systemctl restart surifleet-agent'"
+python .tools/ssh.py 67 "systemctl is-active surifleet-agent; tail -3 /home/test/surifleet/data/agent.log"
 ```
 
-Нюансы: `pkill` на .67 НЕТ — только `kill $(pgrep -x ...)`; ssh-команда с
-setsid висит до таймаута — это норма, проверять pgrep отдельным вызовом;
-логи агента — `data/agent.log` (структурные) и `data/agent-console.log`
-(stdout/stderr, паники); `agent.out` в корне — старый, не смотреть.
+Нюансы: `pkill` на .67 НЕТ (есть systemctl/kill); логи агента —
+`data/agent.log` (структурные), `data/agent-console.log` (stdout/stderr,
+паники), `data/agent-exit.log` (код выхода/сигнал — обёртка, чанк 23);
+`agent.out` — старый, не смотреть.
 
 ### Фронтенд
 
@@ -117,11 +121,16 @@ setsid висит до таймаута — это норма, проверят�
 
 ### Проверки после любого деплоя на стенд
 
+Стенд в `auth_mode: token` (чанк 28): API требует Bearer-токен
+(вход: admin@surifleet.local / admin12345). Проверки с .28 (localhost)
+токена не требуют только для /health.
+
 ```bash
 python .tools/ssh.py 28 "curl -s localhost:8080/api/v1/health"
-python .tools/ssh.py 28 "curl -s localhost:8080/api/v1/fleet/compliance"   # цель: in_sync
-python .tools/ssh.py 67 sudo "systemctl is-active suricata"                # active
+python .tools/ssh.py 28 "systemctl is-active surifleet-server"
+python .tools/ssh.py 67 sudo "systemctl is-active suricata surifleet-agent"  # active оба
 ```
+compliance (с токеном): `curl -H "Authorization: Bearer $TOKEN" http://192.168.31.28:8080/api/v1/fleet/compliance` — цель in_sync.
 
 ## 6. Где что лежит (карта репозитория)
 
@@ -137,19 +146,27 @@ python .tools/ssh.py 67 sudo "systemctl is-active suricata"                # act
 - `api/proto/agent/v1/` — протокол агент↔сервер; `api/openapi/` — REST-спека.
 - `docs/` — architecture.md, data-model.md, protocol.md, api.md, access.md.
 
-## 7. Текущее состояние (2026-10-01)
+## 7. Текущее состояние (2026-10-02)
 
 - Всё работает: стенд поднят, compliance in_sync 1/1, UI на
-  `http://192.168.31.28:8080/app/` (React) и `/` (ванильный).
-- 23 чанка + инциденты закоммичены; история — `git log` и PROGRESS.md.
-- Чанк 23 закрыл инцидент 16.09: «тихая» смерть агента детектируется
-  свипером heartbeat-таймаута (`server.agent_offline_after` 120s /
-  `offline_sweep_interval` 30s), обёртка start-agent.sh логирует
-  exit/signal в `data/agent-exit.log`.
+  `http://192.168.31.28:8080/app/` (React, с формой входа; ванильный `/`
+  в token-режиме не работает). Стенд в `auth_mode: token`: вход
+  admin@surifleet.local / admin12345 (break-glass, bootstrap при старте).
+- Сервер и агент под systemd (surifleet-server.service / -agent.service) —
+  переживают ребут ВМ, перекат через systemctl restart (см. §5).
+- 28 чанков + инциденты закоммичены; история — `git log` и PROGRESS.md.
+- Чанк 28: auth/RBAC — локальные пользователи (bcrypt), opaque-токен
+  сессии (TTL 12h, refresh-ротация, logout, revoke_sessions), роли
+  admin/operator/analyst/viewer + кастомные, middleware requirePerm на
+  всех маршрутах, аудит (auth.*, authz.denied, users.*, roles.*) +
+  GET /audit_log, React-логин. Попутно: фикс дубль-стрима в hub
+  (старая сессия не гасит статус новой), systemd-юниты (причина тихих
+  смертей — systemd scope-килл при закрытии ssh-сессии + ребут ВМ),
+  Redis AOF corruption после ребута (redis-check-aof --fix).
 - **Следующие шаги** (актуальные — в PROGRESS.md, дублирую):
-  1. Коннекторы фидов taxii/stix/misp, cron-расписания фидов.
-  2. auth/RBAC (DevAuth → токены, п. 8–9 ТЗ).
-  3. Починить синхронизацию времени на .28 (часы скачут, RTC −5 мин).
+  1. OIDC-SSO (п. 9), API-токены со scopes (п. 8), scoping ролей по
+     кластерам, аудит diff + цепочка хэшей.
+  2. UI: вкладка пользователей/ролей и аудита.
 
 ## 8. Известные аномалии (не блокеры)
 

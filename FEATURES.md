@@ -38,15 +38,15 @@
 
 | Пункт ТЗ | Статус | Где реализовано | Чанк |
 |---|---|---|---|
-| Встроенные роли (Админ/Оператор/Аналитик/Наблюдатель) + кастомные | ⬜ | — | — |
-| Scoping по организации/кластерам | ⬜ | — | — |
-| Полный аудит-лог (append-only, цепочка хэшей) | ⬜ | — | — |
+| Встроенные роли (Админ/Оператор/Аналитик/Наблюдатель) + кастомные | 🚧 | Миграция 000008 (admin/operator/analyst/viewer с permissions), `internal/store/users.go` (users/roles/user_roles), REST `/users` + `/roles` (+кастомные роли, встроенные неизменяемы 409), middleware `requirePerm` на всех маршрутах, локальный вход `POST /auth/login` (bcrypt, opaque-токен сессии в sessions, refresh-ротация, logout, `/auth/me`), break-glass bootstrap, React-логин; режим `server.auth_mode=dev|token` | чанк 28 |
+| Scoping по организации/кластерам | 🚧 | org-scoping через identity.OrgID (resolveOrgID); user_roles.scope_type/cluster_ids хранятся, но по кластерам пока не применяются | чанк 28 |
+| Полный аудит-лог (append-only, цепочка хэшей) | 🚧 | audit_log append-only (триггеры, с 000001); запись auth.login/logout/refresh, authz.denied (403), users.*, roles.* (store.AuditRepo); чтение GET /audit_log (audit.read); diff и цепочка хэшей позже | чанк 28 |
 | OIDC (Authorization Code + PKCE) | ⬜ | — | — |
 | SAML 2.0 | ⬜ | — | — |
 | LDAP/AD | ⬜ | — | — |
 | Маппинг групп IdP → роли, JIT-провижининг | ⬜ | — | — |
-| Break-glass локальный администратор | ⬜ | — | — |
-| Сессии, API-токены со scopes | ⬜ | — | — |
+| Break-glass локальный администратор | ✅ | bootstrapBreakGlass (cmd/server): создаётся при старте в token-режиме, если нет ни одного активного break-glass; пароль из env/конфига или генерируется (один раз в лог); последний break-glass неудаляем (409); входы аудируются action=auth.login_break_glass | чанк 28 |
+| Сессии, API-токены со scopes | 🚧 | Сессии: opaque-токен (SHA-256 хэш в sessions), TTL `server.session_ttl` (12h), refresh-ротация, logout, revoke_sessions (принудительный logout); API-токены со scopes — позже | чанк 28 |
 
 ## 4. Модель флота
 

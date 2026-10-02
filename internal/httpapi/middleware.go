@@ -12,27 +12,15 @@ import (
 // identityKey — ключ контекста для identity текущего пользователя.
 type identityKey struct{}
 
-// DevAuth — ЗАГЛУШКА аутентификации для dev-контура.
-//
-// TODO(security): заменить на реальный OIDC (проверка JWT access-token'а,
-// JIT-провижининг пользователя, RBAC по правам вида organizations.read).
-// Сейчас identity берётся из заголовка X-Dev-User (default "dev-admin")
-// без какой-либо проверки — допустимо только в тестовой LAN.
-func DevAuth(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		user := r.Header.Get("X-Dev-User")
-		if user == "" {
-			user = "dev-admin"
-		}
-		ctx := context.WithValue(r.Context(), identityKey{}, user)
-		next.ServeHTTP(w, r.WithContext(ctx))
-	})
-}
+// DevAuth — ЗАГЛУЖЕНО (чанк 28): аутентификация теперь в authMiddleware
+// (auth.go): режим server.auth_mode=dev — условный админ из X-Dev-User,
+// token — Bearer-токен сессии. Оставлено для обратной совместимости вызовов.
 
-// IdentityFrom возвращает identity пользователя из контекста (см. DevAuth).
+// IdentityFrom возвращает email/имя текущего пользователя для access-лога
+// (identity в контексте ставит authMiddleware, см. auth.go).
 func IdentityFrom(ctx context.Context) string {
-	if v, ok := ctx.Value(identityKey{}).(string); ok {
-		return v
+	if id := identityFrom(ctx); id != nil {
+		return id.Email
 	}
 	return ""
 }

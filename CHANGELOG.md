@@ -7,6 +7,49 @@
 
 ### Added
 
+- Чанк 28 (2026-10-02): auth/RBAC — локальные пользователи, сессии,
+  роли (п. 8–9 ТЗ, без SSO). Миграция 000008: встроенные роли admin
+  (`*`), operator, analyst, viewer с permissions. `internal/authn` —
+  bcrypt-хэш паролей, непрозрачный токен сессии (32 байта, SHA-256-хэш
+  в БД). Store: UsersRepo (CRUD с ролями в tx, последний break-glass
+  неудаляем), RolesRepo (встроенные неизменяемы 409, кастомные org),
+  SessionsRepo (refresh-ротация, отзыв, revoke всех сессий), AuditRepo
+  (запись + keyset-листинг). REST: POST /auth/login (break-glass —
+  отдельный action аудита), /auth/refresh (ротация), /auth/logout,
+  /auth/me; /users CRUD + revoke_sessions; /roles CRUD; GET /audit_log.
+  Middleware: authMiddleware (режимы server.auth_mode=dev|token),
+  requirePerm на всех маршрутах (каталог разрешений fleet/hosts/agents/
+  rules/ioc/feeds/users/roles/audit + rules.deploy; organizations CUD —
+  admin-only), 401 unauthorized / 403 forbidden по openapi, аудит
+  отказов authz.denied. resolveOrgID — org из identity. deploy:true в
+  /iocs/generate требует rules.deploy. Конфиг: auth_mode, session_ttl
+  (12h), bootstrap_admin_*; bootstrapBreakGlass — автоматический
+  break-glass админ при старте в token-режиме (пароль из env/конфига
+  или генерируется, один раз в лог). React UI: форма входа, токен в
+  localStorage, Authorization во всех вызовах, 401 → повторный вход,
+  email + «выйти» в шапке. Ванильный UI на `/` в token-режиме не
+  работает. Попутный фикс hub: дубль-стрим — разрыв старой сессии не
+  гасит агента (streamHandle.sessionID, Delete только своей сессии).
+  Живой e2e на стенде: 401 без токена, login, права analyst
+  (403 на deployments/users/audit), ротация и logout, кастомная роль,
+  защита break-glass, аудит-цепочка в GET /audit_log; compliance
+  in_sync 1/1. Стенд переведён на auth_mode: token
+  (admin@surifleet.local / admin12345). (server, ui, db, docs)
+
+### Fixed
+
+- Инфра-инцидент ночи 01→02.10: перезагрузка обеих ВМ выявила три
+  проблемы. (1) Сервер/агент молча умирали — корень: systemd
+  session-scope SIGTERM при закрытии ssh-сессии (setsid не выходит из
+  cgroup сессии) — вероятная причина и тихой смерти агента 16.09;
+  лечение: systemd-юниты surifleet-server.service (.28) и
+  surifleet-agent.service (.67), enable + Restart=always, перекат
+  через systemctl restart (процедуры — handover §5). (2) Redis после
+  unclean shutdown падал в crash-loop (AOF corrupt) —
+  redis-check-aof --fix (данные presence эфемерны). (3) Часы .28 —
+  chrony синхронизирует корректно, утренние скачки были boot-коррекцией.
+  Аномалия sudo rm из ssh (16.09) не воспроизводится — снята. (infra)
+
 - Чанк 27 (2026-10-01): cron-расписания авто-синка фидов.
   `internal/feedsync/schedule.go`: `ParseSchedule` — длительность Go
   ("1h") или 5-полевой cron ("*/15 * * * *", @daily и др.; новая

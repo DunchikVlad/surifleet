@@ -71,6 +71,12 @@ func (h *handlers) generateIocRules(w http.ResponseWriter, r *http.Request) {
 			"targeting.mode: обязательное поле при deploy=true", nil)
 		return
 	}
+	// deploy:true — действие оператора (право rules.deploy, чанк 28).
+	if in.Deploy && !hasPerm(r.Context(), PermRulesDeploy) {
+		writeError(w, http.StatusForbidden, CodeForbidden,
+			"недостаточно прав для деплоя: требуется "+PermRulesDeploy, nil)
+		return
+	}
 
 	res := iocGenerateResult{Skipped: []iocSkip{}}
 	v, err := h.generateIocRulesCore(r.Context(), orgID, &res)

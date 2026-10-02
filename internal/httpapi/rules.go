@@ -25,9 +25,25 @@ var ruleStatuses = map[string]bool{
 	"enabled": true, "disabled": true, "expired": true, "under_review": true, "deleted": true,
 }
 
-// resolveOrgID — организация контекста запроса: ?organization_id= либо
-// старейшая (dev-контур с одной организацией; DevAuth org не несёт).
+// resolveOrgID — организация контекста запроса. Token-режим (чанк 28):
+// организация пользователя из identity (параметр ?organization_id=,
+// указывающий на чужую org, → 404 по конвенции scoping). Dev-режим:
+// ?organization_id= либо старейшая организация.
 func (h *handlers) resolveOrgID(w http.ResponseWriter, r *http.Request) (uuid.UUID, bool) {
+	if id := identityFrom(r.Context()); id != nil && !id.Dev {
+		if s := r.URL.Query().Get("organization_id"); s != "" {
+			reqID, err := uuid.Parse(s)
+			if err != nil {
+				writeValidation(w, fieldErrors{"organization_id": "ожидается UUID"})
+				return uuid.Nil, false
+			}
+			if reqID != id.OrgID {
+				writeError(w, http.StatusNotFound, CodeNotFound, "ресурс не найден", nil)
+				return uuid.Nil, false
+			}
+		}
+		return id.OrgID, true
+	}
 	if s := r.URL.Query().Get("organization_id"); s != "" {
 		return pathUUID(w, s, "organization_id")
 	}

@@ -22,8 +22,11 @@ import (
 const actualCacheTTL = 300 * time.Second
 
 // streamHandle — очередь исходящих сообщений одного подключённого агента.
+// sessionID — для защиты статуса: старая сессия при разрыве не гасит
+// агента, если зарегистрирована более новая (дубль-стрим, chunk 28).
 type streamHandle struct {
-	out chan *agentv1.ServerMessage
+	out       chan *agentv1.ServerMessage
+	sessionID string
 }
 
 // SendTask ставит задачу в очередь стрима агента (in-process доставка
