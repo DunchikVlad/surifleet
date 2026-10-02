@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -240,6 +241,10 @@ func runSession(ctx context.Context, cfg *config.AgentConfig, id *identity, leve
 	if metInterval <= 0 {
 		metInterval = 60 * time.Second
 	}
+	// Метрики Suricata из eve.json (чанк 34): tail по log_dir первого
+	// инстанса, instance_id — из привязок HelloAck.
+	var eve *eveTailer
+	bindings := ack.GetBoundInstances()
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -263,6 +268,12 @@ func runSession(ctx context.Context, cfg *config.AgentConfig, id *identity, leve
 					{Ts: now, Name: "host.mem_bytes", Value: float64(sum.GetMemBytes())},
 					{Ts: now, Name: "host.disk_used_percent", Value: sum.GetDiskUsedPercent()},
 				}}
+				if diskPath != "" {
+					if eve == nil {
+						eve = &eveTailer{path: strings.TrimRight(diskPath, "/") + "/eve.json"}
+					}
+					batch.Points = append(batch.Points, eve.points(suricataInstanceID(bindings, diskPath))...)
+				}
 				if err := send(&agentv1.AgentMessage{Payload: &agentv1.AgentMessage_MetricsBatch{MetricsBatch: batch}}); err != nil {
 					log.Warn("MetricsBatch не отправлен", "err", err)
 					return

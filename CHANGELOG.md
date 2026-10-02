@@ -7,6 +7,16 @@
 
 ### Added
 
+- Чанк 34 (2026-10-02): метрики Suricata из eve.json (п. 5.4,
+  продолжение). Агент `evemetrics.go`: tail eve.json с offset
+  (устойчив к ротации), последнее stats-событие за тик →
+  suricata.uptime_seconds, capture_kernel_packets/drops, decoder_pkts/
+  bytes, flow_memuse_bytes, detect_alert; instance_id — из привязок
+  HelloAck по log_dir. UI: вкладка «Метрики» — динамические ряды
+  (host.* закреплены, suricata.* по факту). Живой e2e: все ряды в
+  ClickHouse с instance_id инстанса, API отдаёт, in_sync 1/1.
+  (agent, ui, docs)
+
 - Чанк 33 (2026-10-02): мониторинг — метрики агента host.* end-to-end
   (п. 5.4, первый срез). Агент: MetricsBatch каждые 60 с
   (host.cpu_percent, host.mem_bytes, host.disk_used_percent).

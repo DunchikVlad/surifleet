@@ -8,11 +8,16 @@ import { ErrorBox, short, useInterval } from "../components";
 type Point = { ts: string; value: number };
 type SeriesResp = { series?: Record<string, Point[]>; minutes?: number };
 
-const NAMES: { name: string; title: string; unit: string; max?: number }[] = [
-  { name: "host.cpu_percent", title: "CPU, %", unit: "%", max: 100 },
-  { name: "host.mem_bytes", title: "Память", unit: "", },
-  { name: "host.disk_used_percent", title: "Диск (логи), %", unit: "%", max: 100 },
+const NAMES: { name: string; title: string; max?: number }[] = [
+  { name: "host.cpu_percent", title: "CPU, %", max: 100 },
+  { name: "host.mem_bytes", title: "Память" },
+  { name: "host.disk_used_percent", title: "Диск (логи), %", max: 100 },
 ];
+
+// sparkTitle — заголовок для ряда без предустановленного (suricata.*).
+function sparkTitle(name: string): string {
+  return name.replace(/^suricata\./, "suricata: ").replace(/_/g, " ");
+}
 
 function fmtVal(name: string, v: number): string {
   if (name === "host.mem_bytes") {
@@ -94,26 +99,38 @@ export default function Metrics({ active }: { active: boolean }) {
         <button className="btn" onClick={load}>Обновить</button>
         <span className="muted">{updated && "обновлено " + updated + " · авто 30 с"}</span>
       </div>
-      {NAMES.map(({ name, title, max }) => {
-        const pts = data[name] || [];
-        const last = pts.length ? pts[pts.length - 1].value : null;
-        return (
-          <div className="panel" key={name} style={{ marginBottom: "1em" }}>
-            <p style={{ marginTop: 0 }}>
-              <b>{title}</b>{" "}
-              <span className="muted">
-                {last !== null ? `сейчас: ${fmtVal(name, last)}` : "нет данных"} · точек: {pts.length}
-              </span>
-            </p>
-            <Spark points={pts} max={max} />
-          </div>
-        );
-      })}
+      {NAMES.map(({ name, title, max }) => (
+        <SparkPanel key={name} name={name} title={title} max={max} data={data} />
+      ))}
+      {Object.keys(data)
+        .filter(n => !NAMES.some(x => x.name === n))
+        .sort()
+        .map(name => (
+          <SparkPanel key={name} name={name} title={sparkTitle(name)} data={data} />
+        ))}
       <p className="muted">
-        Агент шлёт MetricsBatch каждые 60 с (host.cpu_percent, host.mem_bytes,
-        host.disk_used_percent) → ClickHouse surifleet.agent_metrics. Метрики
-        Suricata (kernel drops и т.п.) — следующие чанки.
+        Агент шлёт MetricsBatch каждые 60 с (host.* + suricata.* из eve.json)
+        → ClickHouse surifleet.agent_metrics.
       </p>
     </>
+  );
+}
+
+// SparkPanel — панель одной метрики: заголовок, последнее значение, спарклайн.
+function SparkPanel({ name, title, max, data }: {
+  name: string; title: string; max?: number; data: Record<string, Point[]>;
+}) {
+  const pts = data[name] || [];
+  const last = pts.length ? pts[pts.length - 1].value : null;
+  return (
+    <div className="panel" style={{ marginBottom: "1em" }}>
+      <p style={{ marginTop: 0 }}>
+        <b>{title}</b>{" "}
+        <span className="muted">
+          {last !== null ? `сейчас: ${fmtVal(name, last)}` : "нет данных"} · точек: {pts.length}
+        </span>
+      </p>
+      <Spark points={pts} max={max} />
+    </div>
   );
 }

@@ -26,17 +26,35 @@ stale (раньше висел бы online). ✅ РЕШЕНО в чанке 28: 
 (surifleet-agent.service, Restart=always; корень — systemd scope-kill
 при закрытии ssh-сессии + ребут ВМ).
 
-**Статус на 2026-10-02**: чанки 23–33 закрыты. Стенд в `auth_mode: token`
+**Статус на 2026-10-02**: чанки 23–34 закрыты. Стенд в `auth_mode: token`
 (admin@surifleet.local / admin12345), сервер и агент под systemd, UI —
 React на `/app/` (`/` — редирект).
 
-**Следующий шаг после 33**:
+**Следующий шаг после 34**:
 1. OIDC-SSO (п. 9 ТЗ), scoping ролей по кластерам, аудит diff
    «было→стало» + цепочка хэшей.
-2. Мониторинг (п. 5.4, продолжение): метрики Suricata из eve (kernel
-   drops, flow, decoder), retention agent_metrics (TTL в ClickHouse).
+2. Мониторинг (п. 5.4, продолжение): retention agent_metrics (TTL в
+   ClickHouse), пересылка EVE-алертов в SIEM.
 
-Чанк 33 ГОТОВ (2026-10-02, этот коммит): мониторинг — метрики агента
+Чанк 34 ГОТОВ (2026-10-02, этот коммит): метрики Suricata из eve.json
+(п. 5.4, продолжение). Агент `cmd/agent/evemetrics.go`: eveTailer —
+чтение eve.json с отслеживанием offset (при уменьшении файла — ротация —
+сброс с нуля; предел чтения 16 МБ/тик), разбор stats-событий
+(event_type=stats, берётся последнее за тик), извлечение:
+suricata.uptime_seconds, capture_kernel_packets, capture_kernel_drops,
+decoder_pkts, decoder_bytes, flow_memuse_bytes, detect_alert.
+instance_id — из привязок HelloAck по log_dir (suricataInstanceID).
+Включено в metrics-горутину (чанк 33): tailer создаётся лениво по
+log_dir первого инстанса. Юнит-тесты: TestEveTailer (инкремент, новые
+события, усечение-ротация) и TestSuricataInstanceID (trailing slash,
+нет совпадения). UI: вкладка «Метрики» теперь динамическая — host.*
+закреплены сверху, остальные ряды (suricata.*) рендерятся по факту.
+Живой e2e (перекат агента и сервера): в agent_metrics все 7 suricata-рядов
+(kernel_packets 31696, drops 0, detect_alert, flow memuse), instance_id
+= 468c9c71 (реальный инстанс); API отдаёт все ряды; compliance
+in_sync 1/1. Браузер недоступен — только HTTP-проверки.
+
+Чанк 33 ГОТОВ (2026-10-02, a75b5f1): мониторинг — метрики агента
 host.* end-to-end (п. 5.4, первый срез). Агент: metrics-горутина в
 session.go — MetricsBatch каждые metrics_interval (HelloAck, default
 60 с): host.cpu_percent, host.mem_bytes, host.disk_used_percent;
@@ -735,6 +753,7 @@ managed-файле (245 правил).
 | 13d | Матрица «правила × инстансы» (требование А): API GET /api/v1/matrix/rules (openapi get_rules_matrix) — независимые keyset-курсоры rule_cursor (по sid) / instance_cursor (по id), фильтры rule_status/category/sid/cluster_id/cell_status, limit ≤1000; ячейка loaded/failed/missing/extra из desired_state.computed_rules + actual_state (loaded/failed StateReport); store — `internal/store/matrix.go` (страницы осей + батч состояний 2 запросами), handler — `internal/httpapi/matrix.go`; тесты sid-курсора и cellStatusOf. UI — вкладка «Матрица» (строки sid+msg, столбцы hostname вертикально, цветные ячейки + легенда, фильтр по статусу ячейки, поиск по sid, дозагрузка по 50). Живой e2e: ?limit=5 → 200 с ячейками loaded для инстанса 468c9c71; пагинация/фильтры/400-валидация; кейс missing живьём (битое правило 9999991 отклонено агентом через suricata -T → desired без actual → missing, сводка 244 loaded + 1 missing); disable+ребилд+деплой → ячейка исчезла; стенд восстановлен (245/245 loaded). Ограничение MVP: cell_status фильтрует ячейки внутри текущей страницы оси правил | d868a9b |
 | 14 | React-фронтенд в `web/`: Vite 5 + React 18 + TS strict, без UI-китов (стили из webui/style.css); 7 экранов в паритете с ванильным MVP (Обзор/Инстансы/Правила/Ruleset'ы/Деплои/Логи/Матрица) + улучшение (вкладки не размонтируются — фильтры/пагинация сохраняются, сводка ячеек матрицы). Vite base=/app/, dev-proxy /api → .28:8080. Раздача из бинаря: `web/embed.go` (go:embed dist) + `internal/httpapi/reactui.go` (/app/*, SPA-fallback, заглушка когда dist не собран; placeholder.txt в git, postbuild восстанавливает). Старый UI на / не тронут. Проверки: npm install/build/dev чисто, go build/vet/test зелёные, перекат .28 — /app/ + ассеты + SPA-fallback + /api/v1/fleet/compliance 200; браузер недоступен — только HTTP | 96c777e |
 | 15 | Развитие React UI: конструктор ruleset'ов во вкладке «Ruleset'ы» (выбор правил чекбоксами с фильтром/поиском/дозагрузкой, накопление выбора между страницами, чипы/счётчик/снятие, сборка POST /rulesets с rule_ids, различение 201 «создан»/200 «уже существует» через новый apiPostEx); страница инстанса (требование А) — drill-down `pages/InstanceDetail.tsx`: параметры, compliance, desired/actual hash, loaded/failed, last_reload, failed-правила, diff missing/extra, история деплоев (существующий GET /instances/{id}/deploy_history), логи агента хоста. Проверки: npm build + go build/vet/test чисто, перекат .28 (health ok, /app/ 200, новый бандл отдаётся, deploy_history 200 с деплоями 09200803/102c688b), живой e2e конструктора: 3 sid → 201 ruleset 8ce1b381 (chunk15-e2e), повтор → 200 (идемпотентность); браузер недоступен — только HTTP | 0ccd7b2 |
+| 34 | Метрики Suricata из eve.json (п. 5.4): агент `evemetrics.go` — eveTailer (offset, устойчив к ротации, ≤16 МБ/тик), stats-события → suricata.uptime/capture_kernel_packets/capture_kernel_drops/decoder_pkts/decoder_bytes/flow_memuse_bytes/detect_alert, instance_id из привязок HelloAck; юнит-тесты tailer/rotation/instance-id. UI «Метрики» — динамические ряды (host.* закреплены, suricata.* по факту). Живой e2e: все 7 рядов в CH, instance_id=468c9c71, API отдаёт, in_sync 1/1 | (этот коммит) |
 | 33 | Мониторинг (п. 5.4, первый срез): агент шлёт MetricsBatch каждые 60 с (host.cpu_percent/mem_bytes/disk_used_percent; metrics-горутина в session.go, отдельный sampler); chlogs — таблица surifleet.agent_metrics + InsertMetrics/AgentMetrics; hub.handleMetricsBatch → ClickHouse; API GET /agents/{id}/metrics?minutes=&names= (agents.read); React-вкладка «Метрики» (SVG-спарклайны CPU/память/диск). Живой e2e: точки в CH через ~100 с, API отдаёт реальные значения, bad minutes → 400, compliance in_sync 1/1 | (этот коммит) |
 | 31 | Ванильный MVP UI выпилен (`webui.go` + `webui/` удалены, mountWebUI убран), `/` → 301 на `/app/`; живьём: / → /app/ 200, /ui/app.js → 404, in_sync 1/1 | d75acef |
 | 32 | React UI — скрытие пишущих действий по разрешениям: `web/src/perms.ts` (PermsContext + useCan), App провайдит me.permissions; скрыты вкл/откл правил (rules.write), конструктор ruleset (rules.write), форма деплоя и pause/resume/cancel (rules.deploy), IOC-форма/генерация (ioc.write), фиды (feeds.write), users/roles/tokens формы (users/roles/tokens.write) | 560d7dd |

@@ -1677,7 +1677,7 @@ paths:
       operationId: get_agent_metrics
       tags: [agents]
       summary: Ряды метрик агента (из ClickHouse)
-      description: "Требуется право: agents.read. host.cpu_percent, host.mem_bytes, host.disk_used_percent (агент шлёт MetricsBatch каждые 60 с). Ответ: {series: {name: [{ts, value}, ...]}, minutes} — точки по возрастанию ts."
+      description: "Требуется право: agents.read. host.* (cpu/mem/disk) и suricata.* (из eve.json: kernel packets/drops, decoder, flow memuse, alerts, uptime); агент шлёт MetricsBatch каждые 60 с. Ответ: {series: {name: [{ts, value}, ...]}, minutes} — точки по возрастанию ts."
       parameters:
         - {name: minutes, in: query, schema: {type: integer, default: 60, minimum: 1, maximum: 1440}}
         - {name: names, in: query, description: "Фильтр имён через запятую", schema: {type: string}}

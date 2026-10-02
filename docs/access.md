@@ -441,7 +441,8 @@ curl "$API/fleet/compliance"
   docs/handover-kimi-code.md §5).
 - Логи агентов стекаются в ClickHouse (чанк 13c): вкладка «Логи» в UI,
   API `GET /api/v1/agents/{id}/logs?limit=200`.
-- Метрики хоста агента (чанк 33): MetricsBatch 60 с → ClickHouse
-  agent_metrics; вкладка «Метрики» в UI (спарклайны CPU/память/диск),
+- Метрики хоста агента и Suricata (чанки 33–34): MetricsBatch 60 с →
+  ClickHouse agent_metrics (host.* + suricata.* из eve.json);
+  вкладка «Метрики» в UI (спарклайны),
   API `GET /api/v1/agents/{id}/metrics?minutes=60&names=`.
 - Автооткат при падении сервиса Suricata после деплоя (watchdog) — чанк 12b.
