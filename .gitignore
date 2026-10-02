@@ -9,6 +9,16 @@
 *.out
 coverage.*
 
+# Случайно собранные бинари в корне репо (go build без -o)
+/agent.exe
+/server.exe
+/surifleet-server
+/surifleet-agent
+/surifleet-server.new
+/surifleet-agent.new
+*.new
+*.pid
+
 # Node / фронтенд
 node_modules/
 web/node_modules/
