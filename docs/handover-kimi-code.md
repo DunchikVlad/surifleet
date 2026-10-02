@@ -135,7 +135,7 @@ compliance (с токеном): `curl -H "Authorization: Bearer $TOKEN" http://1
 ## 6. Где что лежит (карта репозитория)
 
 - `cmd/server`, `cmd/agent` — точки входа.
-- `internal/httpapi/` — REST API + ванильный UI (webui) + reactui (embed).
+- `internal/httpapi/` — REST API + reactui (embed web/dist); ванильный UI выпилен (чанк 31).
 - `internal/hub/` — gRPC hub (mTLS, стримы агентов, диспетч задач).
 - `internal/store/` — PostgreSQL (sql-слой, миграции в `db/migrations/`
   + зеркало `internal/store/migrations/` — копировать обе!).
@@ -149,8 +149,7 @@ compliance (с токеном): `curl -H "Authorization: Bearer $TOKEN" http://1
 ## 7. Текущее состояние (2026-10-02)
 
 - Всё работает: стенд поднят, compliance in_sync 1/1, UI на
-  `http://192.168.31.28:8080/app/` (React, с формой входа; ванильный `/`
-  в token-режиме не работает). Стенд в `auth_mode: token`: вход
+  `http://192.168.31.28:8080/app/` (React, с формой входа; `/` — редирект, ванильный выпилен). Стенд в `auth_mode: token`: вход
   admin@surifleet.local / admin12345 (break-glass, bootstrap при старте).
 - Сервер и агент под systemd (surifleet-server.service / -agent.service) —
   переживают ребут ВМ, перекат через systemctl restart (см. §5).
