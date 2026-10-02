@@ -7,6 +7,34 @@
 
 ### Added
 
+- Чанк 35 (2026-10-03): OIDC-SSO (п. 9 ТЗ; Authorization Code + PKCE).
+  `internal/oidc` (coreos/go-oidc/v3 + x/oauth2 — проверенные библиотеки,
+  без самодельной криптографии): flow с PKCE S256, одноразовые state+nonce
+  (таблица `oidc_states`, миграция 000009 + зеркало internal/store/migrations,
+  consume атомарно DELETE…RETURNING — защита от CSRF/replay; PKCE-верификатор
+  детерминированно выводится из state, отдельно не хранится). Проверка
+  id_token (подпись, issuer, audience, exp, nonce), claims из id_token +
+  userinfo (fallback для groups/email). Маппинг групп IdP → роли по
+  `sso_providers.group_role_mapping` (дедуп role_id, scope=organization).
+  JIT-провижининг: по (provider,sub) → обновление ролей; по email →
+  привязка локального пользователя к IdP (LinkExternal, дедуп); иначе —
+  создание без пароля (CreateExternal); деактивированный — отказ входа.
+  Store: `internal/store/sso.go` (SsoProvidersRepo CRUD по sso_providers,
+  OidcStatesRepo), UsersRepo + GetByExternalID/LinkExternal/CreateExternal/
+  SetRoles. REST: публичные `GET /auth/sso/providers`, `GET /auth/sso/{id}/login`
+  (302 на IdP), `GET /auth/sso/callback` (проверка → сессия → HTML, кладущая
+  токен в localStorage → /app/); админ `GET/POST /sso_providers`,
+  `GET/PATCH/DELETE /sso_providers/{id}` (права sso.read/sso.write;
+  client_secret — writeOnly, в ответах обнуляется; пустой в PATCH — «не менять»).
+  Каталог разрешений + sso.read/sso.write. Аудит auth.login_sso (success/denied),
+  sso.create/update/delete. React: кнопки «Войти через SSO» на форме входа
+  (публичный список провайдеров), вкладка «SSO» (CRUD провайдеров, маппинг
+  групп→роли JSON с подсказкой role_id). Юнит-тесты internal/oidc (PKCE,
+  groupsFrom, roleIDsForGroups, oauth2Config). Живой e2e на стенде НЕ проводился
+  (sandbox сессии блокирует SSH до .28/.67 и IdP недоступен) — проверить при
+  перекате: пересобрать, перекатить сервер, миграция → version 9, создать
+  OIDC-провайдер, пройти flow до сессии. (server, db, api, ui, docs)
+
 - Чанк 34 (2026-10-02): метрики Suricata из eve.json (п. 5.4,
   продолжение). Агент `evemetrics.go`: tail eve.json с offset
   (устойчив к ротации), последнее stats-событие за тик →

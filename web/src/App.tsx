@@ -17,11 +17,12 @@ import Roles from "./pages/Roles";
 import Tokens from "./pages/Tokens";
 import Audit from "./pages/Audit";
 import Metrics from "./pages/Metrics";
+import Sso from "./pages/Sso";
 
 type TabName =
   | "overview" | "instances" | "rules" | "rulesets"
   | "deployments" | "logs" | "matrix" | "iocs" | "feeds"
-  | "users" | "roles" | "tokens" | "audit" | "metrics";
+  | "users" | "roles" | "tokens" | "audit" | "metrics" | "sso";
 
 // perm — разрешение для показа вкладки (ТЗ: UI скрывает недоступное;
 // авторизация всё равно на backend). Пусто — видна всем.
@@ -39,6 +40,7 @@ const TABS: { name: TabName; label: string; perm?: string }[] = [
   { name: "users", label: "Пользователи", perm: "users.read" },
   { name: "roles", label: "Роли", perm: "roles.read" },
   { name: "tokens", label: "Токены", perm: "tokens.read" },
+  { name: "sso", label: "SSO", perm: "sso.read" },
   { name: "audit", label: "Аудит", perm: "audit.read" },
 ];
 
@@ -58,6 +60,7 @@ const PAGES: Record<TabName, React.ComponentType<{ active: boolean }>> = {
   users: Users,
   roles: Roles,
   tokens: Tokens,
+  sso: Sso,
   audit: Audit,
 };
 

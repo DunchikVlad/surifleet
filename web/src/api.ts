@@ -371,4 +371,36 @@ export const PERMS = [
   "ioc.read", "ioc.write", "feeds.read", "feeds.write",
   "users.read", "users.write", "tokens.read", "tokens.write",
   "roles.read", "roles.write", "audit.read",
+  "sso.read", "sso.write",
 ] as const;
+
+// --- SSO-провайдеры (чанк 35) ---
+
+// SsoProviderPublic — публичная запись формы входа (GET /auth/sso/providers).
+export interface SsoProviderPublic { id: string; name: string; type: string }
+
+// OIDCConfig — конфигурация OIDC-провайдера (client_secret — writeOnly).
+export interface OIDCConfig {
+  issuer_url: string;
+  client_id: string;
+  client_secret?: string;
+  redirect_url: string;
+  scopes?: string[];
+}
+
+// SsoProvider — SSO-провайдер (GET /sso_providers; client_secret не отдаётся).
+export interface SsoProvider {
+  id: string;
+  organization_id: string;
+  name: string;
+  type: string;
+  config: OIDCConfig;
+  group_role_mapping?: Record<string, string[]>;
+  enabled: boolean;
+  created_at?: string;
+  updated_at?: string;
+}
+
+// listSsoProvidersPublic — включённые OIDC-провайдеры для кнопки «Войти через SSO».
+export const listSsoProvidersPublic = () =>
+  apiGet<Page<SsoProviderPublic>>("/auth/sso/providers");

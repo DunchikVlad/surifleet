@@ -35,6 +35,7 @@ import (
 	"github.com/surifleet/surifleet/internal/httpapi"
 	"github.com/surifleet/surifleet/internal/hub"
 	"github.com/surifleet/surifleet/internal/iocrules"
+	"github.com/surifleet/surifleet/internal/oidc"
 	"github.com/surifleet/surifleet/internal/orchestrator"
 	"github.com/surifleet/surifleet/internal/pki"
 	"github.com/surifleet/surifleet/internal/store"
@@ -321,6 +322,7 @@ func (a *App) routes() http.Handler {
 		Orch:     a.orch,
 		CHLogs:   a.chLogs,
 		FeedSync: a.feedSync,
+		OIDC:     oidc.NewService(a.db),
 		PingDB:   a.db.Pool.Ping,
 	})
 }

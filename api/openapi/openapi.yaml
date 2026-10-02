@@ -161,16 +161,15 @@ paths:
                   items: {type: array, items: {$ref: '#/components/schemas/SsoProviderPublic'}}
         default: {$ref: '#/components/responses/Error'}
 
-  /auth/sso/{provider_id}/start:
+  /auth/sso/{provider_id}/login:
     get:
       operationId: start_sso_login
       tags: [auth]
       summary: Начать вход через SSO (redirect в IdP)
-      description: OIDC Authorization Code + PKCE. Возвращает 302 на authorization endpoint провайдера.
+      description: OIDC Authorization Code + PKCE (S256). Создаёт одноразовый state+nonce (таблица oidc_states) и возвращает 302 на authorization endpoint провайдера с PKCE-challenge. Callback — общий /auth/sso/callback (state связывает запрос с провайдером).
       security: []
       parameters:
         - {name: provider_id, in: path, required: true, schema: {type: string, format: uuid}}
-        - {name: redirect_uri, in: query, description: Куда вернуть пользователя в UI после логина, schema: {type: string}}
       responses:
         '302':
           description: Перенаправление в IdP
@@ -178,47 +177,27 @@ paths:
             Location: {schema: {type: string}}
         default: {$ref: '#/components/responses/Error'}
 
-  /auth/sso/{provider_id}/callback:
+  /auth/sso/callback:
     get:
-      operationId: sso_callback_get
+      operationId: sso_callback
       tags: [auth]
       summary: Callback от IdP (GET, code + state)
-      description: Обмен code на токены, JIT-провижининг, маппинг групп в роли. Возвращает 302 в UI с токенами во fragment.
+      description: Одноразовый state (consume, защита от CSRF/replay), обмен code на токены (PKCE), проверка id_token (подпись, issuer, audience, exp, nonce), JIT-провижининг, маппинг групп в роли. На успех — HTML-страница, сохраняющая токен сессии в localStorage и редиректящая в SPA; на ошибку — HTML с текстом (браузерный редирект, не XHR). redirect_url провайдера должен указывать на этот путь.
       security: []
       parameters:
-        - {name: provider_id, in: path, required: true, schema: {type: string, format: uuid}}
         - {name: code, in: query, schema: {type: string}}
         - {name: state, in: query, schema: {type: string}}
-      responses:
-        '302':
-          description: Перенаправление в UI
-          headers:
-            Location: {schema: {type: string}}
-        default: {$ref: '#/components/responses/Error'}
-    post:
-      operationId: sso_callback_post
-      tags: [auth]
-      summary: Callback от IdP (POST, form_post / SAML)
-      description: Альтернативный способ доставки ответа IdP (form_post для OIDC, POST-Binding для SAML). Возвращает пару токенов JSON.
-      security: []
-      parameters:
-        - {name: provider_id, in: path, required: true, schema: {type: string, format: uuid}}
-      requestBody:
-        content:
-          application/x-www-form-urlencoded:
-            schema:
-              type: object
-              properties:
-                code: {type: string}
-                state: {type: string}
-                SAMLResponse: {type: string}
-                RelayState: {type: string}
+        - {name: error, in: query, description: Отказ IdP, schema: {type: string}}
+        - {name: error_description, in: query, schema: {type: string}}
       responses:
         '200':
-          description: Пара токенов
+          description: HTML-страница завершения входа (токен кладётся в localStorage → /app/)
           content:
-            application/json:
-              schema: {$ref: '#/components/schemas/AuthTokens'}
+            text/html: {}
+        '401':
+          description: HTML с ошибкой входа (отказ IdP, невалидный state, деактивированный пользователь)
+          content:
+            text/html: {}
         default: {$ref: '#/components/responses/Error'}
 
   /auth/me:
@@ -2236,7 +2215,7 @@ paths:
       operationId: delete_sso_provider
       tags: [sso_providers]
       summary: Удалить провайдера
-      description: "Требуется право: sso.write. Пользователи провайдера деактивируются."
+      description: "Требуется право: sso.write. JIT-пользователи сохраняются (provider_id → NULL), но войти через этот SSO больше не смогут."
       responses:
         '204': {description: Удалено}
         default: {$ref: '#/components/responses/Error'}
@@ -2897,7 +2876,7 @@ components:
       type: object
       properties:
         swept_expired: {type: integer, description: IOC, погашенные свипом перед генерацией}
-        revoked: {type: integer, description: IOC-правила, отключённые при свипе просроченных (чанк 19)}
+        revoked: {type: integer, description: 'IOC-правила, отключённые при свипе просроченных (чанк 19)'}
         active: {type: integer, description: Всего активных IOC}
         created: {type: integer, description: Новые правила}
         updated: {type: integer, description: Правила с изменившимся raw}
@@ -3389,29 +3368,45 @@ components:
         name: {type: string}
         type: {type: string, enum: [oidc, saml, ldap]}
         enabled: {type: boolean}
-        config: {type: object, description: 'Несекретная конфигурация: client_id, endpoints, metadata_url, ...'}
+        config:
+          type: object
+          description: 'OIDC-конфигурация: issuer_url, client_id, redirect_url, scopes. client_secret в ответах обнуляется (writeOnly)'
         group_role_mapping: {type: object, description: 'Маппинг групп IdP → роли: {"<группа>": ["<role_uuid>"]}'}
         created_at: {type: string, format: date-time}
         updated_at: {type: string, format: date-time}
 
     SsoProviderInput:
       type: object
-      required: [name, type, config]
+      required: [name, config]
       properties:
         name: {type: string}
-        type: {type: string, enum: [oidc, saml, ldap]}
+        type: {type: string, enum: [oidc], default: oidc, description: 'Пока поддерживается только oidc'}
         enabled: {type: boolean, default: true}
-        config: {type: object}
-        secret: {type: string, writeOnly: true, description: "client_secret / bind password; хранится шифрованно, не возвращается"}
-        group_role_mapping: {type: object}
+        config:
+          type: object
+          required: [issuer_url, client_id, redirect_url]
+          properties:
+            issuer_url: {type: string, description: 'OIDC issuer (discovery URL)'}
+            client_id: {type: string}
+            client_secret: {type: string, writeOnly: true, description: 'хранится, не возвращается'}
+            redirect_url: {type: string, description: '<базовый URL сервера>/api/v1/auth/sso/callback — регистрируется в IdP'}
+            scopes: {type: array, items: {type: string}, description: 'пусто → openid email profile'}
+        group_role_mapping: {type: object, description: '{"<группа IdP>": ["<role_uuid>"]}'}
 
     SsoProviderUpdateInput:
       type: object
       properties:
         name: {type: string}
         enabled: {type: boolean}
-        config: {type: object}
-        secret: {type: string, writeOnly: true}
+        config:
+          type: object
+          description: 'Пустой client_secret — «не менять» (сохраняется старый)'
+          properties:
+            issuer_url: {type: string}
+            client_id: {type: string}
+            client_secret: {type: string, writeOnly: true}
+            redirect_url: {type: string}
+            scopes: {type: array, items: {type: string}}
         group_role_mapping: {type: object}
 
     ApiToken:

@@ -333,6 +333,82 @@ func (r *UsersRepo) CountActiveBreakGlass(ctx context.Context, orgID uuid.UUID) 
 }
 
 // ---------------------------------------------------------------------------
+// JIT-провижининг SSO-пользователей (чанк 35)
+// ---------------------------------------------------------------------------
+
+// GetByExternalID — пользователь по (provider_id, external_id) (уже JIT-создан
+// через этот IdP). Нет записи → ErrNotFound.
+func (r *UsersRepo) GetByExternalID(ctx context.Context, providerID uuid.UUID, externalID string) (User, error) {
+	u, err := scanUser(r.pool.QueryRow(ctx,
+		`SELECT `+userColumns+` FROM users WHERE provider_id = $1 AND external_id = $2`,
+		providerID, externalID))
+	if err != nil {
+		return u, translate(err)
+	}
+	u.Roles, err = r.userRoles(ctx, u.ID)
+	return u, err
+}
+
+// LinkExternal привязывает существующего (локального) пользователя к IdP
+// (provider_id + external_id) — дедупликация JIT по email. Возвращает
+// обновлённого пользователя с ролями.
+func (r *UsersRepo) LinkExternal(ctx context.Context, id, providerID uuid.UUID, externalID string) (User, error) {
+	u, err := scanUser(r.pool.QueryRow(ctx,
+		`UPDATE users SET provider_id=$2, external_id=$3, updated_at=now() WHERE id=$1
+		 RETURNING `+userColumns, id, providerID, externalID))
+	if err != nil {
+		return u, translate(err)
+	}
+	u.PasswordHash = nil
+	u.Roles, err = r.userRoles(ctx, u.ID)
+	return u, err
+}
+
+// CreateExternal создаёт JIT-пользователя из SSO (без пароля) с ролями (в tx).
+// Дубль (org,email) или (provider,external) → ErrConflict.
+func (r *UsersRepo) CreateExternal(ctx context.Context, orgID, providerID uuid.UUID, externalID, email, displayName string, roles []RoleAssignmentInput) (User, error) {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return User{}, translate(err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	u, err := scanUser(tx.QueryRow(ctx,
+		`INSERT INTO users (organization_id, external_id, provider_id, email, display_name, password_hash, is_break_glass)
+		 VALUES ($1,$2,$3,$4,$5,NULL,false)
+		 RETURNING `+userColumns,
+		orgID, externalID, providerID, email, displayName))
+	if err != nil {
+		return User{}, translate(err)
+	}
+	if err := insertRolesTx(ctx, tx, u.ID, roles); err != nil {
+		return User{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return User{}, translate(err)
+	}
+	u.Roles, err = r.userRoles(ctx, u.ID)
+	return u, err
+}
+
+// SetRoles — полная замена назначений ролей пользователя (в tx). Пустой
+// срез — снять все роли (JIT: пользователь больше ни в одной группе IdP).
+func (r *UsersRepo) SetRoles(ctx context.Context, userID uuid.UUID, roles []RoleAssignmentInput) error {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return translate(err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx, `DELETE FROM user_roles WHERE user_id = $1`, userID); err != nil {
+		return translate(err)
+	}
+	if err := insertRolesTx(ctx, tx, userID, roles); err != nil {
+		return err
+	}
+	return translate(tx.Commit(ctx))
+}
+
+// ---------------------------------------------------------------------------
 
 // RolesRepo — роли (встроенные глобальные + кастомные организации).
 type RolesRepo struct {

@@ -30,6 +30,58 @@ stale (раньше висел бы online). ✅ РЕШЕНО в чанке 28: 
 (admin@surifleet.local / admin12345), сервер и агент под systemd, UI —
 React на `/app/` (`/` — редирект).
 
+**Следующий шаг после 35**:
+1. Scoping ролей по кластерам (применение user_roles.scope_type/clusters),
+   аудит diff «было→стало» + цепочка хэшей; SAML 2.0 / LDAP (п. 9).
+2. Мониторинг (п. 5.4, продолжение): retention agent_metrics (TTL в
+   ClickHouse), пересылка EVE-алертов в SIEM.
+3. OIDC — e2e на стенде с реальным/mock IdP (не проведён в чанке 35 —
+   sandbox сессии блокирует SSH до .28/.67).
+
+**Статус на 2026-10-03**: чанк 35 (OIDC-SSO) закрыт по коду и юнит-тестам.
+Среда разработки переехала на macOS (arm64): Go 1.27.1 (Homebrew), node 26.
+Окружение go — workspace-local через `./goenv.sh` (GOPATH/GOCACHE/GOTMPDIR
+в .tools/, т.к. sandbox запрещает запись в ~/go и ~/Library/Caches). SSH до
+стенда .28/.67 из этой сессии ЗАБЛОКИРОВАН sandbox (raw socket; HTTP-allowlist
+только по hostname, не по IP) — живая верификация на стенде не проводилась,
+нужен перекат при первой возможности. Хелперы `.tools/ssh.py`/`.tools/scp.py`
+восстановлены (paramiko в `.tools/venv`). Два теста падают ТОЛЬКО из-за
+sandbox: feedsync.TestFetchMispFeed (httptest listen loopback запрещён) и
+pki.TestLoadOrCreateCA (umask даёт 0755 вместо 0700) — не регрессии.
+
+Чанк 35 ГОТОВ (2026-10-03, этот коммит): OIDC-SSO (п. 9 ТЗ; Authorization
+Code + PKCE) — логин через корпоративный IdP с маппингом групп в роли и
+JIT-провижинингом. `internal/oidc` (coreos/go-oidc/v3 + x/oauth2 —
+проверенные библиотеки по ТЗ, без самодельной криптографии): flow с PKCE
+S256; одноразовые state+nonce (миграция 000009 `oidc_states` + зеркало,
+consume атомарно DELETE…RETURNING — защита от CSRF/replay; PKCE-верификатор
+выводится из state детерминированно, отдельно не хранится). Проверка
+id_token (подпись/issuer/audience/exp/nonce через go-oidc), claims из
+id_token + userinfo-fallback (groups/email). Маппинг групп → роли по
+`sso_providers.group_role_mapping` (`roleIDsForGroups`, дедуп role_id,
+scope=organization). JIT-провижининг (`provision`): по (provider,sub) →
+обновление ролей; по email → привязка локального к IdP (LinkExternal,
+дедуп); иначе → создание без пароля (CreateExternal); деактивированный →
+отказ (ErrUserInactive). Store: `internal/store/sso.go` (SsoProvidersRepo
+CRUD, OidcStatesRepo), UsersRepo + GetByExternalID/LinkExternal/
+CreateExternal/SetRoles. REST: публичные GET /auth/sso/providers (список
+для формы входа), GET /auth/sso/{id}/login (302 на IdP), GET
+/auth/sso/callback (проверка → сессия SuriFleet → HTML, кладущая токен в
+localStorage → /app/); админ GET/POST /sso_providers + GET/PATCH/DELETE
+/sso_providers/{id} (права sso.read/sso.write; client_secret writeOnly —
+обнуляется в ответах, пустой в PATCH = «не менять»; валидация URL/role_id).
+Каталог разрешений + sso.read/sso.write. Аудит auth.login_sso (success/
+denied), sso.create/update/delete. authMiddleware: /api/v1/auth/sso/* —
+публичные префиксы. cmd/server: OIDC-сервис в Deps. React: кнопки «Войти
+через SSO» на форме входа (публичный список провайдеров), вкладка «SSO»
+(CRUD провайдеров, маппинг групп→роли JSON с подсказкой role_id, вкл/откл,
+удаление). Юнит-тесты internal/oidc (PKCE-верификатор, groupsFrom,
+roleIDsForGroups, oauth2Config scopes). Проверки: go build/vet зелёные,
+oidc/httpapi/store/authn тесты ok; npm build чисто (204 КБ, SSO в бандле).
+Живой e2e на стенде НЕ проводился (см. статус среды выше) — при перекате:
+пересобрать, systemctl restart surifleet-server, миграция → version 9,
+создать OIDC-провайдер, пройти flow до сессии в /auth/me.
+
 **Следующий шаг после 34**:
 1. OIDC-SSO (п. 9 ТЗ), scoping ролей по кластерам, аудит diff
    «было→стало» + цепочка хэшей.
@@ -737,6 +789,7 @@ managed-файле (245 правил).
 
 | Чанк | Содержание | Коммит |
 |---|---|---|
+| 35 | OIDC-SSO (п. 9, Authorization Code + PKCE): `internal/oidc` (go-oidc/v3 + x/oauth2, PKCE S256, одноразовые state+nonce в oidc_states — миграция 000009; проверка id_token+nonce; claims id_token+userinfo; маппинг групп→роли по group_role_mapping; JIT-провижининг: по (provider,sub)→обновление ролей / по email→LinkExternal дедуп / CreateExternal без пароля; деактивированный→отказ), store `sso.go` (SsoProviders/OidcStates) + UsersRepo (GetByExternalID/LinkExternal/CreateExternal/SetRoles), REST публичные /auth/sso/{providers,login,callback} + админ /sso_providers (sso.read/write, client_secret writeOnly), каталог + sso.read/write, аудит auth.login_sso/sso.*; React кнопка «Войти через SSO» + вкладка «SSO». Живой e2e НЕ проведён (sandbox блокирует SSH до стенда) — проверить при перекате | (этот коммит) |
 | 6 | Тестовое окружение: Docker 29.1.3 + Compose v2.40.3 на .28; `deploy/docker-compose.yml` (postgres:16-alpine, redis:7-alpine, nats:2.10-alpine -js, clickhouse:24.8-alpine, minio с quay.io + init-бакет surifleet-rulesets); стек healthy (~325 МиБ RAM); миграция 000001 прогнана up/down/up на живом PG (43 отношения: 28 таблиц + 15 партиций); append-only триггер audit_log проверен (UPDATE → ошибка); все сервисы доступны с Windows | 2940139 |
 | 7 | Сервер: `internal/store` (pgx/v5 пул, миграции golang-migrate из embed.FS при старте + --migrate-only, репозитории organizations/clusters/hosts с keyset-пагинацией, маппинг 23505→409/23503→400) + `internal/httpapi` (chi /api/v1 CRUD флота, формат Error по openapi, limit/cursor, middleware request-id/recover/access-log/DevAuth-заглушка X-Dev-User); pgx 5.7.2, migrate 4.18.2, uuid 1.6.0; build/vet/test зелёные (go test прошёл под Windows); живой CRUD проверен curl-ом с Windows на .28 (201/409/400/404/204, next_cursor, health с checks.postgres). Dev-стенд запущен на .28 (PID в ~/surifleet/server.pid, API http://192.168.31.28:8080/api/v1), в БД тестовые org acme/кластер DC-1/хост sensor-01-dc1 | 0447e1f |
 | 8 | gRPC Hub + агент end-to-end: миграция 000002 join_tokens; `internal/pki` (встроенный CA ECDSA P-256, SignCSR CN=agent_id 90 дней, серверный сертификат с SAN); `internal/enroll` (Enroll: проверка токена, атомарный расход в tx, создание host+agent, AlreadyExists при повторе без расхода токена); `internal/hub` (mTLS-сверка CN↔agent_id, Hello timeout, HelloAck 30/300/60, presence Redis stream:{agent_id} TTL 120 + hub:{id}:agents, seq replay-защита, clock-skew warn, offline в defer, agent_state_history при сменах); API POST/GET /clusters/{id}/join_tokens (токен один раз, в БД хэш); агент: enrollment (ключи/CSR, сохранение 0600) + mTLS-стрим + heartbeat-горутина. Живой e2e: enrollment с .67 → heartbeat → online в PG/Redis; kill → offline; рестарт → online без повторного enrollment | b6ecad4 |

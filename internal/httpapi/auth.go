@@ -46,6 +46,8 @@ const (
 	PermRolesRead   = "roles.read"
 	PermRolesWrite  = "roles.write" // кастомные роли
 	PermAuditRead   = "audit.read"
+	PermSsoRead     = "sso.read" // SSO-провайдеры (чанк 35)
+	PermSsoWrite    = "sso.write"
 	PermAll         = "*" // admin; также admin-only операции (организации CUD)
 )
 
@@ -57,7 +59,7 @@ var knownPermissions = map[string]bool{
 	PermFeedsRead: true, PermFeedsWrite: true, PermUsersRead: true,
 	PermUsersWrite: true, PermTokensRead: true, PermTokensWrite: true,
 	PermRolesRead: true, PermRolesWrite: true,
-	PermAuditRead: true,
+	PermAuditRead: true, PermSsoRead: true, PermSsoWrite: true,
 }
 
 // validPermission — разрешение из каталога или '*'.
@@ -128,6 +130,12 @@ func (h *handlers) authMiddleware(next http.Handler) http.Handler {
 			return
 		}
 		if authPublicPaths[r.URL.Path] {
+			next.ServeHTTP(w, r)
+			return
+		}
+		// OIDC-SSO flow (чанк 35): discovery/начало/callback — публичные
+		// (пользователь ещё не аутентифицирован; защита — state+nonce+PKCE).
+		if strings.HasPrefix(r.URL.Path, "/api/v1/auth/sso/") {
 			next.ServeHTTP(w, r)
 			return
 		}

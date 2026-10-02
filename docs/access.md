@@ -129,8 +129,21 @@ curl -H "Authorization: Bearer $TOKEN" http://192.168.31.28:8080/api/v1/agents
   токена; `last_used_at` обновляется (не чаще раза в минуту); отзыв
   мягкий (revoked_at, из листинга скрываются; аудит actor_type=api_token).
 - Аудит: auth.login (break-glass — отдельным action auth.login_break_glass),
-  auth.logout/refresh, authz.denied, users.\*, roles.\* — чтение
-  `GET /audit_log?action=&limit=&cursor=` (право audit.read).
+  auth.logout/refresh, authz.denied, users.\*, roles.\*, auth.login_sso,
+  sso.\* — чтение `GET /audit_log?action=&limit=&cursor=` (право audit.read).
+- **SSO / OIDC (чанк 35)**: вход через корпоративный IdP (Authorization
+  Code + PKCE). Провайдеры настраиваются на вкладке «SSO» (или API
+  `/sso_providers`, права sso.read/write): issuer_url, client_id,
+  client_secret (writeOnly), redirect_url (`<базовый URL сервера>/api/v1/auth/sso/callback`
+  — его же регистрируют в IdP), scopes, маппинг групп IdP → role_id
+  (`group_role_mapping: {"<группа IdP>": ["<role_uuid>"]}`). Публичные
+  эндпоинты flow (без токена): `GET /auth/sso/providers` (включённые
+  OIDC-провайдеры для формы входа), `GET /auth/sso/{id}/login` (302 на IdP),
+  `GET /auth/sso/callback` (проверка → сессия → редирект в UI). На форме
+  входа появляется кнопка «Войти через <name>». JIT-провижининг: пользователь
+  создаётся при первом входе; если локальный пользователь с таким email уже
+  есть — привязывается к IdP; роли назначаются по группам из IdP при каждом
+  входе. Деактивированный пользователь входа не проходит (отказ).
 - Режим `auth_mode: dev` (по умолчанию в коде) — прежняя заглушка
   X-Dev-User, все права; только для локальной разработки.
 - Ванильный MVP UI на `/` в token-режиме НЕ работает (не шлёт
@@ -166,6 +179,10 @@ not_found, conflict, internal). Пагинация — keyset: параметр�
   auth — X-API-Key, права = scopes).
 - `GET /audit_log?action=&limit=&cursor=` — аудит (audit.read), свежие
   первыми, курсор `<RFC3339Nano>,<uuid>`.
+- **SSO (чанк 35)**: `GET/POST /sso_providers`, `GET/PATCH/DELETE
+  /sso_providers/{id}` — OIDC-провайдеры (права sso.read/sso.write;
+  client_secret — writeOnly). Публичный flow: `GET /auth/sso/providers`,
+  `GET /auth/sso/{id}/login`, `GET /auth/sso/callback`.
 
 ### 4.1 Служебные
 - `GET /health` — живость процесса и PostgreSQL.
@@ -429,12 +446,15 @@ curl "$API/fleet/compliance"
 3. `GET /hosts/{id}/discovery` → `POST /hosts/{id}/confirm_discovery` →
    инстанс готов к деплоям.
 
-## 7. Известные ограничения (на 2026-10-02)
+## 7. Известные ограничения (на 2026-10-03)
 
 - Аутентификация — локальные пользователи + сессионные токены + RBAC
-  (чанк 28, стенд в `auth_mode: token`); SSO (OIDC/SAML/LDAP), API-токены
-  со scopes, scoping ролей по кластерам и аудит-diff/цепочка хэшей —
-  следующие чанки. UI — React SPA на `/app/` (форма входа; `/` — редирект).
+  (чанк 28, стенд в `auth_mode: token`) и **OIDC-SSO** (чанк 35: Authorization
+  Code + PKCE, JIT-провижининг, маппинг групп→роли, админ-CRUD провайдеров,
+  вкладка «SSO»; живой e2e на стенде ещё не проводился — sandbox сессии
+  блокирует SSH). SAML 2.0 / LDAP, scoping ролей по кластерам и аудит-diff/
+  цепочка хэшей — следующие чанки. UI — React SPA на `/app/` (форма входа +
+  кнопка «Войти через SSO»; `/` — редирект).
 - Сервер и агент на стенде — под systemd (surifleet-server.service на
   .28, surifleet-agent.service на .67; enable+Restart=always): переживают
   ребут ВМ; перекат — `systemctl restart` (процедуры — в

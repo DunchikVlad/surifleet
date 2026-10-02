@@ -15,6 +15,7 @@ import (
 	"github.com/surifleet/surifleet/internal/blob"
 	"github.com/surifleet/surifleet/internal/chlogs"
 	"github.com/surifleet/surifleet/internal/feedsync"
+	"github.com/surifleet/surifleet/internal/oidc"
 	"github.com/surifleet/surifleet/internal/orchestrator"
 	"github.com/surifleet/surifleet/internal/store"
 )
@@ -42,6 +43,9 @@ type Deps struct {
 
 	// FeedSync — синхронизация IOC-фидов (chunk 18; nil — sync возвращает 503).
 	FeedSync *feedsync.Syncer
+
+	// OIDC — OIDC-SSO flow (chunk 35; nil — SSO-эндпоинты возвращают 503).
+	OIDC *oidc.Service
 
 	// PingDB проверяет живость PostgreSQL для /health (nil — проверка выкл.).
 	PingDB func(ctx context.Context) error
@@ -82,6 +86,21 @@ func NewRouter(d Deps) http.Handler {
 			r.Post("/refresh", h.refresh)
 			r.With(h.requirePerm(PermFleetRead)).Post("/logout", h.logout)
 			r.Get("/me", h.getMe)
+			// OIDC-SSO (чанк 35): публичные discovery/login/callback.
+			r.Get("/sso/providers", h.listSsoProvidersPublic)
+			r.Get("/sso/{id}/login", h.ssoLogin)
+			r.Get("/sso/callback", h.ssoCallback)
+		})
+
+		// SSO-провайдеры (администрирование; чанк 35).
+		r.Route("/sso_providers", func(r chi.Router) {
+			r.With(h.requirePerm(PermSsoRead)).Get("/", h.listSsoProviders)
+			r.With(h.requirePerm(PermSsoWrite)).Post("/", h.createSsoProvider)
+			r.Route("/{id}", func(r chi.Router) {
+				r.With(h.requirePerm(PermSsoRead)).Get("/", h.getSsoProvider)
+				r.With(h.requirePerm(PermSsoWrite)).Patch("/", h.updateSsoProvider)
+				r.With(h.requirePerm(PermSsoWrite)).Delete("/", h.deleteSsoProvider)
+			})
 		})
 
 		// Пользователи, роли, аудит (chunk 28).
