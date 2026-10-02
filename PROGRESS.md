@@ -38,7 +38,7 @@ React на `/app/` (`/` — редирект).
 3. OIDC — e2e на стенде с реальным/mock IdP (не проведён в чанке 35 —
    sandbox сессии блокирует SSH до .28/.67).
 
-Чанк 36 ГОТОВ (2026-10-03, этот коммит): retention телеметрии в ClickHouse
+Чанк 36 ГОТОВ (2026-10-03, 6c535c3): retention телеметрии в ClickHouse
 (п. 5.4, продолжение — закрывает «retention agent_metrics» из next-steps).
 TTL для `surifleet.agent_logs` и `surifleet.agent_metrics`: параметр
 `server.ch_retention_days` (default 30 дней; 0 — бессрочно). `chlogs.
