@@ -46,7 +46,7 @@
 | LDAP/AD | ⬜ | — | — |
 | Маппинг групп IdP → роли, JIT-провижининг | ⬜ | — | — |
 | Break-glass локальный администратор | ✅ | bootstrapBreakGlass (cmd/server): создаётся при старте в token-режиме, если нет ни одного активного break-glass; пароль из env/конфига или генерируется (один раз в лог); последний break-glass неудаляем (409); входы аудируются action=auth.login_break_glass | чанк 28 |
-| Сессии, API-токены со scopes | 🚧 | Сессии: opaque-токен (SHA-256 хэш в sessions), TTL `server.session_ttl` (12h), refresh-ротация, logout, revoke_sessions (принудительный logout); API-токены со scopes — позже | чанк 28 |
+| Сессии, API-токены со scopes | ✅ | Сессии: opaque-токен (SHA-256 хэш в sessions), TTL `server.session_ttl` (12h), refresh-ротация, logout, revoke_sessions; API-токены: `/api_tokens` (tokens.read/write), X-API-Key в middleware, scopes из общего каталога разрешений, expires_at, last_used_at (троттлинг 1 мин), отзыв с сохранением записи, аудит actor_type=api_token | чанки 28–29 |
 
 ## 4. Модель флота
 

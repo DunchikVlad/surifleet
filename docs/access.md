@@ -123,6 +123,13 @@ curl -H "Authorization: Bearer $TOKEN" http://192.168.31.28:8080/api/v1/agents
 - Пользователи: CRUD `/users`, `POST /users/{id}/revoke_sessions`
   (принудительный logout); последний break-glass админ неудаляем (409);
   себя удалить нельзя (409). Пароль ≥ 8 символов (bcrypt).
+- API-токены автоматизации (чанк 29): `GET/POST /api_tokens`,
+  `DELETE /api_tokens/{id}` (права tokens.read/write). Выпуск:
+  `{name, scopes (из каталога разрешений), expires_at?}` — значение
+  токена показывается один раз в поле `token`. Аутентификация заголовком
+  `X-API-Key: <token>` (приоритетнее Bearer); права запроса = scopes
+  токена; `last_used_at` обновляется (не чаще раза в минуту); отзыв
+  мягкий (revoked_at, из листинга скрываются; аудит actor_type=api_token).
 - Аудит: auth.login (break-glass — отдельным action auth.login_break_glass),
   auth.logout/refresh, authz.denied, users.\*, roles.\* — чтение
   `GET /audit_log?action=&limit=&cursor=` (право audit.read).
@@ -156,6 +163,9 @@ not_found, conflict, internal). Пагинация — keyset: параметр�
 - `GET/POST /roles`, `GET/PATCH/DELETE /roles/{id}` — встроенные (admin/
   operator/analyst/viewer) неизменяемы и неудаляемы (409); кастомные —
   `permissions` только из каталога (иначе 400).
+- `GET/POST /api_tokens`, `DELETE /api_tokens/{id}` — API-токены
+  автоматизации (tokens.read/write; значение — один раз при выпуске;
+  auth — X-API-Key, права = scopes).
 - `GET /audit_log?action=&limit=&cursor=` — аудит (audit.read), свежие
   первыми, курсор `<RFC3339Nano>,<uuid>`.
 

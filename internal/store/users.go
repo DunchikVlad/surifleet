@@ -529,6 +529,7 @@ type AuditEntry struct {
 	ActorType      string // user | api_token | system | agent
 	ActorUserID    *uuid.UUID
 	ActorSessionID *uuid.UUID
+	ActorAPIKeyID  *uuid.UUID
 	ActorName      string
 	IP             *string
 	UserAgent      *string
@@ -560,10 +561,10 @@ func (r *AuditRepo) Log(ctx context.Context, e AuditEntry) error {
 	}
 	_, err := r.pool.Exec(ctx,
 		`INSERT INTO audit_log (organization_id, actor_type, actor_user_id, actor_session_id,
-		 actor_name, ip, user_agent, action, object_type, object_id, object_name, result, reason)
-		 VALUES ($1, $2, $3, $4, $5, $6::inet, $7, $8, $9, $10, $11, $12, $13)`,
+		 actor_api_token_id, actor_name, ip, user_agent, action, object_type, object_id, object_name, result, reason)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7::inet, $8, $9, $10, $11, $12, $13, $14)`,
 		e.OrganizationID, e.ActorType, e.ActorUserID, e.ActorSessionID,
-		e.ActorName, ip, e.UserAgent, e.Action, e.ObjectType, e.ObjectID, e.ObjectName,
+		e.ActorAPIKeyID, e.ActorName, ip, e.UserAgent, e.Action, e.ObjectType, e.ObjectID, e.ObjectName,
 		e.Result, e.Reason)
 	return translate(err)
 }

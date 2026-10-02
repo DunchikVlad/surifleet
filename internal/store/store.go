@@ -34,6 +34,7 @@ type Store struct {
 	Roles         *RolesRepo
 	Sessions      *SessionsRepo
 	Audit         *AuditRepo
+	ApiTokens     *ApiTokensRepo
 }
 
 // Connect открывает пул соединений по DSN и проверяет его ping'ом.
@@ -80,6 +81,7 @@ func Connect(ctx context.Context, dsn string) (*Store, error) {
 	s.Roles = &RolesRepo{pool: pool}
 	s.Sessions = &SessionsRepo{pool: pool}
 	s.Audit = &AuditRepo{pool: pool}
+	s.ApiTokens = &ApiTokensRepo{pool: pool}
 	return s, nil
 }
 

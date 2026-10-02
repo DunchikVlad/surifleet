@@ -107,6 +107,12 @@ func NewRouter(d Deps) http.Handler {
 		})
 		r.With(h.requirePerm(PermAuditRead)).Get("/audit_log", h.listAuditLog)
 
+		r.Route("/api_tokens", func(r chi.Router) {
+			r.With(h.requirePerm(PermTokensRead)).Get("/", h.listApiTokens)
+			r.With(h.requirePerm(PermTokensWrite)).Post("/", h.createApiToken)
+			r.With(h.requirePerm(PermTokensWrite)).Delete("/{id}", h.revokeApiToken)
+		})
+
 		r.Route("/organizations", func(r chi.Router) {
 			r.With(h.requirePerm(PermHostsRead)).Get("/", h.listOrganizations)
 			r.With(h.requirePerm(PermAll)).Post("/", h.createOrganization)

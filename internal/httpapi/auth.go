@@ -41,6 +41,8 @@ const (
 	PermFeedsWrite  = "feeds.write" // CRUD фидов + sync
 	PermUsersRead   = "users.read"
 	PermUsersWrite  = "users.write" // пользователи + отзыв сессий
+	PermTokensRead  = "tokens.read" // API-токены автоматизации (чанк 29)
+	PermTokensWrite = "tokens.write"
 	PermRolesRead   = "roles.read"
 	PermRolesWrite  = "roles.write" // кастомные роли
 	PermAuditRead   = "audit.read"
@@ -53,7 +55,8 @@ var knownPermissions = map[string]bool{
 	PermAgentsRead: true, PermRulesRead: true, PermRulesWrite: true,
 	PermRulesDeploy: true, PermIocRead: true, PermIocWrite: true,
 	PermFeedsRead: true, PermFeedsWrite: true, PermUsersRead: true,
-	PermUsersWrite: true, PermRolesRead: true, PermRolesWrite: true,
+	PermUsersWrite: true, PermTokensRead: true, PermTokensWrite: true,
+	PermRolesRead: true, PermRolesWrite: true,
 	PermAuditRead: true,
 }
 
@@ -73,6 +76,8 @@ type Identity struct {
 	Dev bool
 	// BreakGlass — break-glass администратор (входы аудируются отдельно).
 	BreakGlass bool
+	// APITokenID — запрос аутентифицирован API-токеном (X-API-Key, чанк 29).
+	APITokenID *uuid.UUID
 }
 
 // HasPerm проверяет разрешение ('*' — все).
@@ -118,6 +123,31 @@ func (h *handlers) authMiddleware(next http.Handler) http.Handler {
 
 		if authPublicPaths[r.URL.Path] {
 			next.ServeHTTP(w, r)
+			return
+		}
+		// API-токен автоматизации (X-API-Key; чанк 29) — приоритетнее Bearer.
+		if key := r.Header.Get("X-API-Key"); key != "" {
+			tok, err := h.d.Store.ApiTokens.GetValidByHash(r.Context(), authn.TokenHash(key))
+			if err != nil {
+				writeError(w, http.StatusUnauthorized, CodeUnauthenticated,
+					"недействительный, отозванный или истёкший API-токен", nil)
+				return
+			}
+			if err := h.d.Store.ApiTokens.TouchUsed(r.Context(), tok.ID); err != nil {
+				errLog.Error("api-token: last_used_at", "err", err)
+			}
+			permSet := make(map[string]bool, len(tok.Scopes))
+			for _, p := range tok.Scopes {
+				permSet[p] = true
+			}
+			email := "api-token:" + tok.Name
+			id := &Identity{OrgID: tok.OrganizationID, Email: email,
+				Perms: permSet, APITokenID: &tok.ID}
+			if tok.UserID != nil {
+				id.UserID = *tok.UserID
+			}
+			ctx := context.WithValue(r.Context(), identityKey{}, id)
+			next.ServeHTTP(w, r.WithContext(ctx))
 			return
 		}
 		token, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
@@ -203,9 +233,13 @@ func (h *handlers) audit(r *http.Request, id *Identity, action string,
 	if id != nil {
 		e.OrganizationID = &id.OrgID
 		e.ActorName = id.Email
-		if id.Dev {
+		switch {
+		case id.Dev:
 			e.ActorType = "system"
-		} else {
+		case id.APITokenID != nil:
+			e.ActorType = "api_token"
+			e.ActorAPIKeyID = id.APITokenID
+		default:
 			e.ActorUserID = &id.UserID
 			e.ActorSessionID = &id.SessionID
 		}

@@ -7,6 +7,17 @@
 
 ### Added
 
+- Чанк 29 (2026-10-02): API-токены автоматизации со scopes (п. 8 ТЗ).
+  `internal/store/tokens.go` — ApiTokensRepo (в БД SHA-256 хэш; листинг
+  только активных; мягкий отзыв; last_used_at троттлингом раз в минуту).
+  REST: GET/POST /api_tokens (tokens.read/write), DELETE /api_tokens/{id}
+  (отзыв); значение токена — один раз в ответе POST; scopes — строки из
+  общего каталога разрешений (валидация 400), expires_at. Middleware:
+  заголовок X-API-Key (приоритетнее Bearer) → identity с правами =
+  scopes; аудит actor_type=api_token. Живой e2e: токен [rules.read] →
+  200 на rules, 403 на iocs/users (authz.denied в аудите), 200 → отзыв
+  → 401; compliance in_sync 1/1. (server, docs)
+
 - Чанк 28 (2026-10-02): auth/RBAC — локальные пользователи, сессии,
   роли (п. 8–9 ТЗ, без SSO). Миграция 000008: встроенные роли admin
   (`*`), operator, analyst, viewer с permissions. `internal/authn` —
