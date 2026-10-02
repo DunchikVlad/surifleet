@@ -77,6 +77,9 @@ type ServerConfig struct {
 	RedisAddr     string   `yaml:"redis_addr"`
 	NatsURL       string   `yaml:"nats_url"`
 	ClickHouseDSN string   `yaml:"clickhouse_dsn"`
+	// CHRetentionDays — retention (TTL) таблиц agent_logs и agent_metrics в
+	// ClickHouse (чанк 36): записи старше стольких дней удаляются. 0 — бессрочно.
+	CHRetentionDays int `yaml:"ch_retention_days"`
 	// IocSweepInterval — интервал фонового свипера просроченных IOC
 	// (active с expires_at < now() → expired). 0 — свипер выключен.
 	IocSweepInterval Duration `yaml:"ioc_sweep_interval"`
@@ -125,6 +128,7 @@ func DefaultServer() *ServerConfig {
 		OfflineSweepInterval: Duration(30 * time.Second),
 		AuthMode:             "dev",
 		SessionTTL:           Duration(12 * time.Hour),
+		CHRetentionDays:      30,
 		BootstrapAdminEmail:  "admin@surifleet.local",
 		LogLevel:             "info",
 		S3: S3Config{

@@ -7,6 +7,16 @@
 
 ### Added
 
+- Чанк 36 (2026-10-03): retention телеметрии в ClickHouse (п. 5.4,
+  продолжение). TTL для таблиц `surifleet.agent_logs` и
+  `surifleet.agent_metrics`: параметр `server.ch_retention_days`
+  (default 30 дней; 0 — бессрочно). `EnsureTable` при старте применяет
+  `ALTER TABLE … MODIFY TTL ts + INTERVAL N DAY` (идемпотентно; CREATE
+  TABLE IF NOT EXISTS существующие таблицы не обновляет — TTL задаётся
+  отдельным ALTER). Юнит-тесты retentionExpr/ALTER-запроса.
+  `deploy/config/server.example.yaml` + `ch_retention_days`.
+  (server, db, docs)
+
 - Чанк 35 (2026-10-03): OIDC-SSO (п. 9 ТЗ; Authorization Code + PKCE).
   `internal/oidc` (coreos/go-oidc/v3 + x/oauth2 — проверенные библиотеки,
   без самодельной криптографии): flow с PKCE S256, одноразовые state+nonce

@@ -30,7 +30,30 @@ stale (раньше висел бы online). ✅ РЕШЕНО в чанке 28: 
 (admin@surifleet.local / admin12345), сервер и агент под systemd, UI —
 React на `/app/` (`/` — редирект).
 
-**Следующий шаг после 35**:
+**Следующий шаг после 36**:
+1. Scoping ролей по кластерам (применение user_roles.scope_type/clusters),
+   аудит diff «было→стало» + цепочка хэшей; SAML 2.0 / LDAP (п. 9).
+2. Мониторинг (п. 5.4, продолжение): пересылка EVE-алертов в SIEM,
+   дашборды флот/кластер/хост.
+3. OIDC — e2e на стенде с реальным/mock IdP (не проведён в чанке 35 —
+   sandbox сессии блокирует SSH до .28/.67).
+
+Чанк 36 ГОТОВ (2026-10-03, этот коммит): retention телеметрии в ClickHouse
+(п. 5.4, продолжение — закрывает «retention agent_metrics» из next-steps).
+TTL для `surifleet.agent_logs` и `surifleet.agent_metrics`: параметр
+`server.ch_retention_days` (default 30 дней; 0 — бессрочно). `chlogs.
+EnsureTable(ctx, retentionDays)` при старте применяет `ALTER TABLE …
+MODIFY TTL ts + INTERVAL N DAY` (идемпотентно; CREATE TABLE IF NOT EXISTS
+существующие таблицы не обновляет, поэтому TTL — отдельным ALTER;
+hэлпер retentionExpr). main.go: EnsureTable(ensureCtx, cfg.CHRetentionDays),
+лог + retention_days. deploy/config/server.example.yaml + ch_retention_days.
+Юнит-тесты retentionExpr (30/90/0/отрицательное → REMOVE TTL) и
+ALTER-запроса по обеим таблицам. Проверки: go build/vet зелёные,
+chlogs/config тесты ok. Живой e2e не проводился (sandbox блокирует SSH —
+см. статус среды чанка 35): при перекате сервер применит TTL при старте
+(в логе «ClickHouse подключён … retention_days=30»); проверить
+`SELECT engine_full FROM system.tables WHERE name='agent_metrics'`.
+
 1. Scoping ролей по кластерам (применение user_roles.scope_type/clusters),
    аудит diff «было→стало» + цепочка хэшей; SAML 2.0 / LDAP (п. 9).
 2. Мониторинг (п. 5.4, продолжение): retention agent_metrics (TTL в
@@ -789,6 +812,7 @@ managed-файле (245 правил).
 
 | Чанк | Содержание | Коммит |
 |---|---|---|
+| 36 | Retention телеметрии в ClickHouse (п. 5.4): TTL для agent_logs и agent_metrics — `server.ch_retention_days` (default 30 дней; 0 — бессрочно); `chlogs.EnsureTable(ctx, days)` применяет ALTER … MODIFY TTL при старте (идемпотентно); юнит-тесты retentionExpr/ALTER. Живой e2e не проведён (sandbox блокирует SSH) — TTL применится при перекате | (этот коммит) |
 | 35 | OIDC-SSO (п. 9, Authorization Code + PKCE): `internal/oidc` (go-oidc/v3 + x/oauth2, PKCE S256, одноразовые state+nonce в oidc_states — миграция 000009; проверка id_token+nonce; claims id_token+userinfo; маппинг групп→роли по group_role_mapping; JIT-провижининг: по (provider,sub)→обновление ролей / по email→LinkExternal дедуп / CreateExternal без пароля; деактивированный→отказ), store `sso.go` (SsoProviders/OidcStates) + UsersRepo (GetByExternalID/LinkExternal/CreateExternal/SetRoles), REST публичные /auth/sso/{providers,login,callback} + админ /sso_providers (sso.read/write, client_secret writeOnly), каталог + sso.read/write, аудит auth.login_sso/sso.*; React кнопка «Войти через SSO» + вкладка «SSO». Живой e2e НЕ проведён (sandbox блокирует SSH до стенда) — проверить при перекате | (этот коммит) |
 | 6 | Тестовое окружение: Docker 29.1.3 + Compose v2.40.3 на .28; `deploy/docker-compose.yml` (postgres:16-alpine, redis:7-alpine, nats:2.10-alpine -js, clickhouse:24.8-alpine, minio с quay.io + init-бакет surifleet-rulesets); стек healthy (~325 МиБ RAM); миграция 000001 прогнана up/down/up на живом PG (43 отношения: 28 таблиц + 15 партиций); append-only триггер audit_log проверен (UPDATE → ошибка); все сервисы доступны с Windows | 2940139 |
 | 7 | Сервер: `internal/store` (pgx/v5 пул, миграции golang-migrate из embed.FS при старте + --migrate-only, репозитории organizations/clusters/hosts с keyset-пагинацией, маппинг 23505→409/23503→400) + `internal/httpapi` (chi /api/v1 CRUD флота, формат Error по openapi, limit/cursor, middleware request-id/recover/access-log/DevAuth-заглушка X-Dev-User); pgx 5.7.2, migrate 4.18.2, uuid 1.6.0; build/vet/test зелёные (go test прошёл под Windows); живой CRUD проверен curl-ом с Windows на .28 (201/409/400/404/204, next_cursor, health с checks.postgres). Dev-стенд запущен на .28 (PID в ~/surifleet/server.pid, API http://192.168.31.28:8080/api/v1), в БД тестовые org acme/кластер DC-1/хост sensor-01-dc1 | 0447e1f |

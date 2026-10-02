@@ -88,8 +88,11 @@ func (c *Client) exec(ctx context.Context, query string, body []byte) error {
 	return nil
 }
 
-// EnsureTable создаёт базу и таблицу agent_logs, если их нет (старт сервера).
-func (c *Client) EnsureTable(ctx context.Context) error {
+// EnsureTable создаёт базу и таблицу agent_logs, если их нет (старт сервера),
+// и применяет retention (TTL) к обеим таблицам. retentionDays > 0 — хранить
+// записи столько дней (TTL ts + INTERVAL N DAY); 0 — без TTL (бессрочно).
+// ALTER … MODIFY TTL идемпотентен — безопасно при каждом старте (чанк 36).
+func (c *Client) EnsureTable(ctx context.Context, retentionDays int) error {
 	if err := c.exec(ctx, "CREATE DATABASE IF NOT EXISTS "+c.db, nil); err != nil {
 		return fmt.Errorf("create database: %w", err)
 	}
@@ -103,7 +106,33 @@ func (c *Client) EnsureTable(ctx context.Context) error {
 	if err := c.exec(ctx, ddl, nil); err != nil {
 		return fmt.Errorf("create table: %w", err)
 	}
-	return c.ensureMetricsTable(ctx)
+	if err := c.ensureMetricsTable(ctx); err != nil {
+		return err
+	}
+	return c.applyRetention(ctx, retentionDays)
+}
+
+// retentionExpr — TTL-выражение ALTER TABLE: > 0 — «MODIFY TTL ts + INTERVAL
+// N DAY», иначе — «REMOVE TTL» (бессрочное хранение).
+func retentionExpr(days int) string {
+	if days > 0 {
+		return fmt.Sprintf("MODIFY TTL ts + INTERVAL %d DAY", days)
+	}
+	return "REMOVE TTL"
+}
+
+// applyRetention — TTL для agent_logs и agent_metrics (чанк 36).
+// CREATE TABLE IF NOT EXISTS не обновляет существующие таблицы — TTL задаём
+// отдельным ALTER (идемпотентно). 0 — снять TTL (бессрочное хранение).
+func (c *Client) applyRetention(ctx context.Context, days int) error {
+	ttl := retentionExpr(days)
+	for _, table := range []string{"agent_logs", "agent_metrics"} {
+		q := fmt.Sprintf("ALTER TABLE %s.%s %s", c.db, table, ttl)
+		if err := c.exec(ctx, q, nil); err != nil {
+			return fmt.Errorf("retention %s: %w", table, err)
+		}
+	}
+	return nil
 }
 
 // InsertAgentLogs вставляет батч записей (JSONEachRow).

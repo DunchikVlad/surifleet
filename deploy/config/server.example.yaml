@@ -32,6 +32,9 @@ server:
   # Внимание: нативный порт ClickHouse на .28 опубликован как 9900
   # (9000 занят MinIO API) — см. deploy/docker-compose.yml.
   clickhouse_dsn: "clickhouse://192.168.31.28:9900/surifleet"
+  # Retention (TTL) таблиц agent_logs и agent_metrics в ClickHouse (чанк 36):
+  # записи старше стольких дней удаляются. 0 — бессрочное хранение.
+  ch_retention_days: 30
 
   s3:
     endpoint: "192.168.31.28:9000"

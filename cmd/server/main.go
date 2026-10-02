@@ -150,10 +150,10 @@ func main() {
 			fatal(fmt.Errorf("clickhouse: %w", err))
 		}
 		ensureCtx, ensureCancel := context.WithTimeout(ctx, 15*time.Second)
-		if err := chLogs.EnsureTable(ensureCtx); err != nil {
+		if err := chLogs.EnsureTable(ensureCtx, cfg.CHRetentionDays); err != nil {
 			log.Error("ClickHouse: таблица agent_logs не создана (ретрай при вставке)", "err", err)
 		} else {
-			log.Info("ClickHouse подключён", "dsn", cfg.ClickHouseDSN)
+			log.Info("ClickHouse подключён", "dsn", cfg.ClickHouseDSN, "retention_days", cfg.CHRetentionDays)
 		}
 		ensureCancel()
 		hubSrv.SetLogWriter(chLogs)
