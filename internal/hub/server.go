@@ -330,8 +330,7 @@ func (s *Server) handleMessage(ctx context.Context, log *slog.Logger, agentID uu
 		s.handleLogBatch(ctx, log, agentID, p.LogBatch)
 
 	case *agentv1.AgentMessage_MetricsBatch:
-		log.Debug("MetricsBatch", "points", len(p.MetricsBatch.GetPoints()))
-		// TODO(chunk 9+): запись метрик в ClickHouse.
+		s.handleMetricsBatch(ctx, log, agentID, p.MetricsBatch)
 
 	case *agentv1.AgentMessage_TaskResult:
 		s.handleTaskResult(ctx, log, agentID, p.TaskResult)
@@ -405,6 +404,35 @@ func (s *Server) handleLogBatch(ctx context.Context, log *slog.Logger, agentID u
 		return
 	}
 	log.Debug("LogBatch записан в ClickHouse", "entries", len(rows))
+}
+
+// handleMetricsBatch пишет точки метрик агента в ClickHouse
+// (surifleet.agent_metrics, chunk 33). Ошибка вставки логируется, батч
+// теряется (метрики — best-effort).
+func (s *Server) handleMetricsBatch(ctx context.Context, log *slog.Logger, agentID uuid.UUID, batch *agentv1.MetricsBatch) {
+	points := batch.GetPoints()
+	if s.chLogs == nil || len(points) == 0 {
+		return
+	}
+	rows := make([]chlogs.MetricRow, 0, len(points))
+	for _, p := range points {
+		ts := time.Now().UTC()
+		if p.GetTs() != nil {
+			ts = p.GetTs().AsTime()
+		}
+		rows = append(rows, chlogs.MetricRow{
+			AgentID:    agentID.String(),
+			InstanceID: p.GetInstanceId(),
+			Ts:         chlogs.FormatTS(ts),
+			Name:       p.GetName(),
+			Value:      p.GetValue(),
+		})
+	}
+	if err := s.chLogs.InsertMetrics(ctx, rows); err != nil {
+		log.Error("MetricsBatch: вставка в ClickHouse", "points", len(rows), "err", err)
+		return
+	}
+	log.Debug("MetricsBatch записан в ClickHouse", "points", len(rows))
 }
 
 // setPresence регистрирует стрим: stream:{agent_id} → presence (TTL 120 с),

@@ -220,6 +220,7 @@ func NewRouter(d Deps) http.Handler {
 		r.Route("/agents", func(r chi.Router) {
 			r.With(h.requirePerm(PermAgentsRead)).Get("/", h.listAgents)
 			r.With(h.requirePerm(PermAgentsRead)).Get("/{id}/logs", h.getAgentLogs)
+			r.With(h.requirePerm(PermAgentsRead)).Get("/{id}/metrics", h.getAgentMetrics)
 		})
 	})
 

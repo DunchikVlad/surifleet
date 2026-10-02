@@ -231,6 +231,46 @@ func runSession(ctx context.Context, cfg *config.AgentConfig, id *identity, leve
 		}
 	}()
 
+	// Доставка метрик агента на сервер (чанк 33): MetricsBatch каждые
+	// metrics_interval (HelloAck, default 60 с): host.cpu_percent,
+	// host.mem_bytes, host.disk_used_percent. Отдельный sampler (CPU%
+	// считается между сэмплами — делить с heartbeat нельзя).
+	metSampler := &resourceSampler{}
+	metInterval := time.Duration(ack.GetMetricsIntervalSeconds()) * time.Second
+	if metInterval <= 0 {
+		metInterval = 60 * time.Second
+	}
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		t := time.NewTicker(metInterval)
+		defer t.Stop()
+		for {
+			select {
+			case <-hbCtx.Done():
+				return
+			case <-t.C:
+				var diskPath string
+				if rep := disc.Load(); rep != nil {
+					if inst := rep.GetInstances(); len(inst) > 0 {
+						diskPath = inst[0].GetLogDir()
+					}
+				}
+				sum := metSampler.sample(diskPath)
+				now := timestamppb.Now()
+				batch := &agentv1.MetricsBatch{Points: []*agentv1.MetricPoint{
+					{Ts: now, Name: "host.cpu_percent", Value: sum.GetCpuPercent()},
+					{Ts: now, Name: "host.mem_bytes", Value: float64(sum.GetMemBytes())},
+					{Ts: now, Name: "host.disk_used_percent", Value: sum.GetDiskUsedPercent()},
+				}}
+				if err := send(&agentv1.AgentMessage{Payload: &agentv1.AgentMessage_MetricsBatch{MetricsBatch: batch}}); err != nil {
+					log.Warn("MetricsBatch не отправлен", "err", err)
+					return
+				}
+			}
+		}
+	}()
+
 	// Приём серверных сообщений до разрыва.
 	for {
 		msg, err := stream.Recv()

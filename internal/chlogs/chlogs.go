@@ -103,7 +103,7 @@ func (c *Client) EnsureTable(ctx context.Context) error {
 	if err := c.exec(ctx, ddl, nil); err != nil {
 		return fmt.Errorf("create table: %w", err)
 	}
-	return nil
+	return c.ensureMetricsTable(ctx)
 }
 
 // InsertAgentLogs вставляет батч записей (JSONEachRow).
@@ -160,6 +160,100 @@ FROM %s.agent_logs WHERE agent_id = %s ORDER BY ts DESC LIMIT %d FORMAT JSONEach
 
 // FormatTS переводит время в формат DateTime64(3) UTC для вставки.
 func FormatTS(t time.Time) string { return t.UTC().Format(tsLayout) }
+
+// ---------------------------------------------------------------------------
+// Метрики агентов (чанк 33): таблица surifleet.agent_metrics.
+// ---------------------------------------------------------------------------
+
+// MetricRow — строка таблицы surifleet.agent_metrics.
+type MetricRow struct {
+	AgentID    string  `json:"agent_id"`
+	InstanceID string  `json:"instance_id"`
+	Ts         string  `json:"ts"`
+	Name       string  `json:"name"`
+	Value      float64 `json:"value"`
+}
+
+// ensureMetricsTable создаёт таблицу agent_metrics, если её нет.
+func (c *Client) ensureMetricsTable(ctx context.Context) error {
+	ddl := fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s.agent_metrics (
+  agent_id String,
+  instance_id String,
+  ts DateTime64(3, 'UTC'),
+  name LowCardinality(String),
+  value Float64
+) ENGINE = MergeTree ORDER BY (agent_id, name, ts)`, c.db)
+	if err := c.exec(ctx, ddl, nil); err != nil {
+		return fmt.Errorf("create table agent_metrics: %w", err)
+	}
+	return nil
+}
+
+// InsertMetrics вставляет батч точек метрик (JSONEachRow).
+func (c *Client) InsertMetrics(ctx context.Context, rows []MetricRow) error {
+	if len(rows) == 0 {
+		return nil
+	}
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	for _, r := range rows {
+		if err := enc.Encode(r); err != nil {
+			return fmt.Errorf("encode row: %w", err)
+		}
+	}
+	q := fmt.Sprintf("INSERT INTO %s.agent_metrics (agent_id, instance_id, ts, name, value) FORMAT JSONEachRow", c.db)
+	return c.exec(ctx, q, buf.Bytes())
+}
+
+// AgentMetrics — точки метрик агента за последние minutes (ts ASC),
+// опционально фильтр по именам. limit — предел строк (default 5000).
+func (c *Client) AgentMetrics(ctx context.Context, agentID string, minutes int, names []string, limit int) ([]MetricRow, error) {
+	if minutes <= 0 {
+		minutes = 60
+	}
+	if limit <= 0 {
+		limit = 5000
+	}
+	if limit > 50000 {
+		limit = 50000
+	}
+	q := fmt.Sprintf(`SELECT agent_id, instance_id, ts, name, value
+FROM %s.agent_metrics
+WHERE agent_id = %s AND ts >= now() - INTERVAL %d MINUTE`,
+		c.db, quoteString(agentID), minutes)
+	if len(names) > 0 {
+		quoted := make([]string, 0, len(names))
+		for _, n := range names {
+			quoted = append(quoted, quoteString(n))
+		}
+		q += " AND name IN (" + strings.Join(quoted, ",") + ")"
+	}
+	q += fmt.Sprintf(" ORDER BY ts ASC LIMIT %d FORMAT JSONEachRow", limit)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.base+"/?query="+url.QueryEscape(q), nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := c.hc.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		return nil, fmt.Errorf("clickhouse HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(b)))
+	}
+	var rows []MetricRow
+	dec := json.NewDecoder(resp.Body)
+	for dec.More() {
+		var r MetricRow
+		if err := dec.Decode(&r); err != nil {
+			return rows, fmt.Errorf("decode row: %w", err)
+		}
+		rows = append(rows, r)
+	}
+	return rows, nil
+}
 
 // ParseTS переводит строку DateTime64 из ClickHouse обратно во время (UTC).
 func ParseTS(s string) (time.Time, error) {

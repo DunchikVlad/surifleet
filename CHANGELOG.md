@@ -7,6 +7,17 @@
 
 ### Added
 
+- Чанк 33 (2026-10-02): мониторинг — метрики агента host.* end-to-end
+  (п. 5.4, первый срез). Агент: MetricsBatch каждые 60 с
+  (host.cpu_percent, host.mem_bytes, host.disk_used_percent).
+  ClickHouse: таблица surifleet.agent_metrics (создаётся при старте),
+  запись из hub.handleMetricsBatch. API: GET /agents/{id}/metrics
+  (agents.read, окно minutes 1..1440, фильтр names) → {series}.
+  React-вкладка «Метрики»: селектор агента, окно 15мин–24ч,
+  SVG-спарклайны CPU/память/диск, авто 30 с. Живой e2e: точки в
+  ClickHouse, API с реальными значениями, compliance in_sync 1/1.
+  (agent, server, ui, docs)
+
 - Чанк 32 (2026-10-02): React UI — скрытие пишущих действий по
   разрешениям пользователя (ТЗ: «UI скрывает недоступные действия»).
   `web/src/perms.ts` (PermsContext + хук useCan), App провайдит
