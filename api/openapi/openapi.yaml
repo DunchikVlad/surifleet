@@ -200,6 +200,32 @@ paths:
             text/html: {}
         default: {$ref: '#/components/responses/Error'}
 
+  /auth/ldap/login:
+    post:
+      operationId: ldap_login
+      tags: [auth]
+      summary: Вход через LDAP/AD (bind-аутентификация)
+      description: 'Публичный. Поиск пользователя в каталоге по user_filter, bind его DN+паролем (пароль проверяет каталог, у нас не хранится), JIT-провижининг, маппинг групп в роли. Ответ — та же пара токенов, что у /auth/login. Провайдер настраивается в /sso_providers (type=ldap).'
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [provider_id, username, password]
+              properties:
+                provider_id: {type: string, format: uuid}
+                username: {type: string}
+                password: {type: string}
+      responses:
+        '200':
+          description: Успешный вход
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/AuthTokens'}
+        default: {$ref: '#/components/responses/Error'}
+
   /auth/me:
     get:
       operationId: get_current_user
@@ -3396,17 +3422,11 @@ components:
       required: [name, config]
       properties:
         name: {type: string}
-        type: {type: string, enum: [oidc], default: oidc, description: 'Пока поддерживается только oidc'}
+        type: {type: string, enum: [oidc, ldap], default: oidc, description: 'saml — следующие чанки'}
         enabled: {type: boolean, default: true}
         config:
           type: object
-          required: [issuer_url, client_id, redirect_url]
-          properties:
-            issuer_url: {type: string, description: 'OIDC issuer (discovery URL)'}
-            client_id: {type: string}
-            client_secret: {type: string, writeOnly: true, description: 'хранится, не возвращается'}
-            redirect_url: {type: string, description: '<базовый URL сервера>/api/v1/auth/sso/callback — регистрируется в IdP'}
-            scopes: {type: array, items: {type: string}, description: 'пусто → openid email profile'}
+          description: 'oidc: issuer_url, client_id, client_secret (writeOnly), redirect_url, scopes. ldap: url (ldap/ldaps), start_tls, bind_dn, bind_password (writeOnly), base_dn, user_filter, username_attr, email_attr, group_attr'
         group_role_mapping: {type: object, description: '{"<группа IdP>": ["<role_uuid>"]}'}
 
     SsoProviderUpdateInput:
@@ -3416,13 +3436,7 @@ components:
         enabled: {type: boolean}
         config:
           type: object
-          description: 'Пустой client_secret — «не менять» (сохраняется старый)'
-          properties:
-            issuer_url: {type: string}
-            client_id: {type: string}
-            client_secret: {type: string, writeOnly: true}
-            redirect_url: {type: string}
-            scopes: {type: array, items: {type: string}}
+          description: 'Замена конфига по типу (oidc|ldap); пустой client_secret/bind_password — «не менять»'
         group_role_mapping: {type: object}
 
     ApiToken:

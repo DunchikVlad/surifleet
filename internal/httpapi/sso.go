@@ -26,6 +26,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/surifleet/surifleet/internal/authn"
+	"github.com/surifleet/surifleet/internal/ldapauth"
 	"github.com/surifleet/surifleet/internal/oidc"
 	"github.com/surifleet/surifleet/internal/store"
 )
@@ -181,16 +182,125 @@ func escapeHTML(s string) string {
 }
 
 // ---------------------------------------------------------------------------
+// LDAP/AD-вход (чанк 40): POST /auth/ldap/login {provider_id, username, password}
+// ---------------------------------------------------------------------------
+
+// ldapLoginRequest — тело POST /auth/ldap/login.
+type ldapLoginRequest struct {
+	ProviderID uuid.UUID `json:"provider_id"`
+	Username   string    `json:"username"`
+	Password   string    `json:"password"`
+}
+
+// ldapLogin — bind-аутентификация через LDAP/AD → JIT → сессия SuriFleet
+// (тот же ответ authTokens, что и у локального /auth/login — фронт един).
+func (h *handlers) ldapLogin(w http.ResponseWriter, r *http.Request) {
+	if h.d.OIDC == nil {
+		writeError(w, http.StatusServiceUnavailable, CodeInternal, "SSO не настроен на сервере", nil)
+		return
+	}
+	var in ldapLoginRequest
+	if !decodeJSON(w, r, &in) {
+		return
+	}
+	in.Username = strings.TrimSpace(in.Username)
+	if in.ProviderID == uuid.Nil || in.Username == "" || in.Password == "" {
+		writeValidation(w, fieldErrors{
+			"provider_id": "обязательное поле", "username": "обязательное поле", "password": "обязательное поле"})
+		return
+	}
+	p, err := h.d.Store.SsoProviders.GetByID(r.Context(), in.ProviderID)
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	if p.Type != "ldap" || !p.Enabled {
+		writeError(w, http.StatusNotFound, CodeNotFound, "LDAP-провайдер не найден или отключён", nil)
+		return
+	}
+	cfg, err := ldapauth.SsoProviderConfig(p)
+	if err != nil {
+		errLog.Error("ldap login: config", "err", err)
+		writeError(w, http.StatusInternalServerError, CodeInternal, "некорректная конфигурация LDAP-провайдера", nil)
+		return
+	}
+	profile, err := cfg.Authenticate(in.Username, in.Password)
+	if err != nil {
+		switch {
+		case errors.Is(err, ldapauth.ErrInvalidCreds), errors.Is(err, ldapauth.ErrUserNotFound):
+			h.auditAnon(r, in.Username, "auth.login_ldap", "denied", "неверные креды/нет в каталоге")
+			writeError(w, http.StatusUnauthorized, CodeUnauthenticated, "неверное имя пользователя или пароль", nil)
+		default:
+			h.auditAnon(r, in.Username, "auth.login_ldap", "error", err.Error())
+			writeError(w, http.StatusBadGateway, CodeInternal, "LDAP-каталог недоступен: "+err.Error(), nil)
+		}
+		return
+	}
+	// JIT-провижининг — общий с OIDC механизм (маппинг групп → роли).
+	user, err := h.d.OIDC.Provision(r.Context(), p, oidc.Claims{
+		Sub: profile.ExternalID, Email: profile.Email, Name: profile.DisplayName, Groups: profile.Groups,
+	})
+	if err != nil {
+		if errors.Is(err, oidc.ErrUserInactive) {
+			writeError(w, http.StatusForbidden, CodeForbidden, "пользователь деактивирован", nil)
+		} else {
+			writeStoreError(w, err)
+		}
+		return
+	}
+
+	// Сессия SuriFleet (как в локальном/OIDC login).
+	token, err := authn.NewToken()
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	ttl := h.d.SessionTTL
+	if ttl <= 0 {
+		ttl = 12 * time.Hour
+	}
+	ua := r.UserAgent()
+	var ip *string
+	if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
+		ip = &host
+	}
+	sess, err := h.d.Store.Sessions.Create(r.Context(), user.ID, authn.TokenHash(token), &ua, ip, time.Now().Add(ttl))
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	if err := h.d.Store.Users.TouchLogin(r.Context(), user.ID); err != nil {
+		errLog.Error("ldap login: last_login_at", "err", err)
+	}
+	id := &Identity{UserID: user.ID, SessionID: sess.ID, OrgID: user.OrganizationID, Email: user.Email}
+	h.audit(r, id, "auth.login_ldap", nil, nil, "success", "")
+	writeJSON(w, http.StatusOK, authTokens{
+		AccessToken: token, RefreshToken: token, TokenType: "Bearer",
+		ExpiresIn: int(ttl.Seconds()),
+	})
+}
+
+// ---------------------------------------------------------------------------
 // Администрирование SSO-провайдеров (/sso_providers)
 // ---------------------------------------------------------------------------
 
-// ssoProviderInput — POST/PATCH /sso_providers.
+// ssoProviderInput — POST/PATCH /sso_providers. Config — сырой JSON:
+// схема зависит от type (oidc — OIDCConfig, ldap — ldapauth.Config).
 type ssoProviderInput struct {
 	Name             *string             `json:"name"`
 	Type             *string             `json:"type"`
-	Config           *store.OIDCConfig   `json:"config"`
+	Config           json.RawMessage     `json:"config"`
 	GroupRoleMapping map[string][]string `json:"group_role_mapping"`
 	Enabled          *bool               `json:"enabled"`
+}
+
+// oidcConfigFromRaw — разбор OIDC-конфига из сырого JSON (nil → пустой).
+func oidcConfigFromRaw(raw json.RawMessage) *store.OIDCConfig {
+	var c store.OIDCConfig
+	if len(raw) > 0 {
+		_ = json.Unmarshal(raw, &c)
+	}
+	return &c
 }
 
 // validateSsoConfig — проверка OIDC-конфига (при создании — обязательные поля).
@@ -213,6 +323,27 @@ func validateSsoConfig(fe fieldErrors, cfg *store.OIDCConfig, require bool) {
 		fe.add("config.redirect_url", "обязательное поле")
 	} else if _, err := url.ParseRequestURI(cfg.RedirectURL); err != nil {
 		fe.add("config.redirect_url", "некорректный URL")
+	}
+}
+
+// validateLdapConfig — проверка LDAP-конфига (url + base_dn обязательны).
+func validateLdapConfig(fe fieldErrors, raw json.RawMessage) {
+	if len(raw) == 0 {
+		fe.add("config", "обязательное поле (url, base_dn)")
+		return
+	}
+	var c ldapauth.Config
+	if err := json.Unmarshal(raw, &c); err != nil {
+		fe.add("config", "некорректный JSON: "+err.Error())
+		return
+	}
+	if strings.TrimSpace(c.URL) == "" {
+		fe.add("config.url", "обязательное поле (ldap:// или ldaps://)")
+	} else if !strings.HasPrefix(c.URL, "ldap://") && !strings.HasPrefix(c.URL, "ldaps://") {
+		fe.add("config.url", "схема ldap:// или ldaps://")
+	}
+	if strings.TrimSpace(c.BaseDN) == "" {
+		fe.add("config.base_dn", "обязательное поле (напр. dc=corp,dc=example,dc=com)")
 	}
 }
 
@@ -276,10 +407,14 @@ func (h *handlers) createSsoProvider(w http.ResponseWriter, r *http.Request) {
 	if in.Type != nil && *in.Type != "" {
 		typ = *in.Type
 	}
-	if typ != "oidc" {
-		fe.add("type", "поддерживается только oidc (saml/ldap — следующие чанки)")
+	switch typ {
+	case "oidc":
+		validateSsoConfig(fe, oidcConfigFromRaw(in.Config), true)
+	case "ldap":
+		validateLdapConfig(fe, in.Config)
+	default:
+		fe.add("type", "поддерживается oidc|ldap (saml — следующие чанки)")
 	}
-	validateSsoConfig(fe, in.Config, true)
 	if in.GroupRoleMapping != nil {
 		h.validateGroupRoleMapping(r, orgID, fe, in.GroupRoleMapping)
 	}
@@ -289,7 +424,7 @@ func (h *handlers) createSsoProvider(w http.ResponseWriter, r *http.Request) {
 	}
 	grm, _ := json.Marshal(in.GroupRoleMapping)
 	p, err := h.d.Store.SsoProviders.Create(r.Context(), orgID, store.SsoProviderInput{
-		Name: strings.TrimSpace(*in.Name), Type: typ, Config: *in.Config,
+		Name: strings.TrimSpace(*in.Name), Type: typ, ConfigRaw: in.Config,
 		GroupRoleMapping: grm, Enabled: in.Enabled,
 	})
 	if err != nil {
@@ -334,11 +469,20 @@ func (h *handlers) updateSsoProvider(w http.ResponseWriter, r *http.Request) {
 	if in.Name != nil && strings.TrimSpace(*in.Name) == "" {
 		fe.add("name", "непустое поле")
 	}
-	if in.Type != nil && *in.Type != "" && *in.Type != "oidc" {
-		fe.add("type", "поддерживается только oidc")
+	cur, _ := h.d.Store.SsoProviders.GetByID(r.Context(), id)
+	typ := cur.Type
+	if in.Type != nil && *in.Type != "" {
+		typ = *in.Type
 	}
-	if in.Config != nil {
-		validateSsoConfig(fe, in.Config, false)
+	if typ != "oidc" && typ != "ldap" {
+		fe.add("type", "поддерживается oidc|ldap")
+	}
+	if len(in.Config) > 0 {
+		if typ == "ldap" {
+			validateLdapConfig(fe, in.Config)
+		} else {
+			validateSsoConfig(fe, oidcConfigFromRaw(in.Config), false)
+		}
 	}
 	if in.GroupRoleMapping != nil {
 		h.validateGroupRoleMapping(r, orgID, fe, in.GroupRoleMapping)
@@ -354,8 +498,8 @@ func (h *handlers) updateSsoProvider(w http.ResponseWriter, r *http.Request) {
 	if in.Type != nil {
 		upd.Type = *in.Type
 	}
-	if in.Config != nil {
-		upd.Config = *in.Config
+	if len(in.Config) > 0 {
+		upd.ConfigRaw = in.Config
 	}
 	if in.GroupRoleMapping != nil {
 		grm, _ := json.Marshal(in.GroupRoleMapping)

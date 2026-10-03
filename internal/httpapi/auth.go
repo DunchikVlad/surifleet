@@ -101,10 +101,11 @@ func identityFrom(ctx context.Context) *Identity {
 
 // authPublicPaths — пути без аутентификации в token-режиме.
 var authPublicPaths = map[string]bool{
-	"/api/v1/health":       true,
-	"/api/v1/version":      true,
-	"/api/v1/auth/login":   true,
-	"/api/v1/auth/refresh": true,
+	"/api/v1/health":          true,
+	"/api/v1/version":         true,
+	"/api/v1/auth/login":      true,
+	"/api/v1/auth/refresh":    true,
+	"/api/v1/auth/ldap/login": true,
 }
 
 // authMiddleware — аутентификация запроса по режиму (dev|token).

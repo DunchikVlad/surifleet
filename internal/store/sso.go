@@ -27,11 +27,14 @@ type OIDCConfig struct {
 // SsoProvider — SSO-провайдер организации (sso_providers).
 // Config.ClientSecret скрывается в JSON наружу (см. SsoProvider.Public).
 type SsoProvider struct {
-	ID               uuid.UUID       `json:"id"`
-	OrganizationID   uuid.UUID       `json:"organization_id"`
-	Name             string          `json:"name"`
-	Type             string          `json:"type"` // oidc | saml | ldap
-	Config           OIDCConfig      `json:"config"`
+	ID             uuid.UUID  `json:"id"`
+	OrganizationID uuid.UUID  `json:"organization_id"`
+	Name           string     `json:"name"`
+	Type           string     `json:"type"` // oidc | saml | ldap
+	Config         OIDCConfig `json:"config"`
+	// ConfigRaw — сырое jsonb-поле config (для не-OIDC типов: ldap/saml,
+	// у которых своя схема конфигурации). В JSON наружу не отдаётся.
+	ConfigRaw        json.RawMessage `json:"-"`
 	GroupRoleMapping json.RawMessage `json:"group_role_mapping"`
 	Enabled          bool            `json:"enabled"`
 	CreatedAt        time.Time       `json:"created_at"`
@@ -45,12 +48,23 @@ func (p SsoProvider) Public() SsoProvider {
 }
 
 // SsoProviderInput — создание/обновление провайдера.
+// Config — типизированный OIDC-конфиг; ConfigRaw — сырой JSON (ldap/saml).
+// При записи в БД приоритет у ConfigRaw (если задан).
 type SsoProviderInput struct {
 	Name             string
 	Type             string
 	Config           OIDCConfig
+	ConfigRaw        json.RawMessage // сырой jsonb config (ldap/saml); приоритетнее Config
 	GroupRoleMapping json.RawMessage // nil — не менять (PATCH) / '{}' (POST)
 	Enabled          *bool           // nil — не менять
+}
+
+// configJSON — итоговый jsonb config: ConfigRaw, иначе маршалинг Config.
+func (in SsoProviderInput) configJSON() ([]byte, error) {
+	if len(in.ConfigRaw) > 0 {
+		return in.ConfigRaw, nil
+	}
+	return json.Marshal(in.Config)
 }
 
 // SsoProvidersRepo — CRUD sso_providers.
@@ -69,6 +83,7 @@ func scanSsoProvider(row pgx.Row) (SsoProvider, error) {
 		return p, translate(err)
 	}
 	if len(cfg) > 0 {
+		p.ConfigRaw = json.RawMessage(cfg)
 		if err := json.Unmarshal(cfg, &p.Config); err != nil {
 			return p, err
 		}
@@ -107,7 +122,7 @@ func (r *SsoProvidersRepo) GetByID(ctx context.Context, id uuid.UUID) (SsoProvid
 
 // Create создаёт провайдера. Дубль (org,name) → ErrConflict.
 func (r *SsoProvidersRepo) Create(ctx context.Context, orgID uuid.UUID, in SsoProviderInput) (SsoProvider, error) {
-	cfg, err := json.Marshal(in.Config)
+	cfg, err := in.configJSON()
 	if err != nil {
 		return SsoProvider{}, err
 	}
@@ -140,23 +155,31 @@ func (r *SsoProvidersRepo) Update(ctx context.Context, id uuid.UUID, in SsoProvi
 	if in.Type != "" {
 		cur.Type = in.Type
 	}
-	// Config: обновляем только если прислали осмысленную (issuer_url не пуст).
-	// Пустой client_secret в PATCH означает «не менять» — сохраняем старый.
-	if in.Config.IssuerURL != "" || in.Config.ClientID != "" || in.Config.RedirectURL != "" {
-		if in.Config.ClientSecret == "" {
-			in.Config.ClientSecret = cur.Config.ClientSecret
+	// Config: приоритет ConfigRaw (ldap/saml — пишем jsonb как есть).
+	// Иначе OIDC: обновляем только осмысленную (issuer_url не пуст);
+	// пустой client_secret в PATCH — «не менять» (сохраняем старый).
+	var cfg []byte
+	if len(in.ConfigRaw) > 0 {
+		cfg = in.ConfigRaw
+		cur.ConfigRaw = in.ConfigRaw
+	} else {
+		if in.Config.IssuerURL != "" || in.Config.ClientID != "" || in.Config.RedirectURL != "" {
+			if in.Config.ClientSecret == "" {
+				in.Config.ClientSecret = cur.Config.ClientSecret
+			}
+			cur.Config = in.Config
 		}
-		cur.Config = in.Config
+		var err error
+		cfg, err = json.Marshal(cur.Config)
+		if err != nil {
+			return SsoProvider{}, err
+		}
 	}
 	if len(in.GroupRoleMapping) > 0 {
 		cur.GroupRoleMapping = in.GroupRoleMapping
 	}
 	if in.Enabled != nil {
 		cur.Enabled = *in.Enabled
-	}
-	cfg, err := json.Marshal(cur.Config)
-	if err != nil {
-		return SsoProvider{}, err
 	}
 	return scanSsoProvider(r.pool.QueryRow(ctx,
 		`UPDATE sso_providers SET name=$2, type=$3, config=$4, group_role_mapping=$5,

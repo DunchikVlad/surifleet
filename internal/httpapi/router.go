@@ -90,6 +90,8 @@ func NewRouter(d Deps) http.Handler {
 			r.Get("/sso/providers", h.listSsoProvidersPublic)
 			r.Get("/sso/{id}/login", h.ssoLogin)
 			r.Get("/sso/callback", h.ssoCallback)
+			// LDAP/AD (чанк 40): bind-вход — публичный.
+			r.Post("/ldap/login", h.ldapLogin)
 		})
 
 		// SSO-провайдеры (администрирование; чанк 35).

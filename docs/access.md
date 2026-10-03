@@ -154,6 +154,15 @@ curl -H "Authorization: Bearer $TOKEN" http://192.168.31.28:8080/api/v1/agents
   создаётся при первом входе; если локальный пользователь с таким email уже
   есть — привязывается к IdP; роли назначаются по группам из IdP при каждом
   входе. Деактивированный пользователь входа не проходит (отказ).
+- **SSO / LDAP/AD (чанк 40)**: bind-аутентификация. Провайдер type=ldap в
+  `/sso_providers` (config: `url` ldap/ldaps, `start_tls`, `bind_dn`,
+  `bind_password` (writeOnly), `base_dn`, `user_filter` (шаблон с %s →
+  username, дефолт AD/POSIX-набор), `username_attr`, `email_attr`,
+  `group_attr` (дефолт memberOf)). Вход: `POST /auth/ldap/login`
+  `{provider_id, username, password}` (публичный) — ответ как у
+  `/auth/login` (`access_token`…); каталог сам проверяет пароль (у нас он
+  не хранится). Группы (memberOf → cn) → роли через тот же
+  group_role_mapping; JIT — общий с OIDC механизм. Аудит auth.login_ldap.
 - Режим `auth_mode: dev` (по умолчанию в коде) — прежняя заглушка
   X-Dev-User, все права; только для локальной разработки.
 - Ванильный MVP UI на `/` в token-режиме НЕ работает (не шлёт

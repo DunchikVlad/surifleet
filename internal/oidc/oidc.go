@@ -175,7 +175,7 @@ func (s *Service) HandleCallback(ctx context.Context, state, code string) (store
 	if err != nil {
 		return store.User{}, err
 	}
-	return s.provision(ctx, p, claims)
+	return s.Provision(ctx, p, claims)
 }
 
 // extractClaims — claims из id_token (+ userinfo как fallback для groups).
@@ -257,9 +257,10 @@ func roleIDsForGroups(mapping json.RawMessage, groups []string) []uuid.UUID {
 	return out
 }
 
-// provision — JIT-провижининг: найти/создать пользователя по (provider, sub)
+// Provision — JIT-провижининг: найти/создать пользователя по (provider, sub)
 // или email, назначить роли по группам. Возвращает активного пользователя.
-func (s *Service) provision(ctx context.Context, p store.SsoProvider, c Claims) (store.User, error) {
+// Экспортирован для других SSO-механизмов (LDAP, чанк 40).
+func (s *Service) Provision(ctx context.Context, p store.SsoProvider, c Claims) (store.User, error) {
 	email := strings.ToLower(strings.TrimSpace(c.Email))
 	displayName := strings.TrimSpace(c.Name)
 	if displayName == "" {

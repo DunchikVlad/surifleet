@@ -7,6 +7,27 @@
 
 ### Added
 
+- Чанк 40 (2026-10-03): LDAP/AD-аутентификация (п. 9 ТЗ: «LDAP/AD —
+  bind-аутентификация и чтение групп»). `internal/ldapauth`
+  (go-ldap/ldap/v3): поиск пользователя под service-аккаунтом (bind_dn)
+  по user_filter (шаблон %s → ldap.EscapeFilter — защита от инъекций;
+  дефолт (|(sAMAccountName=)(userPrincipalName=)(uid=))), bind DN
+  записи + её паролем (проверка кредов самим каталогом, пароль не
+  оседает), чтение email (mail → userPrincipalName), имени
+  (displayName → cn) и групп (memberOf → cn RDN, дедуп). JIT-провижининг
+  и маппинг групп → роли — общий oidc.Service.Provision (экспортирован).
+  REST: POST /auth/ldap/login {provider_id, username, password}
+  (публичный; ответ authTokens как у локального входа); аудит
+  auth.login_ldap (success/denied/error). Провайдер type=ldap в
+  /sso_providers: config — url (ldap/ldaps), start_tls, bind_dn,
+  bind_password (writeOnly), base_dn, user_filter, group_attr и др.;
+  валидация url+base_dn. store.SsoProvider + ConfigRaw (сырой jsonb для
+  не-OIDC типов). Юнит-тесты: фильтр (экранирование инъекций/wildcard,
+  шаблон), профиль (mail/UPN/cn fallback, нет email), группы (memberOf→
+  cn, дедуп, posix). Живой e2e с каталогом не проводился (в sandbox нет
+  LDAP-сервера) — проверить при перекате против AD/OpenLDAP.
+  (server, db, api, docs)
+
 - Чанк 39 (2026-10-03): аудит diff для остальных PATCH (п. 8 ТЗ,
   завершение эпика аудит-diff). `rules.update`, `iocs.update`,
   `feeds.update` теперь пишут аудит с diff «было→стало» через

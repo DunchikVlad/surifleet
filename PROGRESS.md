@@ -30,7 +30,41 @@ stale (раньше висел бы online). ✅ РЕШЕНО в чанке 28: 
 (admin@surifleet.local / admin12345), сервер и агент под systemd, UI —
 React на `/app/` (`/` — редирект).
 
-**Следующий шаг после 39**:
+**Следующий шаг после 40**:
+1. Scoping ролей по кластерам (применение user_roles.scope_type/clusters);
+   SAML 2.0 (п. 9); экспорт аудита.
+2. Мониторинг (п. 5.4, продолжение): пересылка EVE-алертов в SIEM,
+   дашборды флот/кластер/хост.
+3. OIDC — e2e на стенде с реальным/mock IdP (не проведён в чанке 35 —
+   sandbox сессии блокирует SSH до .28/.67).
+4. LDAP — e2e против AD/OpenLDAP (не проведён в чанке 40 — нет каталога
+   в sandbox); стенд: включить audit_hash_chain=true при перекате.
+
+Чанк 40 ГОТОВ (2026-10-03, этот коммит): LDAP/AD-аутентификация (п. 9 ТЗ).
+`internal/ldapauth` (go-ldap/ldap/v3): Config (url ldap/ldaps, start_tls,
+insecure_tls, bind_dn/bind_password, base_dn, user_filter, username_attr,
+email/display_name/group_attr); Authenticate — поиск пользователя под
+service-аккаунтом по BuildUserFilter (шаблон %s, ldap.EscapeFilter —
+защита от инъекций; дефолт (|(sAMAccountName=%s)(userPrincipalName=%s)
+(uid=%s))), bind DN записи + её паролем (креды проверяет сам каталог),
+ProfileFromEntry — email (mail → userPrincipalName), имя (displayName →
+cn → email), группы (memberOf → cn RDN с дедупом; posix — как есть).
+JIT + маппинг групп → роли — общий oidc.Service.Provision (экспортирован
+из internal/oidc). REST: POST /auth/ldap/login {provider_id, username,
+password} (публичный в authPublicPaths; ответ authTokens как у локального
+/auth/login — фронт един); ошибки: неверные креды/нет в каталоге → 401
+(в аудит denied), каталог недоступен → 502 (в аудит error),
+деактивированный → 403; аудит auth.login_ldap. Провайдер type=ldap в
+/sso_providers: create/update принимают type=ldap с ldap-конфигом
+(валидация url+base_dn); store.SsoProvider + ConfigRaw (сырой jsonb —
+конфиг не-OIDC типов не маршалится в OIDCConfig). Юнит-тесты ldapauth:
+фильтр (экранирование инъекции и wildcard, шаблон, дефолт), профиль
+(mail/UPN/cn fallback, ErrNoEmail), группы (memberOf→cn, дедуп, posix),
+ConfigFrom (валидный/пустой/битый). Проверки: go build/vet зелёные,
+ldapauth/oidc/httpapi/store тесты ok. Живой e2e не проводился (в sandbox
+нет LDAP-сервера): при перекате создать провайдер type=ldap →
+POST /auth/ldap/login → сессия → /auth/me с ролями по группам.
+
 1. Scoping ролей по кластерам (применение user_roles.scope_type/clusters);
    SAML 2.0 / LDAP (п. 9); экспорт аудита.
 2. Мониторинг (п. 5.4, продолжение): пересылка EVE-алертов в SIEM,
@@ -893,6 +927,7 @@ managed-файле (245 правил).
 
 | Чанк | Содержание | Коммит |
 |---|---|---|
+| 40 | LDAP/AD-аутентификация (п. 9): `internal/ldapauth` (go-ldap/v3) — bind-аутентификация (поиск по user_filter с EscapeFilter → bind DN+паролем каталога), email/группы (memberOf→cn); JIT + маппинг групп→роли — общий oidc.Service.Provision; POST /auth/ldap/login (публичный, → authTokens), аудит auth.login_ldap; type=ldap в /sso_providers + ConfigRaw. E2E с каталогом не проводился (нет LDAP-сервера) | (этот коммит) |
 | 39 | Аудит diff для остальных PATCH (п. 8, завершение эпика): rules.update, iocs.update, feeds.update теперь пишут аудит с diff через h.auditDiff («было» — Get до Update, секреты исключаются); раньше эти PATCH вообще не аудировались. Эпик аудита закрыт: diff для всех PATCH + цепочка хэшей | (этот коммит) |
 | 38 | Цепочка хэшей аудита (п. 8): `internal/store/audit_chain.go` — prev_hash→hash SHA-256 (канон. форма полей+created_at), вставка под pg_advisory_xact_lock (без вилок); `server.audit_hash_chain` (default false); VerifyChain (пересчёт hash + связность) + GET /audit_log/verify (audit.read); кнопка «проверить цепочку» во вкладке «Аудит». Колонки были с 000001 — миграция не нужна | (этот коммит) |
 | 37 | Аудит diff «было→стало» (п. 8): `internal/auditdiff` (Compute — только изменённые поля, секреты password/secret/token исключаются); audit_log.diff заполняется для users.update/roles.update/sso.update (AuditEntry.Diff, INSERT +diff); GET /audit_log отдаёт diff; React «Аудит» — сворачиваемый просмотр. Остальные PATCH и цепочка хэшей — следующие чанки | (этот коммит) |
