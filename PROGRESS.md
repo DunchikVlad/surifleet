@@ -40,7 +40,7 @@ React на `/app/` (`/` — редирект).
 4. LDAP — e2e против AD/OpenLDAP (не проведён в чанке 40 — нет каталога
    в sandbox); стенд: включить audit_hash_chain=true при перекате.
 
-Чанк 40 ГОТОВ (2026-10-03, этот коммит): LDAP/AD-аутентификация (п. 9 ТЗ).
+Чанк 40 ГОТОВ (2026-10-03, 6fbbef4): LDAP/AD-аутентификация (п. 9 ТЗ).
 `internal/ldapauth` (go-ldap/ldap/v3): Config (url ldap/ldaps, start_tls,
 insecure_tls, bind_dn/bind_password, base_dn, user_filter, username_attr,
 email/display_name/group_attr); Authenticate — поиск пользователя под
