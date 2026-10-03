@@ -131,6 +131,9 @@ curl -H "Authorization: Bearer $TOKEN" http://192.168.31.28:8080/api/v1/agents
 - Аудит: auth.login (break-glass — отдельным action auth.login_break_glass),
   auth.logout/refresh, authz.denied, users.\*, roles.\*, auth.login_sso,
   sso.\* — чтение `GET /audit_log?action=&limit=&cursor=` (право audit.read).
+  Для `users.update`/`roles.update`/`sso.update` запись содержит **diff**
+  «было→стало» (только изменённые поля; секреты не включаются) — вкладка
+  «Аудит» показывает его сворачиваемым списком (чанк 37).
 - **SSO / OIDC (чанк 35)**: вход через корпоративный IdP (Authorization
   Code + PKCE). Провайдеры настраиваются на вкладке «SSO» (или API
   `/sso_providers`, права sso.read/write): issuer_url, client_id,

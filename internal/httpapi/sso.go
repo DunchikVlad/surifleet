@@ -361,13 +361,14 @@ func (h *handlers) updateSsoProvider(w http.ResponseWriter, r *http.Request) {
 		grm, _ := json.Marshal(in.GroupRoleMapping)
 		upd.GroupRoleMapping = grm
 	}
+	oldProv, _ := h.d.Store.SsoProviders.GetByID(r.Context(), id) // «было» для diff (чанк 37)
 	p, err := h.d.Store.SsoProviders.Update(r.Context(), id, upd)
 	if err != nil {
 		writeStoreError(w, err)
 		return
 	}
 	objType := "sso_provider"
-	h.audit(r, identityFrom(r.Context()), "sso.update", &objType, &id, "success", "")
+	h.auditDiff(r, identityFrom(r.Context()), "sso.update", &objType, &id, oldProv, p)
 	writeJSON(w, http.StatusOK, p.Public())
 }
 

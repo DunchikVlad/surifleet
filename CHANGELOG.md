@@ -7,6 +7,18 @@
 
 ### Added
 
+- Чанк 37 (2026-10-03): аудит diff «было → стало» (п. 8 ТЗ: «diff
+  „было → стало“ для изменений»). `internal/auditdiff` — Compute(before,
+  after) → `{"before":{…},"after":{…}}` только по изменённым полям;
+  поля-секреты (password/secret/credentials/token/hash) исключаются.
+  audit_log.diff (колонка была с 000001) заполняется для `users.update`,
+  `roles.update`, `sso.update` (store.AuditEntry.Diff, INSERT +diff);
+  GET /audit_log отдаёт diff; React-вкладка «Аудит» — сворачиваемый
+  просмотр изменённых полей. Юнит-тесты auditdiff (изменённые/без
+  изменений/секреты/добавленные-удалённые поля/мапы). Остальные PATCH
+  (rules, iocs, feeds) — следующие чанки; цепочка хэшей (prev_hash→hash)
+  — колонки в схеме есть, заполнение позже. (server, api, ui, docs)
+
 - Чанк 36 (2026-10-03): retention телеметрии в ClickHouse (п. 5.4,
   продолжение). TTL для таблиц `surifleet.agent_logs` и
   `surifleet.agent_metrics`: параметр `server.ch_retention_days`

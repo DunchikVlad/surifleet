@@ -362,6 +362,8 @@ export interface AuditEntry {
   result: string;
   reason?: string | null;
   ip?: string | null;
+  // diff «было→стало» (чанк 37): {before, after} — только изменённые поля.
+  diff?: { before?: Record<string, unknown>; after?: Record<string, unknown> } | null;
 }
 
 // PERMS — каталог разрешений (мультивыбор в формах ролей/токенов).

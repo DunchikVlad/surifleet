@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -615,6 +616,9 @@ type AuditEntry struct {
 	ObjectName     *string
 	Result         string // success | denied | error
 	Reason         *string
+	// Diff — «было → стало» для изменений (чанк 37): {"before":{...},"after":{...}}
+	// (только изменившиеся поля; секреты исключаются — см. auditdiff.Compute).
+	Diff json.RawMessage
 }
 
 // AuditRepo — запись в audit_log (чтение — List для GET /audit_log).
@@ -637,26 +641,27 @@ func (r *AuditRepo) Log(ctx context.Context, e AuditEntry) error {
 	}
 	_, err := r.pool.Exec(ctx,
 		`INSERT INTO audit_log (organization_id, actor_type, actor_user_id, actor_session_id,
-		 actor_api_token_id, actor_name, ip, user_agent, action, object_type, object_id, object_name, result, reason)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7::inet, $8, $9, $10, $11, $12, $13, $14)`,
+		 actor_api_token_id, actor_name, ip, user_agent, action, object_type, object_id, object_name, result, reason, diff)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7::inet, $8, $9, $10, $11, $12, $13, $14, $15)`,
 		e.OrganizationID, e.ActorType, e.ActorUserID, e.ActorSessionID,
 		e.ActorAPIKeyID, e.ActorName, ip, e.UserAgent, e.Action, e.ObjectType, e.ObjectID, e.ObjectName,
-		e.Result, e.Reason)
+		e.Result, e.Reason, nullableJSON(e.Diff))
 	return translate(err)
 }
 
 // AuditListItem — запись аудита для API (openapi AuditLogEntry).
 type AuditListItem struct {
-	ID         uuid.UUID  `json:"id"`
-	CreatedAt  time.Time  `json:"created_at"`
-	ActorType  string     `json:"actor_type"`
-	ActorName  *string    `json:"actor_name"`
-	Action     string     `json:"action"`
-	ObjectType *string    `json:"object_type"`
-	ObjectID   *uuid.UUID `json:"object_id"`
-	Result     string     `json:"result"`
-	Reason     *string    `json:"reason"`
-	IP         *string    `json:"ip"`
+	ID         uuid.UUID       `json:"id"`
+	CreatedAt  time.Time       `json:"created_at"`
+	ActorType  string          `json:"actor_type"`
+	ActorName  *string         `json:"actor_name"`
+	Action     string          `json:"action"`
+	ObjectType *string         `json:"object_type"`
+	ObjectID   *uuid.UUID      `json:"object_id"`
+	Result     string          `json:"result"`
+	Reason     *string         `json:"reason"`
+	IP         *string         `json:"ip"`
+	Diff       json.RawMessage `json:"diff,omitempty"` // «было→стало» (чанк 37)
 }
 
 // List — keyset-листинг аудита организации (свежие первыми), фильтр по
@@ -674,7 +679,7 @@ func (r *AuditRepo) List(ctx context.Context, orgID uuid.UUID, actionPrefix stri
 	}
 	args = append(args, limit+1)
 	rows, err := r.pool.Query(ctx,
-		fmt.Sprintf(`SELECT id, created_at, actor_type, actor_name, action, object_type, object_id, result, reason, ip::text
+		fmt.Sprintf(`SELECT id, created_at, actor_type, actor_name, action, object_type, object_id, result, reason, ip::text, diff
 		 FROM audit_log WHERE %s
 		 ORDER BY created_at DESC, id DESC LIMIT $%d`, where, len(args)),
 		args...)
@@ -686,7 +691,7 @@ func (r *AuditRepo) List(ctx context.Context, orgID uuid.UUID, actionPrefix stri
 	for rows.Next() {
 		var it AuditListItem
 		if err := rows.Scan(&it.ID, &it.CreatedAt, &it.ActorType, &it.ActorName, &it.Action,
-			&it.ObjectType, &it.ObjectID, &it.Result, &it.Reason, &it.IP); err != nil {
+			&it.ObjectType, &it.ObjectID, &it.Result, &it.Reason, &it.IP, &it.Diff); err != nil {
 			return nil, nil, translate(err)
 		}
 		items = append(items, it)

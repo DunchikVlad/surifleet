@@ -30,7 +30,31 @@ stale (раньше висел бы online). ✅ РЕШЕНО в чанке 28: 
 (admin@surifleet.local / admin12345), сервер и агент под systemd, UI —
 React на `/app/` (`/` — редирект).
 
-**Следующий шаг после 36**:
+**Следующий шаг после 37**:
+1. Аудит: diff для остальных PATCH (rules, iocs, feeds), цепочка хэшей
+   (prev_hash→hash, колонки в схеме есть); scoping ролей по кластерам
+   (применение user_roles.scope_type/clusters); SAML 2.0 / LDAP (п. 9).
+2. Мониторинг (п. 5.4, продолжение): пересылка EVE-алертов в SIEM,
+   дашборды флот/кластер/хост.
+3. OIDC — e2e на стенде с реальным/mock IdP (не проведён в чанке 35 —
+   sandbox сессии блокирует SSH до .28/.67).
+
+Чанк 37 ГОТОВ (2026-10-03, этот коммит): аудит diff «было → стало»
+(п. 8 ТЗ). `internal/auditdiff` — Compute(before, after) →
+{"before":{…},"after":{…}} только по изменённым полям (через
+JSON-маршалинг с json-тегами; reflect.DeepEqual; добавленные/удалённые
+поля → null); поля-секреты (password/secret/credentials/token/hash)
+НИКОГДА не попадают в diff. Колонка audit_log.diff существовала с 000001
+— миграция не нужна: store.AuditEntry + Diff, AuditRepo.Log INSERT +diff,
+AuditListItem + diff в GET /audit_log. Хэндлеры: users.update,
+roles.update, sso.update читают «было» (GetByID, ошибка не валит запрос)
+и пишут через новый h.auditDiff (auth.go). React-вкладка «Аудит» —
+сворачиваемый DiffView (поле: было → стало). Юнит-тесты auditdiff
+(изменённые поля/без изменений/исключение секретов/добавление-удаление
+полей/мапы/скаляр-nil). Проверки: go build/vet зелёные,
+auditdiff/store/httpapi тесты ok; npm build чисто (diff в бандле).
+Остальные PATCH (rules, iocs, feeds) и цепочка хэшей — следующие чанки.
+
 1. Scoping ролей по кластерам (применение user_roles.scope_type/clusters),
    аудит diff «было→стало» + цепочка хэшей; SAML 2.0 / LDAP (п. 9).
 2. Мониторинг (п. 5.4, продолжение): пересылка EVE-алертов в SIEM,
@@ -812,6 +836,7 @@ managed-файле (245 правил).
 
 | Чанк | Содержание | Коммит |
 |---|---|---|
+| 37 | Аудит diff «было→стало» (п. 8): `internal/auditdiff` (Compute — только изменённые поля, секреты password/secret/token исключаются); audit_log.diff заполняется для users.update/roles.update/sso.update (AuditEntry.Diff, INSERT +diff); GET /audit_log отдаёт diff; React «Аудит» — сворачиваемый просмотр. Остальные PATCH и цепочка хэшей — следующие чанки | (этот коммит) |
 | 36 | Retention телеметрии в ClickHouse (п. 5.4): TTL для agent_logs и agent_metrics — `server.ch_retention_days` (default 30 дней; 0 — бессрочно); `chlogs.EnsureTable(ctx, days)` применяет ALTER … MODIFY TTL при старте (идемпотентно); юнит-тесты retentionExpr/ALTER. Живой e2e не проведён (sandbox блокирует SSH) — TTL применится при перекате | (этот коммит) |
 | 35 | OIDC-SSO (п. 9, Authorization Code + PKCE): `internal/oidc` (go-oidc/v3 + x/oauth2, PKCE S256, одноразовые state+nonce в oidc_states — миграция 000009; проверка id_token+nonce; claims id_token+userinfo; маппинг групп→роли по group_role_mapping; JIT-провижининг: по (provider,sub)→обновление ролей / по email→LinkExternal дедуп / CreateExternal без пароля; деактивированный→отказ), store `sso.go` (SsoProviders/OidcStates) + UsersRepo (GetByExternalID/LinkExternal/CreateExternal/SetRoles), REST публичные /auth/sso/{providers,login,callback} + админ /sso_providers (sso.read/write, client_secret writeOnly), каталог + sso.read/write, аудит auth.login_sso/sso.*; React кнопка «Войти через SSO» + вкладка «SSO». Живой e2e НЕ проведён (sandbox блокирует SSH до стенда) — проверить при перекате | (этот коммит) |
 | 6 | Тестовое окружение: Docker 29.1.3 + Compose v2.40.3 на .28; `deploy/docker-compose.yml` (postgres:16-alpine, redis:7-alpine, nats:2.10-alpine -js, clickhouse:24.8-alpine, minio с quay.io + init-бакет surifleet-rulesets); стек healthy (~325 МиБ RAM); миграция 000001 прогнана up/down/up на живом PG (43 отношения: 28 таблиц + 15 партиций); append-only триггер audit_log проверен (UPDATE → ошибка); все сервисы доступны с Windows | 2940139 |

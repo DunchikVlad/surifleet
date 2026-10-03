@@ -178,6 +178,8 @@ func (h *handlers) updateUser(w http.ResponseWriter, r *http.Request) {
 		}
 		p.PasswordHash = &hash
 	}
+	// «Было» — для аудит-diff (чанк 37); ошибка чтения не валит запрос.
+	oldUser, _ := h.d.Store.Users.GetByID(r.Context(), id)
 	u, err := h.d.Store.Users.Update(r.Context(), id, p)
 	if err != nil {
 		writeStoreError(w, err)
@@ -185,7 +187,7 @@ func (h *handlers) updateUser(w http.ResponseWriter, r *http.Request) {
 	}
 	objType := "user"
 	actor := identityFrom(r.Context())
-	h.audit(r, actor, "users.update", &objType, &id, "success", "")
+	h.auditDiff(r, actor, "users.update", &objType, &id, oldUser, u)
 	writeJSON(w, http.StatusOK, u)
 }
 
@@ -332,13 +334,14 @@ func (h *handlers) updateRole(w http.ResponseWriter, r *http.Request) {
 		writeValidation(w, fe)
 		return
 	}
+	oldRole, _ := h.d.Store.Roles.GetByID(r.Context(), id) // «было» для diff (чанк 37)
 	ro, err := h.d.Store.Roles.Update(r.Context(), id, in.Name, in.Description, in.Permissions)
 	if err != nil {
 		writeStoreError(w, err)
 		return
 	}
 	objType := "role"
-	h.audit(r, identityFrom(r.Context()), "roles.update", &objType, &id, "success", "")
+	h.auditDiff(r, identityFrom(r.Context()), "roles.update", &objType, &id, oldRole, ro)
 	writeJSON(w, http.StatusOK, ro)
 }
 

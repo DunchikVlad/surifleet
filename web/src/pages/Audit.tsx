@@ -53,6 +53,7 @@ export default function Audit(_: { active: boolean }) {
               <td>
                 <span className={`badge badge-${e.result === "success" ? "ok" : "err"}`}>{e.result}</span>
                 {e.reason && <div className="muted" style={{ fontSize: "0.85em" }}>{e.reason}</div>}
+                {e.diff && <DiffView diff={e.diff} />}
               </td>
               <td className="muted">{e.ip ?? "—"}</td>
             </tr>
@@ -64,5 +65,22 @@ export default function Audit(_: { active: boolean }) {
           <span className="muted">показано {items.length}</span></p>
       )}
     </>
+  );
+}
+
+// DiffView — компактный просмотр diff «было→стало» (чанк 37): сворачиваемый
+// список изменённых полей (секреты сервер не включает).
+function DiffView({ diff }: { diff: { before?: Record<string, unknown>; after?: Record<string, unknown> } }) {
+  const fields = Object.keys(diff.after ?? {});
+  if (fields.length === 0) return null;
+  return (
+    <details className="muted" style={{ fontSize: "0.85em" }}>
+      <summary>diff ({fields.length})</summary>
+      {fields.map(f => (
+        <div key={f}>
+          <code>{f}</code>: <s>{JSON.stringify((diff.before ?? {})[f] ?? null)}</s> → <b>{JSON.stringify((diff.after ?? {})[f] ?? null)}</b>
+        </div>
+      ))}
+    </details>
   );
 }

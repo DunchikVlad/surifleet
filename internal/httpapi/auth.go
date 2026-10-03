@@ -22,6 +22,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/surifleet/surifleet/internal/auditdiff"
 	"github.com/surifleet/surifleet/internal/authn"
 	"github.com/surifleet/surifleet/internal/store"
 )
@@ -282,6 +283,44 @@ func (h *handlers) auditAnon(r *http.Request, email, action, result, reason stri
 	}
 	if reason != "" {
 		e.Reason = &reason
+	}
+	if err := h.d.Store.Audit.Log(r.Context(), e); err != nil {
+		errLog.Error("аудит: запись", "action", action, "err", err)
+	}
+}
+
+// auditDiff — аудит изменения с diff «было → стало» (чанк 37). Секретные
+// поля (пароль, client_secret) исключаются в auditdiff.Compute.
+func (h *handlers) auditDiff(r *http.Request, id *Identity, action string,
+	objType *string, objID *uuid.UUID, before, after any) {
+
+	e := store.AuditEntry{
+		ActorType:  "user",
+		Action:     action,
+		ObjectType: objType,
+		ObjectID:   objID,
+		Result:     "success",
+		Diff:       auditdiff.Compute(before, after),
+	}
+	if id != nil {
+		e.OrganizationID = &id.OrgID
+		e.ActorName = id.Email
+		switch {
+		case id.Dev:
+			e.ActorType = "system"
+		case id.APITokenID != nil:
+			e.ActorType = "api_token"
+			e.ActorAPIKeyID = id.APITokenID
+		default:
+			e.ActorUserID = &id.UserID
+			e.ActorSessionID = &id.SessionID
+		}
+	}
+	if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
+		e.IP = &host
+	}
+	if ua := r.UserAgent(); ua != "" {
+		e.UserAgent = &ua
 	}
 	if err := h.d.Store.Audit.Log(r.Context(), e); err != nil {
 		errLog.Error("аудит: запись", "action", action, "err", err)
