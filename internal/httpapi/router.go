@@ -124,6 +124,7 @@ func NewRouter(d Deps) http.Handler {
 			})
 		})
 		r.With(h.requirePerm(PermAuditRead)).Get("/audit_log", h.listAuditLog)
+		r.With(h.requirePerm(PermAuditRead)).Get("/audit_log/verify", h.verifyAuditChain)
 
 		r.Route("/api_tokens", func(r chi.Router) {
 			r.With(h.requirePerm(PermTokensRead)).Get("/", h.listApiTokens)

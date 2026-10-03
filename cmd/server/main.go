@@ -174,6 +174,13 @@ func main() {
 		bootstrapBreakGlass(ctx, db, cfg, log)
 	}
 
+	// Цепочка хэшей аудита (чанк 38): записи audit_log связываются
+	// prev_hash→hash (защита от подделки). Выкл. по умолчанию.
+	db.Audit.HashChain = cfg.AuditHashChain
+	if cfg.AuditHashChain {
+		log.Info("цепочка хэшей аудита включена (audit_hash_chain)")
+	}
+
 	// Свипер просроченных IOC (чанк 17): active с expires_at < now() → expired.
 	// Работает при роли api|all (там же, где HTTP API с генерацией правил).
 	if (cfg.Role == "api" || cfg.Role == "all") && cfg.IocSweepInterval.D() > 0 {

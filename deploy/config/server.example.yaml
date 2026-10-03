@@ -60,6 +60,10 @@ server:
   session_ttl: "12h"
   bootstrap_admin_email: "admin@surifleet.local"
 
+  # Цепочка хэшей аудит-лога (чанк 38): каждая запись audit_log связывается
+  # prev_hash→hash (SHA-256, защита от подделки); проверка — GET /audit_log/verify.
+  audit_hash_chain: false
+
   # debug | info | warn | error
   log_level: info
 

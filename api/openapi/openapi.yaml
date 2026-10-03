@@ -2307,6 +2307,22 @@ paths:
             application/json: {}
         default: {$ref: '#/components/responses/Error'}
 
+  /audit_log/verify:
+    get:
+      operationId: verify_audit_chain
+      tags: [audit]
+      summary: Проверка целостности цепочки хэшей (prev_hash→hash)
+      description: "Требуется право: audit.read. Пересчитывает hash из prev_hash+полей (подделка полей ломает совпадение) и связность prev_hash_i == hash_(i-1) (удаление/вставка ломает звено) для последних limit записей. Цепочка включается server.audit_hash_chain=true (чанк 38)."
+      parameters:
+        - {name: limit, in: query, description: 'Сколько свежих записей проверить (default 1000, max 100000)', schema: {type: integer, minimum: 1, maximum: 100000}}
+      responses:
+        '200':
+          description: Итог проверки
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ChainVerifyResult'}
+        default: {$ref: '#/components/responses/Error'}
+
   # --------------------------------------------------------------------------
   # Асинхронные задачи агентам
   # --------------------------------------------------------------------------
@@ -3450,6 +3466,15 @@ components:
         user_agent: {type: string, nullable: true}
         params: {type: object, nullable: true}
         diff: {type: object, nullable: true, description: '{"before": {...}, "after": {...}}'}
+
+    ChainVerifyResult:
+      type: object
+      properties:
+        checked: {type: integer, description: Записей проверено}
+        chained: {type: integer, description: Из них в цепочке (hash не пуст)}
+        ok: {type: boolean, description: Вилок/расхождений не найдено}
+        broken_at: {type: string, format: uuid, nullable: true, description: id первой битой записи}
+        reason: {type: string, description: Пояснение (разрыв/выключена)}
 
     # ------ Страницы (keyset-обёртки) ------
 

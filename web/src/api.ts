@@ -366,6 +366,15 @@ export interface AuditEntry {
   diff?: { before?: Record<string, unknown>; after?: Record<string, unknown> } | null;
 }
 
+// ChainVerifyResult — ответ GET /audit_log/verify (чанк 38).
+export interface ChainVerifyResult {
+  checked: number;
+  chained: number;
+  ok: boolean;
+  broken_at?: string;
+  reason?: string;
+}
+
 // PERMS — каталог разрешений (мультивыбор в формах ролей/токенов).
 export const PERMS = [
   "fleet.read", "hosts.read", "hosts.write", "agents.read",

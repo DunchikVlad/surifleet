@@ -403,3 +403,23 @@ func (h *handlers) listAuditLog(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, page[store.AuditListItem]{Items: items, NextCursor: next})
 }
+
+// verifyAuditChain — GET /audit_log/verify?limit=N (audit.read): проверка
+// целостности цепочки хэшей последних N записей (чанк 38).
+func (h *handlers) verifyAuditChain(w http.ResponseWriter, r *http.Request) {
+	limit := 1000
+	if s := r.URL.Query().Get("limit"); s != "" {
+		n, err := strconv.Atoi(s)
+		if err != nil || n < 1 {
+			writeValidation(w, fieldErrors{"limit": "целое число от 1 до 100000"})
+			return
+		}
+		limit = n
+	}
+	res, err := h.d.Store.Audit.VerifyChainEnabled(r.Context(), limit)
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, res)
+}

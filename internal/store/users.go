@@ -622,13 +622,19 @@ type AuditEntry struct {
 }
 
 // AuditRepo — запись в audit_log (чтение — List для GET /audit_log).
+// HashChain=true (server.audit_hash_chain) — записи связываются цепочкой
+// хэшей prev_hash→hash (чанк 38); false — обычная вставка.
 type AuditRepo struct {
-	pool *pgxpool.Pool
+	pool      *pgxpool.Pool
+	HashChain bool
 }
 
 // Log пишет запись аудита (best-effort вызывающего кода — ошибки
-// логируются выше).
+// логируются выше). При включённой цепочке хэшей — logChained.
 func (r *AuditRepo) Log(ctx context.Context, e AuditEntry) error {
+	if r.HashChain {
+		return r.logChained(ctx, e)
+	}
 	if e.ActorType == "" {
 		e.ActorType = "user"
 	}

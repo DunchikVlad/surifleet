@@ -134,6 +134,12 @@ curl -H "Authorization: Bearer $TOKEN" http://192.168.31.28:8080/api/v1/agents
   Для `users.update`/`roles.update`/`sso.update` запись содержит **diff**
   «было→стало» (только изменённые поля; секреты не включаются) — вкладка
   «Аудит» показывает его сворачиваемым списком (чанк 37).
+- **Цепочка хэшей аудита (чанк 38)**: при `server.audit_hash_chain=true`
+  каждая запись audit_log связывается `prev_hash→hash` (SHA-256 полей +
+  created_at; вставка под advisory-блокировкой БД — без вилок). Проверка
+  целостности: `GET /audit_log/verify?limit=N` (право audit.read) —
+  пересчёт hash (детект подделки полей) и связность звеньев (детект
+  удаления/вставки); кнопка «проверить цепочку» во вкладке «Аудит».
 - **SSO / OIDC (чанк 35)**: вход через корпоративный IdP (Authorization
   Code + PKCE). Провайдеры настраиваются на вкладке «SSO» (или API
   `/sso_providers`, права sso.read/write): issuer_url, client_id,

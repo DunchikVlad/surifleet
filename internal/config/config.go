@@ -80,6 +80,10 @@ type ServerConfig struct {
 	// CHRetentionDays — retention (TTL) таблиц agent_logs и agent_metrics в
 	// ClickHouse (чанк 36): записи старше стольких дней удаляются. 0 — бессрочно.
 	CHRetentionDays int `yaml:"ch_retention_days"`
+	// AuditHashChain — цепочка хэшей аудит-лога (чанк 38, п. 8 «опционально
+	// цепочка хэшей»): каждая запись audit_log связывается prev_hash→hash
+	// (SHA-256); запись под advisory-блокировкой БД — вилки исключены.
+	AuditHashChain bool `yaml:"audit_hash_chain"`
 	// IocSweepInterval — интервал фонового свипера просроченных IOC
 	// (active с expires_at < now() → expired). 0 — свипер выключен.
 	IocSweepInterval Duration `yaml:"ioc_sweep_interval"`
@@ -129,6 +133,7 @@ func DefaultServer() *ServerConfig {
 		AuthMode:             "dev",
 		SessionTTL:           Duration(12 * time.Hour),
 		CHRetentionDays:      30,
+		AuditHashChain:       false,
 		BootstrapAdminEmail:  "admin@surifleet.local",
 		LogLevel:             "info",
 		S3: S3Config{

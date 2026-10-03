@@ -30,7 +30,42 @@ stale (раньше висел бы online). ✅ РЕШЕНО в чанке 28: 
 (admin@surifleet.local / admin12345), сервер и агент под systemd, UI —
 React на `/app/` (`/` — редирект).
 
-**Следующий шаг после 37**:
+**Следующий шаг после 38**:
+1. Аудит: diff для остальных PATCH (rules, iocs, feeds); scoping ролей
+   по кластерам (применение user_roles.scope_type/clusters); SAML 2.0 /
+   LDAP (п. 9).
+2. Мониторинг (п. 5.4, продолжение): пересылка EVE-алертов в SIEM,
+   дашборды флот/кластер/хост.
+3. OIDC — e2e на стенде с реальным/mock IdP (не проведён в чанке 35 —
+   sandbox сессии блокирует SSH до .28/.67).
+4. Стенд: включить audit_hash_chain=true в server.yaml при перекате,
+   проверить цепочку на живых записях (GET /audit_log/verify).
+
+Чанк 38 ГОТОВ (2026-10-03, этот коммит): цепочка хэшей аудит-лога
+(п. 8 ТЗ «опционально цепочка хэшей»). `internal/store/audit_chain.go`:
+каждая запись — prev_hash=hash предыдущей, hash=SHA-256 канонической
+формы (версия + prev_hash + все поля включая created_at — он задаётся в
+коде, не DEFAULT now(), чтобы попасть в хэш; base64url как токены).
+logChained: вставка под pg_advisory_xact_lock — читается hash последней
+записи, вычисляется новый, вставляется с явным created_at; вилки
+исключены даже при нескольких API-процессах на одну БД. Включение:
+`server.audit_hash_chain=true` (config → db.Audit.HashChain; default
+false — прежняя вставка). VerifyChain: проверка последних N — пересчёт
+hash из prev_hash+полей (подделка полей ломает совпадение) и связность
+prev_hash_i==hash_(i-1) (удаление/вставка ломает звено; доцепочечные
+записи без hash пропускаются в Chained). Endpoint GET
+/audit_log/verify?limit=N (audit.read, ≤100000) + кнопка «проверить
+цепочку» во вкладке «Аудит» (бейдж ok/РАЗРЫВ). Колонки prev_hash/hash
+были с 000001 — миграция не нужна. Юнит-тесты audit_chain_test:
+детерминизм, чувствительность к полю/времени/prev_hash/diff/reason,
+моделирование цепочки в памяти (связность, детект подделки actor_name и
+удаления звена), nullableJSON. Проверки: go build/vet зелёные,
+store/httpapi тесты ok; npm build чисто (verify в бандле); openapi
+YAML валиден (+/audit_log/verify, ChainVerifyResult). Живой e2e не
+проводился (sandbox блокирует SSH): при перекате включить
+audit_hash_chain в server.yaml → новые записи цепочкой →
+GET /audit_log/verify ok.
+
 1. Аудит: diff для остальных PATCH (rules, iocs, feeds), цепочка хэшей
    (prev_hash→hash, колонки в схеме есть); scoping ролей по кластерам
    (применение user_roles.scope_type/clusters); SAML 2.0 / LDAP (п. 9).
@@ -836,6 +871,7 @@ managed-файле (245 правил).
 
 | Чанк | Содержание | Коммит |
 |---|---|---|
+| 38 | Цепочка хэшей аудита (п. 8): `internal/store/audit_chain.go` — prev_hash→hash SHA-256 (канон. форма полей+created_at), вставка под pg_advisory_xact_lock (без вилок); `server.audit_hash_chain` (default false); VerifyChain (пересчёт hash + связность) + GET /audit_log/verify (audit.read); кнопка «проверить цепочку» во вкладке «Аудит». Колонки были с 000001 — миграция не нужна | (этот коммит) |
 | 37 | Аудит diff «было→стало» (п. 8): `internal/auditdiff` (Compute — только изменённые поля, секреты password/secret/token исключаются); audit_log.diff заполняется для users.update/roles.update/sso.update (AuditEntry.Diff, INSERT +diff); GET /audit_log отдаёт diff; React «Аудит» — сворачиваемый просмотр. Остальные PATCH и цепочка хэшей — следующие чанки | (этот коммит) |
 | 36 | Retention телеметрии в ClickHouse (п. 5.4): TTL для agent_logs и agent_metrics — `server.ch_retention_days` (default 30 дней; 0 — бессрочно); `chlogs.EnsureTable(ctx, days)` применяет ALTER … MODIFY TTL при старте (идемпотентно); юнит-тесты retentionExpr/ALTER. Живой e2e не проведён (sandbox блокирует SSH) — TTL применится при перекате | (этот коммит) |
 | 35 | OIDC-SSO (п. 9, Authorization Code + PKCE): `internal/oidc` (go-oidc/v3 + x/oauth2, PKCE S256, одноразовые state+nonce в oidc_states — миграция 000009; проверка id_token+nonce; claims id_token+userinfo; маппинг групп→роли по group_role_mapping; JIT-провижининг: по (provider,sub)→обновление ролей / по email→LinkExternal дедуп / CreateExternal без пароля; деактивированный→отказ), store `sso.go` (SsoProviders/OidcStates) + UsersRepo (GetByExternalID/LinkExternal/CreateExternal/SetRoles), REST публичные /auth/sso/{providers,login,callback} + админ /sso_providers (sso.read/write, client_secret writeOnly), каталог + sso.read/write, аудит auth.login_sso/sso.*; React кнопка «Войти через SSO» + вкладка «SSO». Живой e2e НЕ проведён (sandbox блокирует SSH до стенда) — проверить при перекате | (этот коммит) |

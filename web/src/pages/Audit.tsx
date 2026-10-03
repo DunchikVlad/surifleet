@@ -1,5 +1,5 @@
 import React from "react";
-import { apiGet, AuditEntry, Page } from "../api";
+import { apiGet, AuditEntry, ChainVerifyResult, Page } from "../api";
 import { ErrorBox, fmtTime, short } from "../components";
 
 const LIMIT = 50;
@@ -11,6 +11,12 @@ export default function Audit(_: { active: boolean }) {
   const [cursor, setCursor] = React.useState<string | null>(null);
   const [action, setAction] = React.useState("");
   const [err, setErr] = React.useState<unknown>(null);
+  const [verify, setVerify] = React.useState<ChainVerifyResult | null>(null);
+
+  const checkChain = async () => {
+    try { setVerify(await apiGet<ChainVerifyResult>("/audit_log/verify?limit=1000")); }
+    catch (e) { setErr(e); }
+  };
 
   const load = React.useCallback(async (more = false) => {
     try {
@@ -37,7 +43,15 @@ export default function Audit(_: { active: boolean }) {
           onChange={e => setAction(e.target.value)}
           style={{ minWidth: "22em" }}
         />{" "}
-        <span className="muted">append-only; запись недоступна для удаления через API</span>
+        <span className="muted">append-only; запись недоступна для удаления через API</span>{" "}
+        <button className="btn" onClick={checkChain} title="проверка цепочки хэшей (GET /audit_log/verify)">
+          проверить цепочку
+        </button>
+        {verify && (
+          <span className={"badge badge-" + (verify.ok ? "ok" : "err")} title={verify.reason || "целостность последних 1000 записей"}>
+            {verify.ok ? `цепочка ok (${verify.chained}/${verify.checked})` : `РАЗРЫВ: ${verify.reason}`}
+          </span>
+        )}
       </p>
       <table>
         <thead>
