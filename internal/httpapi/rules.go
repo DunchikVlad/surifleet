@@ -208,11 +208,14 @@ func (h *handlers) updateRule(w http.ResponseWriter, r *http.Request) {
 		writeValidation(w, fe)
 		return
 	}
+	oldRule, _ := h.d.Store.Rules.Get(r.Context(), id) // «было» для аудит-diff (чанк 39)
 	rule, err := h.d.Store.Rules.Update(r.Context(), id, p)
 	if err != nil {
 		writeStoreError(w, err)
 		return
 	}
+	objType := "rule"
+	h.auditDiff(r, identityFrom(r.Context()), "rules.update", &objType, &id, oldRule, rule)
 	writeJSON(w, http.StatusOK, rule)
 }
 

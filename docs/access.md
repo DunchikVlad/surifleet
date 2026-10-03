@@ -130,10 +130,11 @@ curl -H "Authorization: Bearer $TOKEN" http://192.168.31.28:8080/api/v1/agents
   мягкий (revoked_at, из листинга скрываются; аудит actor_type=api_token).
 - Аудит: auth.login (break-glass — отдельным action auth.login_break_glass),
   auth.logout/refresh, authz.denied, users.\*, roles.\*, auth.login_sso,
-  sso.\* — чтение `GET /audit_log?action=&limit=&cursor=` (право audit.read).
-  Для `users.update`/`roles.update`/`sso.update` запись содержит **diff**
-  «было→стало» (только изменённые поля; секреты не включаются) — вкладка
-  «Аудит» показывает его сворачиваемым списком (чанк 37).
+  sso.\*, rules.update, iocs.update, feeds.update — чтение
+  `GET /audit_log?action=&limit=&cursor=` (право audit.read).
+  Для ВСЕХ PATCH (users/roles/sso — чанк 37; rules/iocs/feeds — чанк 39)
+  запись содержит **diff** «было→стало» (только изменённые поля; секреты
+  не включаются) — вкладка «Аудит» показывает его сворачиваемым списком.
 - **Цепочка хэшей аудита (чанк 38)**: при `server.audit_hash_chain=true`
   каждая запись audit_log связывается `prev_hash→hash` (SHA-256 полей +
   created_at; вставка под advisory-блокировкой БД — без вилок). Проверка

@@ -140,11 +140,14 @@ func (h *handlers) updateFeed(w http.ResponseWriter, r *http.Request) {
 		writeValidation(w, fe)
 		return
 	}
+	oldFeed, _ := h.d.Store.Feeds.Get(r.Context(), id) // «было» для аудит-diff (чанк 39)
 	feed, err := h.d.Store.Feeds.Update(r.Context(), id, p)
 	if err != nil {
 		writeStoreError(w, err)
 		return
 	}
+	objType := "feed"
+	h.auditDiff(r, identityFrom(r.Context()), "feeds.update", &objType, &id, oldFeed, feed)
 	writeJSON(w, http.StatusOK, feed)
 }
 

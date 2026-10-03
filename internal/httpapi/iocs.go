@@ -167,11 +167,14 @@ func (h *handlers) updateIoc(w http.ResponseWriter, r *http.Request) {
 		writeValidation(w, fe)
 		return
 	}
+	oldIoc, _ := h.d.Store.Iocs.Get(r.Context(), id) // «было» для аудит-diff (чанк 39)
 	ioc, err := h.d.Store.Iocs.Update(r.Context(), id, p)
 	if err != nil {
 		writeStoreError(w, err)
 		return
 	}
+	objType := "ioc"
+	h.auditDiff(r, identityFrom(r.Context()), "iocs.update", &objType, &id, oldIoc, ioc)
 	// Отзыв сгенерированного правила при revoke IOC (чанк 19): ошибка
 	// отзыва не валит запрос — IOC уже переведён, правило догонит свип
 	// или повторный вызов.

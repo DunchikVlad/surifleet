@@ -30,7 +30,29 @@ stale (раньше висел бы online). ✅ РЕШЕНО в чанке 28: 
 (admin@surifleet.local / admin12345), сервер и агент под systemd, UI —
 React на `/app/` (`/` — редирект).
 
-**Следующий шаг после 38**:
+**Следующий шаг после 39**:
+1. Scoping ролей по кластерам (применение user_roles.scope_type/clusters);
+   SAML 2.0 / LDAP (п. 9); экспорт аудита.
+2. Мониторинг (п. 5.4, продолжение): пересылка EVE-алертов в SIEM,
+   дашборды флот/кластер/хост.
+3. OIDC — e2e на стенде с реальным/mock IdP (не проведён в чанке 35 —
+   sandbox сессии блокирует SSH до .28/.67).
+4. Стенд: включить audit_hash_chain=true в server.yaml при перекате,
+   проверить цепочку на живых записях (GET /audit_log/verify).
+
+Чанк 39 ГОТОВ (2026-10-03, этот коммит): аудит diff для остальных PATCH
+(п. 8 ТЗ — завершение эпика аудит-diff). rules.update, iocs.update,
+feeds.update теперь пишут аудит с diff «было→стало» через h.auditDiff
+(как users/roles/sso чанка 37): «было» читается Rules/Iocs/Feeds.Get до
+Update (ошибка чтения не валит запрос — diff просто не будет), секреты
+(credentials фида) исключаются auditdiff.Compute. Эти три PATCH раньше
+ВООБЩЕ не аудировались — пробел закрыт. Эпик аудита (п. 8) завершён:
+diff для всех PATCH-сущностей (users/roles/sso — 37; rules/iocs/feeds —
+39) + цепочка хэшей prev_hash→hash с верификацией (38). Проверки:
+go build/vet зелёные, httpapi/store тесты ok. Живой e2e не проводился
+(sandbox блокирует SSH — при перекате PATCH любого правила/IOC/фида
+дал запись с diff в GET /audit_log).
+
 1. Аудит: diff для остальных PATCH (rules, iocs, feeds); scoping ролей
    по кластерам (применение user_roles.scope_type/clusters); SAML 2.0 /
    LDAP (п. 9).
@@ -871,6 +893,7 @@ managed-файле (245 правил).
 
 | Чанк | Содержание | Коммит |
 |---|---|---|
+| 39 | Аудит diff для остальных PATCH (п. 8, завершение эпика): rules.update, iocs.update, feeds.update теперь пишут аудит с diff через h.auditDiff («было» — Get до Update, секреты исключаются); раньше эти PATCH вообще не аудировались. Эпик аудита закрыт: diff для всех PATCH + цепочка хэшей | (этот коммит) |
 | 38 | Цепочка хэшей аудита (п. 8): `internal/store/audit_chain.go` — prev_hash→hash SHA-256 (канон. форма полей+created_at), вставка под pg_advisory_xact_lock (без вилок); `server.audit_hash_chain` (default false); VerifyChain (пересчёт hash + связность) + GET /audit_log/verify (audit.read); кнопка «проверить цепочку» во вкладке «Аудит». Колонки были с 000001 — миграция не нужна | (этот коммит) |
 | 37 | Аудит diff «было→стало» (п. 8): `internal/auditdiff` (Compute — только изменённые поля, секреты password/secret/token исключаются); audit_log.diff заполняется для users.update/roles.update/sso.update (AuditEntry.Diff, INSERT +diff); GET /audit_log отдаёт diff; React «Аудит» — сворачиваемый просмотр. Остальные PATCH и цепочка хэшей — следующие чанки | (этот коммит) |
 | 36 | Retention телеметрии в ClickHouse (п. 5.4): TTL для agent_logs и agent_metrics — `server.ch_retention_days` (default 30 дней; 0 — бессрочно); `chlogs.EnsureTable(ctx, days)` применяет ALTER … MODIFY TTL при старте (идемпотентно); юнит-тесты retentionExpr/ALTER. Живой e2e не проведён (sandbox блокирует SSH) — TTL применится при перекате | (этот коммит) |
