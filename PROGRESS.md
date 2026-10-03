@@ -40,7 +40,7 @@ React на `/app/` (`/` — редирект).
 4. Стенд: включить audit_hash_chain=true в server.yaml при перекате,
    проверить цепочку на живых записях (GET /audit_log/verify).
 
-Чанк 39 ГОТОВ (2026-10-03, этот коммит): аудит diff для остальных PATCH
+Чанк 39 ГОТОВ (2026-10-03, a2530de): аудит diff для остальных PATCH
 (п. 8 ТЗ — завершение эпика аудит-diff). rules.update, iocs.update,
 feeds.update теперь пишут аудит с diff «было→стало» через h.auditDiff
 (как users/roles/sso чанка 37): «было» читается Rules/Iocs/Feeds.Get до
