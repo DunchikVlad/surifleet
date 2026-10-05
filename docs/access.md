@@ -163,6 +163,16 @@ curl -H "Authorization: Bearer $TOKEN" http://192.168.31.28:8080/api/v1/agents
   `/auth/login` (`access_token`…); каталог сам проверяет пароль (у нас он
   не хранится). Группы (memberOf → cn) → роли через тот же
   group_role_mapping; JIT — общий с OIDC механизм. Аудит auth.login_ldap.
+- **SSO / SAML 2.0 (чанк 41)**: провайдер type=saml в `/sso_providers`
+  (config: `idp_metadata_url` или `idp_metadata_xml` (метаданные IdP),
+  `sp_entity_id`, `acs_url` (`<базовый URL>/api/v1/auth/saml/acs?provider_id=<uuid>`
+  — регистрируют в IdP), `username/email/name/groups_attr` — дефолты
+  email/displayName/groups). Эндпоинты: `GET /auth/saml/{id}/metadata` —
+  SP-метаданные (импортировать в IdP), `GET /auth/saml/{id}/login` —
+  редирект на IdP, `POST /auth/saml/acs` — колбэк (проверка assertion →
+  сессия → редирект в UI). SP-ключ самоподписанный, в памяти на процесс
+  (MVP — метаданные SP действительны до рестарта сервера). JIT + маппинг
+  групп → роли — общий механизм. Аудит auth.login_saml.
 - Режим `auth_mode: dev` (по умолчанию в коде) — прежняя заглушка
   X-Dev-User, все права; только для локальной разработки.
 - Ванильный MVP UI на `/` в token-режиме НЕ работает (не шлёт

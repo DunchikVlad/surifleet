@@ -38,6 +38,7 @@ import (
 	"github.com/surifleet/surifleet/internal/oidc"
 	"github.com/surifleet/surifleet/internal/orchestrator"
 	"github.com/surifleet/surifleet/internal/pki"
+	"github.com/surifleet/surifleet/internal/samlauth"
 	"github.com/surifleet/surifleet/internal/store"
 )
 
@@ -330,6 +331,7 @@ func (a *App) routes() http.Handler {
 		CHLogs:   a.chLogs,
 		FeedSync: a.feedSync,
 		OIDC:     oidc.NewService(a.db),
+		SAML:     samlauth.NewService(),
 		PingDB:   a.db.Pool.Ping,
 	})
 }

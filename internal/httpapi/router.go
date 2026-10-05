@@ -17,6 +17,7 @@ import (
 	"github.com/surifleet/surifleet/internal/feedsync"
 	"github.com/surifleet/surifleet/internal/oidc"
 	"github.com/surifleet/surifleet/internal/orchestrator"
+	"github.com/surifleet/surifleet/internal/samlauth"
 	"github.com/surifleet/surifleet/internal/store"
 )
 
@@ -46,6 +47,8 @@ type Deps struct {
 
 	// OIDC — OIDC-SSO flow (chunk 35; nil — SSO-эндпоинты возвращают 503).
 	OIDC *oidc.Service
+	// SAML — SAML 2.0 SSO (chunk 41; nil — SAML-эндпоинты возвращают 503).
+	SAML *samlauth.Service
 
 	// PingDB проверяет живость PostgreSQL для /health (nil — проверка выкл.).
 	PingDB func(ctx context.Context) error
@@ -92,6 +95,10 @@ func NewRouter(d Deps) http.Handler {
 			r.Get("/sso/callback", h.ssoCallback)
 			// LDAP/AD (чанк 40): bind-вход — публичный.
 			r.Post("/ldap/login", h.ldapLogin)
+			// SAML 2.0 (чанк 41): SP-метаданные/login/ACS — публичные.
+			r.Get("/saml/{id}/metadata", h.samlMetadata)
+			r.Get("/saml/{id}/login", h.samlLogin)
+			r.Post("/saml/acs", h.samlACS)
 		})
 
 		// SSO-провайдеры (администрирование; чанк 35).

@@ -141,6 +141,12 @@ func (h *handlers) authMiddleware(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
+		// SAML 2.0 (чанк 41): SP-метаданные/login/ACS — публичные (защита —
+		// подпись assertion и audience, проверяемые crewjam/saml).
+		if strings.HasPrefix(r.URL.Path, "/api/v1/auth/saml/") {
+			next.ServeHTTP(w, r)
+			return
+		}
 		// API-токен автоматизации (X-API-Key; чанк 29) — приоритетнее Bearer.
 		if key := r.Header.Get("X-API-Key"); key != "" {
 			tok, err := h.d.Store.ApiTokens.GetValidByHash(r.Context(), authn.TokenHash(key))

@@ -28,6 +28,7 @@ import (
 	"github.com/surifleet/surifleet/internal/authn"
 	"github.com/surifleet/surifleet/internal/ldapauth"
 	"github.com/surifleet/surifleet/internal/oidc"
+	"github.com/surifleet/surifleet/internal/samlauth"
 	"github.com/surifleet/surifleet/internal/store"
 )
 
@@ -326,6 +327,22 @@ func validateSsoConfig(fe fieldErrors, cfg *store.OIDCConfig, require bool) {
 	}
 }
 
+// validateSamlConfig — проверка SAML-конфига (idp_metadata + sp_entity_id + acs_url).
+func validateSamlConfig(fe fieldErrors, raw json.RawMessage) {
+	if len(raw) == 0 {
+		fe.add("config", "обязательное поле (idp_metadata_url/xml, sp_entity_id, acs_url)")
+		return
+	}
+	c, err := samlauth.ConfigFrom(raw)
+	if err != nil {
+		fe.add("config", err.Error())
+		return
+	}
+	if err := c.Validate(); err != nil {
+		fe.add("config", err.Error())
+	}
+}
+
 // validateLdapConfig — проверка LDAP-конфига (url + base_dn обязательны).
 func validateLdapConfig(fe fieldErrors, raw json.RawMessage) {
 	if len(raw) == 0 {
@@ -412,8 +429,10 @@ func (h *handlers) createSsoProvider(w http.ResponseWriter, r *http.Request) {
 		validateSsoConfig(fe, oidcConfigFromRaw(in.Config), true)
 	case "ldap":
 		validateLdapConfig(fe, in.Config)
+	case "saml":
+		validateSamlConfig(fe, in.Config)
 	default:
-		fe.add("type", "поддерживается oidc|ldap (saml — следующие чанки)")
+		fe.add("type", "поддерживается oidc|ldap|saml")
 	}
 	if in.GroupRoleMapping != nil {
 		h.validateGroupRoleMapping(r, orgID, fe, in.GroupRoleMapping)
@@ -474,13 +493,16 @@ func (h *handlers) updateSsoProvider(w http.ResponseWriter, r *http.Request) {
 	if in.Type != nil && *in.Type != "" {
 		typ = *in.Type
 	}
-	if typ != "oidc" && typ != "ldap" {
-		fe.add("type", "поддерживается oidc|ldap")
+	if typ != "oidc" && typ != "ldap" && typ != "saml" {
+		fe.add("type", "поддерживается oidc|ldap|saml")
 	}
 	if len(in.Config) > 0 {
-		if typ == "ldap" {
+		switch typ {
+		case "ldap":
 			validateLdapConfig(fe, in.Config)
-		} else {
+		case "saml":
+			validateSamlConfig(fe, in.Config)
+		default:
 			validateSsoConfig(fe, oidcConfigFromRaw(in.Config), false)
 		}
 	}

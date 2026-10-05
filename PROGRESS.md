@@ -43,7 +43,40 @@ stale (раньше висел бы online). ✅ РЕШЕНО в чанке 28: 
 (admin@surifleet.local / admin12345), сервер и агент под systemd, UI —
 React на `/app/` (`/` — редирект).
 
-**Следующий шаг после 40**:
+**Следующий шаг после 41**:
+1. Scoping ролей по кластерам (применение user_roles.scope_type/clusters);
+   экспорт аудита; постоянный SP-ключ SAML (в конфиге/хранилище — сейчас
+   самоподписанный в памяти на процесс, метаданные SP действительны до
+   рестарта).
+2. Мониторинг (п. 5.4, продолжение): пересылка EVE-алертов в SIEM,
+   дашборды флот/кластер/хост.
+3. E2E SSO на стенде (не проведены — sandbox блокирует SSH/IdP): OIDC
+   (чанк 35), LDAP (40), SAML (41) — против Keycloak/AD/OpenLDAP/Entra ID;
+   включить audit_hash_chain=true при перекате.
+
+Чанк 41 ГОТОВ (2026-10-03, этот коммит): SAML 2.0 SSO (п. 9 ТЗ) — второй
+SSO-протокол. `internal/samlauth` (crewjam/saml по ТЗ): Config
+(idp_metadata_url/idp_metadata_xml, sp_entity_id, acs_url, username/
+email/name/groups_attr с дефолтами email/displayName/groups), Validate
+(обязательные поля); Service — ленивая сборка saml.ServiceProvider на
+провайдера (метаданные IdP inline XML или по URL с кэшем), самоподписанный
+ключ/сертификат SP rsa-2048 (генерируется один раз на процесс — MVP,
+метаданные SP до рестарта; постоянный ключ — следующий шаг);
+ProfileFromAssertion (NameID → ExternalID или username_attr; email/name/
+groups из атрибутов с fallback и дедупом). Публичные эндпоинты
+(saml.go): GET /auth/saml/{id}/metadata (SP XML для импорта в IdP),
+GET /auth/saml/{id}/login (MakeRedirectAuthenticationRequest → 302),
+POST /auth/saml/acs?provider_id=<uuid> (ParseResponse — подпись/audience/
+сроки crewjam/saml; атрибуты → JIT общим oidc.Provision → сессия →
+HTML с токеном, как OIDC-callback). Провайдер type=saml в /sso_providers
+(create/update, validateSamlConfig). Аудит auth.login_saml (success/
+denied). authMiddleware: /api/v1/auth/saml/* — публичные префиксы.
+main.go: SAML-сервис в Deps. Юнит-тесты samlauth: ConfigFrom/Validate,
+ProfileFromAssertion (NameID/username_attr, fallback, дедуп, нет email,
+nil). Проверки: go build/vet зелёные, samlauth/httpapi тесты ok. Живой
+e2e не проводился (в sandbox нет IdP): при перекате — провайдер type=saml
+с метаданными IdP → импорт SP-метаданных в IdP → flow до сессии.
+
 1. Scoping ролей по кластерам (применение user_roles.scope_type/clusters);
    SAML 2.0 (п. 9); экспорт аудита.
 2. Мониторинг (п. 5.4, продолжение): пересылка EVE-алертов в SIEM,
@@ -940,6 +973,7 @@ managed-файле (245 правил).
 
 | Чанк | Содержание | Коммит |
 |---|---|---|
+| 41 | SAML 2.0 SSO (п. 9): `internal/samlauth` (crewjam/saml) — ServiceProvider (самоподписанный ключ SP в памяти на процесс, MVP), метаданные IdP (inline/URL, кэш); эндпоинты GET /auth/saml/{id}/metadata, GET /auth/saml/{id}/login (302), POST /auth/saml/acs?provider_id= (проверка assertion → атрибуты → JIT oidc.Provision → сессия → HTML с токеном); type=saml в /sso_providers, аудит auth.login_saml. E2E с IdP не проводился (нет в sandbox) | (этот коммит) |
 | 40 | LDAP/AD-аутентификация (п. 9): `internal/ldapauth` (go-ldap/v3) — bind-аутентификация (поиск по user_filter с EscapeFilter → bind DN+паролем каталога), email/группы (memberOf→cn); JIT + маппинг групп→роли — общий oidc.Service.Provision; POST /auth/ldap/login (публичный, → authTokens), аудит auth.login_ldap; type=ldap в /sso_providers + ConfigRaw. E2E с каталогом не проводился (нет LDAP-сервера) | (этот коммит) |
 | 39 | Аудит diff для остальных PATCH (п. 8, завершение эпика): rules.update, iocs.update, feeds.update теперь пишут аудит с diff через h.auditDiff («было» — Get до Update, секреты исключаются); раньше эти PATCH вообще не аудировались. Эпик аудита закрыт: diff для всех PATCH + цепочка хэшей | (этот коммит) |
 | 38 | Цепочка хэшей аудита (п. 8): `internal/store/audit_chain.go` — prev_hash→hash SHA-256 (канон. форма полей+created_at), вставка под pg_advisory_xact_lock (без вилок); `server.audit_hash_chain` (default false); VerifyChain (пересчёт hash + связность) + GET /audit_log/verify (audit.read); кнопка «проверить цепочку» во вкладке «Аудит». Колонки были с 000001 — миграция не нужна | (этот коммит) |

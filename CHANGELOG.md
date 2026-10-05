@@ -7,6 +7,26 @@
 
 ### Added
 
+- Чанк 41 (2026-10-03): SAML 2.0 SSO (п. 9 ТЗ: «SAML 2.0 — второй
+  протокол для корпоративных IdP»). `internal/samlauth` (crewjam/saml по
+  ТЗ — ServiceProvider, разбор/валидация assertion без самодельного XML):
+  самоподписанный ключ/сертификат SP (в памяти на процесс — MVP, до
+  рестарта), метаданные IdP (inline XML или по URL, кэш), SP сборка
+  лениво на провайдера. Публичные эндпоинты: GET /auth/saml/{id}/metadata
+  (SP-метаданные для импорта в IdP), GET /auth/saml/{id}/login
+  (AuthnRequest → 302 на IdP, HTTP-Redirect binding), POST
+  /auth/saml/acs?provider_id=<uuid> (проверка assertion — подпись/
+  audience/сроки crewjam/saml; атрибуты email/displayName/groups с
+  дефолтами и *_attr из конфига → JIT общим oidc.Service.Provision →
+  сессия → HTML с токеном, как OIDC-callback). Провайдер type=saml в
+  /sso_providers (config: idp_metadata_url/idp_metadata_xml, sp_entity_id,
+  acs_url, username/email/name/groups_attr); валидация обязательных полей.
+  Аудит auth.login_saml. Юнит-тесты: ConfigFrom/Validate (url/inline xml/
+  обязательные поля), ProfileFromAssertion (NameID/username_attr, fallback
+  displayName→email, дедуп групп, нет email/nil). Живой e2e с IdP не
+  проводился (в sandbox нет IdP) — проверить при перекате против
+  Keycloak/AD FS/Entra ID. (server, api, docs)
+
 - Чанк 40 (2026-10-03): LDAP/AD-аутентификация (п. 9 ТЗ: «LDAP/AD —
   bind-аутентификация и чтение групп»). `internal/ldapauth`
   (go-ldap/ldap/v3): поиск пользователя под service-аккаунтом (bind_dn)
