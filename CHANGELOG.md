@@ -7,6 +7,16 @@
 
 ### Added
 
+- Чанк 42 (2026-10-03): постоянный SAML SP-ключ (снятие MVP-ограничения
+  чанка 41). Самоподписанный ключ/сертификат Service Provider теперь
+  хранится на диске (`ca_dir/saml-sp/sp.key.pem` 0600 + `sp.crt.pem` 0644,
+  load-or-create, атомарная запись tmp+rename) — метаданные SP стабильны
+  между рестартами сервера (IdP не нужно переподключать). `NewService(keyDir)`;
+  пустой keyDir — эфемерный ключ в памяти (тесты/дев). main.go:
+  samlSPKeyDir = ca_dir/saml-sp. Юнит-тесты: стабильность serial/ключа
+  между «процессами» (два Service на один каталог), права 0600, кэш в
+  памяти при пустом keyDir. (server, docs)
+
 - Чанк 41 (2026-10-03): SAML 2.0 SSO (п. 9 ТЗ: «SAML 2.0 — второй
   протокол для корпоративных IdP»). `internal/samlauth` (crewjam/saml по
   ТЗ — ServiceProvider, разбор/валидация assertion без самодельного XML):

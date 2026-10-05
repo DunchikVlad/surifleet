@@ -1,6 +1,8 @@
 package samlauth
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/crewjam/saml"
@@ -20,6 +22,50 @@ func assertionWith(nameID string, attrs map[string][]string) *saml.Assertion {
 	}
 	a.AttributeStatements = []saml.AttributeStatement{st}
 	return a
+}
+
+// TestKeyPairPersistedAcrossRestarts — SP-ключ стабилен между «процессами»
+// (два Service на один KeyDir → один и тот же сертификат; чанк 42).
+func TestKeyPairPersistedAcrossRestarts(t *testing.T) {
+	dir := t.TempDir()
+	s1 := NewService(dir)
+	k1, c1, err := s1.keyPair()
+	if err != nil {
+		t.Fatalf("keyPair 1: %v", err)
+	}
+	// «Рестарт»: новый Service на тот же каталог.
+	s2 := NewService(dir)
+	k2, c2, err := s2.keyPair()
+	if err != nil {
+		t.Fatalf("keyPair 2: %v", err)
+	}
+	if c1.SerialNumber.Cmp(c2.SerialNumber) != 0 {
+		t.Errorf("serial изменился после рестарта: %s → %s", c1.SerialNumber, c2.SerialNumber)
+	}
+	if k1.PublicKey.N.Cmp(k2.PublicKey.N) != 0 {
+		t.Error("публичный ключ изменился после рестарта")
+	}
+	// Файлы на диске с правильными правами.
+	st, err := os.Stat(filepath.Join(dir, spKeyFile))
+	if err != nil || st.Mode().Perm() != 0o600 {
+		t.Errorf("sp.key.pem права = %v, err=%v, ожидается 0600", st.Mode().Perm(), err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, spCertFile)); err != nil {
+		t.Errorf("sp.crt.pem: %v", err)
+	}
+}
+
+// TestKeyPairInMemory — пустой KeyDir: ключ в памяти, кэшируется в процессе.
+func TestKeyPairInMemory(t *testing.T) {
+	s := NewService("")
+	k1, c1, err := s.keyPair()
+	if err != nil {
+		t.Fatalf("keyPair: %v", err)
+	}
+	k2, c2, _ := s.keyPair()
+	if c1 != c2 || k1 != k2 {
+		t.Error("в памяти keyPair должен кэшироваться (тот же указатель)")
+	}
 }
 
 func TestConfigFromAndValidate(t *testing.T) {

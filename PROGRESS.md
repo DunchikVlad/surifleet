@@ -43,7 +43,27 @@ stale (раньше висел бы online). ✅ РЕШЕНО в чанке 28: 
 (admin@surifleet.local / admin12345), сервер и агент под systemd, UI —
 React на `/app/` (`/` — редирект).
 
-**Следующий шаг после 41**:
+**Следующий шаг после 42**:
+1. Scoping ролей по кластерам (применение user_roles.scope_type/clusters);
+   экспорт аудита.
+2. Мониторинг (п. 5.4, продолжение): пересылка EVE-алертов в SIEM,
+   дашборды флот/кластер/хост.
+3. E2E SSO на стенде (не проведены — sandbox блокирует SSH/IdP): OIDC
+   (35), LDAP (40), SAML (41) — против Keycloak/AD/OpenLDAP/Entra ID;
+   включить audit_hash_chain=true при перекате.
+
+Чанк 42 ГОТОВ (2026-10-03, этот коммит): постоянный SAML SP-ключ (снятие
+MVP-ограничения чанка 41). samlauth.Service + KeyDir: ключ/сертификат SP
+теперь на диске (ca_dir/saml-sp/sp.key.pem 0600 + sp.crt.pem 0644,
+load-or-create через loadSPKeyPair/generateSPKeyPair/saveSPKeyPair,
+атомарная запись tmp+rename — рестарт/падение не оставит битый файл) —
+метаданные SP СТАБИЛЬНЫ между рестартами (IdP не нужно переподключать).
+NewService(keyDir); пустой — эфемерный в памяти (тесты). main.go:
+samlSPKeyDir = ca_dir/saml-sp, NewService(samlSPKeyDir(cfg)). Юнит-тесты:
+TestKeyPairPersistedAcrossRestarts (два Service на один каталог → тот же
+serial/публичный ключ; sp.key.pem 0600), TestKeyPairInMemory (кэш в
+процессе). Проверки: go build/vet зелёные, samlauth тесты ok.
+
 1. Scoping ролей по кластерам (применение user_roles.scope_type/clusters);
    экспорт аудита; постоянный SP-ключ SAML (в конфиге/хранилище — сейчас
    самоподписанный в памяти на процесс, метаданные SP действительны до
@@ -973,6 +993,7 @@ managed-файле (245 правил).
 
 | Чанк | Содержание | Коммит |
 |---|---|---|
+| 42 | Постоянный SAML SP-ключ (снятие MVP-ограничения чанка 41): samlauth.Service + KeyDir — ключ/сертификат SP на диске (ca_dir/saml-sp, load-or-create 0600, tmp+rename), метаданные SP стабильны между рестартами; NewService(keyDir), main.go samlSPKeyDir. Юнит-тесты стабильности serial/ключа и прав 0600 | (этот коммит) |
 | 41 | SAML 2.0 SSO (п. 9): `internal/samlauth` (crewjam/saml) — ServiceProvider (самоподписанный ключ SP в памяти на процесс, MVP), метаданные IdP (inline/URL, кэш); эндпоинты GET /auth/saml/{id}/metadata, GET /auth/saml/{id}/login (302), POST /auth/saml/acs?provider_id= (проверка assertion → атрибуты → JIT oidc.Provision → сессия → HTML с токеном); type=saml в /sso_providers, аудит auth.login_saml. E2E с IdP не проводился (нет в sandbox) | (этот коммит) |
 | 40 | LDAP/AD-аутентификация (п. 9): `internal/ldapauth` (go-ldap/v3) — bind-аутентификация (поиск по user_filter с EscapeFilter → bind DN+паролем каталога), email/группы (memberOf→cn); JIT + маппинг групп→роли — общий oidc.Service.Provision; POST /auth/ldap/login (публичный, → authTokens), аудит auth.login_ldap; type=ldap в /sso_providers + ConfigRaw. E2E с каталогом не проводился (нет LDAP-сервера) | (этот коммит) |
 | 39 | Аудит diff для остальных PATCH (п. 8, завершение эпика): rules.update, iocs.update, feeds.update теперь пишут аудит с diff через h.auditDiff («было» — Get до Update, секреты исключаются); раньше эти PATCH вообще не аудировались. Эпик аудита закрыт: diff для всех PATCH + цепочка хэшей | (этот коммит) |

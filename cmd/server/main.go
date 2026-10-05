@@ -16,6 +16,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -331,9 +332,19 @@ func (a *App) routes() http.Handler {
 		CHLogs:   a.chLogs,
 		FeedSync: a.feedSync,
 		OIDC:     oidc.NewService(a.db),
-		SAML:     samlauth.NewService(),
+		SAML:     samlauth.NewService(samlSPKeyDir(a.cfg)),
 		PingDB:   a.db.Pool.Ping,
 	})
+}
+
+// samlSPKeyDir — каталог постоянного SAML SP-ключа (чанк 42): рядом с CA
+// (ca_dir/saml-sp). Ключ самоподписанный, хранится 0600 — метаданные SP
+// стабильны между рестартами.
+func samlSPKeyDir(cfg *config.ServerConfig) string {
+	if cfg.CADir == "" {
+		return ""
+	}
+	return filepath.Join(cfg.CADir, "saml-sp")
 }
 
 // shutdownHTTP мягко останавливает HTTP-сервер с таймаутом.
