@@ -52,7 +52,7 @@ React на `/app/` (`/` — редирект).
    (35), LDAP (40), SAML (41) — против Keycloak/AD/OpenLDAP/Entra ID;
    включить audit_hash_chain=true при перекате.
 
-Чанк 42 ГОТОВ (2026-10-03, этот коммит): постоянный SAML SP-ключ (снятие
+Чанк 42 ГОТОВ (2026-10-03, 952fad3): постоянный SAML SP-ключ (снятие
 MVP-ограничения чанка 41). samlauth.Service + KeyDir: ключ/сертификат SP
 теперь на диске (ca_dir/saml-sp/sp.key.pem 0600 + sp.crt.pem 0644,
 load-or-create через loadSPKeyPair/generateSPKeyPair/saveSPKeyPair,
