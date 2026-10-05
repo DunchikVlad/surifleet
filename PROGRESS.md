@@ -54,7 +54,7 @@ React на `/app/` (`/` — редирект).
    (чанк 35), LDAP (40), SAML (41) — против Keycloak/AD/OpenLDAP/Entra ID;
    включить audit_hash_chain=true при перекате.
 
-Чанк 41 ГОТОВ (2026-10-03, этот коммит): SAML 2.0 SSO (п. 9 ТЗ) — второй
+Чанк 41 ГОТОВ (2026-10-03, 041fb3a): SAML 2.0 SSO (п. 9 ТЗ) — второй
 SSO-протокол. `internal/samlauth` (crewjam/saml по ТЗ): Config
 (idp_metadata_url/idp_metadata_xml, sp_entity_id, acs_url, username/
 email/name/groups_attr с дефолтами email/displayName/groups), Validate
