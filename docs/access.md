@@ -498,4 +498,7 @@ curl "$API/fleet/compliance"
   ClickHouse agent_metrics (host.* + suricata.* из eve.json);
   вкладка «Метрики» в UI (спарклайны),
   API `GET /api/v1/agents/{id}/metrics?minutes=60&names=`.
+- Пересылка EVE-алертов в SIEM (чанк 45): агент tail eve.json →
+  alert-события → syslog (UDP/TCP, формат CEF или сырой JSON) —
+  `agent.siem_addr`/`siem_protocol`/`siem_format` в agent.yaml.
 - Автооткат при падении сервиса Suricata после деплоя (watchdog) — чанк 12b.

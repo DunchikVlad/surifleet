@@ -7,6 +7,21 @@
 
 ### Added
 
+- Чанк 45 (2026-10-03): пересылка EVE-алертов в SIEM (п. 5.4 ТЗ:
+  «пересылка EVE-алертов … в SIEM»). Агент `cmd/agent/siem.go`: tail
+  eve.json (offset, устойчив к ротации, ≤16 МБ/тик — как метрики чанка 34)
+  → события event_type=alert → syslog: UDP (RFC 5426) или TCP (RFC 6587
+  octet-counting, реконнект при обрыве). Формат: CEF (Common Event Format
+  — `CEF:0|SuriFleet|Suricata|1.0|sid|signature|severity|src=… dst=…
+  proto=… rt=… cs1=…`; экранирование, severity 1..3 → CEF 8/5/2) или сырой
+  JSON alert-события. Конфиг агента: `agent.siem_addr` (пусто — выкл.),
+  `siem_protocol` (udp|tcp), `siem_format` (cef|json); горутина в
+  session.go (тик 5 с, ленивый forwarder по log_dir первого инстанса).
+  Юнит-тесты: toCEF (префикс/extension/экранирование), newAlerts (фильтр
+  alert, инкремент, ротация), forwardOnce по UDP round-trip. Живой e2e не
+  проводился (sandbox блокирует SSH): при перекате агента с siem_addr —
+  алерты приходят в SIEM. (agent, docs)
+
 - Чанк 44 (2026-10-03): экспорт аудита (п. 8 ТЗ: «поиск и фильтрация в
   UI; экспорт»). `AuditRepo.ListRange` — записи за период [from,to)
   хронологически (ASC, ≤ предела). `GET /audit_log/export?from&to&format=

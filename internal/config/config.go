@@ -210,6 +210,14 @@ type AgentConfig struct {
 	MetricsInterval     Duration `yaml:"metrics_interval"`
 
 	LogLevel string `yaml:"log_level"`
+
+	// SIEM* — пересылка EVE-алертов Suricata в SIEM (чанк 45, п. 5.4).
+	// SiemAddr пустой — пересылка выключена. Протокол: udp (RFC 5426) или
+	// tcp (RFC 6587 octet-counting). Формат: cef (Common Event Format) или
+	// json (сырое alert-событие eve.json).
+	SiemAddr     string `yaml:"siem_addr"`
+	SiemProtocol string `yaml:"siem_protocol"` // udp|tcp (default udp)
+	SiemFormat   string `yaml:"siem_format"`   // cef|json (default cef)
 }
 
 // DefaultAgent возвращает конфигурацию агента с дефолтами.
@@ -246,6 +254,16 @@ func (c *AgentConfig) Validate() error {
 	}
 	if _, err := ParseLogLevel(c.LogLevel); err != nil {
 		return fmt.Errorf("agent.log_level: %w", err)
+	}
+	switch c.SiemProtocol {
+	case "", "udp", "tcp":
+	default:
+		return fmt.Errorf("agent.siem_protocol: недопустимое значение %q (udp|tcp)", c.SiemProtocol)
+	}
+	switch c.SiemFormat {
+	case "", "cef", "json":
+	default:
+		return fmt.Errorf("agent.siem_format: недопустимое значение %q (cef|json)", c.SiemFormat)
 	}
 	return nil
 }

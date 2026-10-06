@@ -43,7 +43,35 @@ stale (раньше висел бы online). ✅ РЕШЕНО в чанке 28: 
 (admin@surifleet.local / admin12345), сервер и агент под systemd, UI —
 React на `/app/` (`/` — редирект).
 
-**Следующий шаг после 44**:
+**Следующий шаг после 45**:
+1. Scoping: применить к таргетингу деплоев (создание на чужой кластер →
+   404/422) и матрице «правила × инстансы».
+2. Мониторинг (п. 5.4): SIEM-конфиг с сервера (ConfigPush на кластер/хост
+   вместо agent.yaml), полноценные дашборды флот/кластер/хост.
+3. E2E на стенде (не проведены — sandbox блокирует SSH): SSO (OIDC/LDAP/
+   SAML 35/40/41), SIEM-пересылка (45 — поднять syslog-заглушку, проверить
+   CEF-датаграммы), audit_hash_chain=true при перекате.
+
+Чанк 45 ГОТОВ (2026-10-03, этот коммит): пересылка EVE-алертов в SIEM
+(п. 5.4 ТЗ — последний функциональный пробел мониторинга). Агент
+`cmd/agent/siem.go`: siemForwarder — tail eve.json (offset, устойчив к
+ротации, siemMaxRead 16 МБ/тик), newAlerts — только event_type=alert
+(префильтр по байт-вхождению + json.Unmarshal, Raw сохраняется для
+json-формата); siemConn — UDP (RFC 5426, fire-and-forget) / TCP (RFC 6587
+octet-counting `<len> <payload>`, ленивый dial, реконнект 1 раз при обрыве
+записи). Формат: toCEF — `CEF:0|SuriFleet|Suricata|1.0|sid|signature|
+sev|src= spt= dst= dpt= proto= rt= cs1Label= cs1=` (cefEscape/cefHeaderEscape,
+sevToCEF 1..3→8/5/2) или сырой JSON (Raw + \n). Конфиг агента: SiemAddr/
+SiemProtocol(udp|tcp)/SiemFormat(cef|json) в config.AgentConfig + Validate;
+пустой siem_addr — выкл. session.go: SIEM-горутина (тик 5 с, forwarder
+лениво по log_dir первого инстанса из discovery, лог включения и
+пересылки). deploy/config/agent.example.yaml — секция siem_*. Юнит-тесты
+siem_test.go: toCEF (префикс, extension, экранирование, sevToCEF),
+newAlerts (фильтр stats, инкремент по offset, ротация-усечение),
+forwardOnce по UDP round-trip (реальный сокет, датаграмма CEF). Проверки:
+go build/vet зелёные, cmd/agent тесты ok. Живой e2e не проводился (sandbox
+блокирует SSH): при перекате агента на .67 с siem_addr → алерты в SIEM.
+
 1. Scoping: применить к таргетингу деплоев (создание на чужой кластер →
    404/422) и матрице «правила × инстансы».
 2. Мониторинг (п. 5.4, продолжение): пересылка EVE-алертов в SIEM,
@@ -1045,6 +1073,7 @@ managed-файле (245 правил).
 
 | Чанк | Содержание | Коммит |
 |---|---|---|
+| 45 | Пересылка EVE-алертов в SIEM (п. 5.4): агент `siem.go` — tail eve.json → alert-события → syslog UDP(RFC 5426)/TCP(RFC 6587 octet-counting, реконнект), формат CEF (экранирование, severity→CEF) или сырой JSON; конфиг `agent.siem_addr/protocol/format`, горутина в session.go. Юнит-тесты toCEF/newAlerts/forwardOnce по UDP. E2E не проводился (sandbox блокирует SSH) | (этот коммит) |
 | 44 | Экспорт аудита (п. 8, закрытие эпика): `AuditRepo.ListRange` (период [from,to) ASC); GET /audit_log/export?from&to&format=csv|json (audit.read, ≤50k строк, Content-Disposition); CSV через encoding/csv (квотинг, nil-поля, diff как JSON); юнит-тест writeAuditCSV | (этот коммит) |
 | 43 | Scoping ролей по кластерам (п. 8): `UsersRepo.ClusterScope` (org-scope → вся org; иначе union cluster_ids), Identity.ScopeRestricted/ScopeClusters + ClusterScopeAllowed, authMiddleware заполняет; применено к clusters/hosts/instances (list — фильтр/SQL ListScoped ANY, get/create/patch/delete — guard 404); вне scope — 404. Таргетинг деплоев/матрица — позже | (этот коммит) |
 | 42 | Постоянный SAML SP-ключ (снятие MVP-ограничения чанка 41): samlauth.Service + KeyDir — ключ/сертификат SP на диске (ca_dir/saml-sp, load-or-create 0600, tmp+rename), метаданные SP стабильны между рестартами; NewService(keyDir), main.go samlSPKeyDir. Юнит-тесты стабильности serial/ключа и прав 0600 | (этот коммит) |

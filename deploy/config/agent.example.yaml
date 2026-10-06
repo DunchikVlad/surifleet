@@ -40,3 +40,10 @@ agent:
 
   # debug | info | warn | error (сервер может менять на лету)
   log_level: info
+
+  # Пересылка EVE-алертов Suricata в SIEM (чанк 45, п. 5.4). Агент читает
+  # eve.json инстанса и пересылает события event_type=alert в SIEM по syslog.
+  # siem_addr пустой — пересылка выключена.
+  # siem_addr: "siem.example.com:514"
+  # siem_protocol: udp     # udp (RFC 5426) | tcp (RFC 6587 octet-counting)
+  # siem_format: cef       # cef (Common Event Format) | json (сырой eve alert)

@@ -282,6 +282,56 @@ func runSession(ctx context.Context, cfg *config.AgentConfig, id *identity, leve
 		}
 	}()
 
+	// Пересылка EVE-алертов в SIEM (чанк 45, п. 5.4): tail eve.json →
+	// alert-события → syslog (UDP/TCP, CEF/JSON). Выкл., если siem_addr
+	// не задан в конфиге агента.
+	if cfg.SiemAddr != "" {
+		protocol := cfg.SiemProtocol
+		if protocol == "" {
+			protocol = "udp"
+		}
+		format := cfg.SiemFormat
+		if format == "" {
+			format = "cef"
+		}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			t := time.NewTicker(5 * time.Second)
+			defer t.Stop()
+			var fwd *siemForwarder
+			for {
+				select {
+				case <-hbCtx.Done():
+					return
+				case <-t.C:
+					if fwd == nil {
+						var diskPath string
+						if rep := disc.Load(); rep != nil {
+							if inst := rep.GetInstances(); len(inst) > 0 {
+								diskPath = inst[0].GetLogDir()
+							}
+						}
+						if diskPath == "" {
+							continue
+						}
+						fwd = newSIEMForwarder(strings.TrimRight(diskPath, "/")+"/eve.json",
+							cfg.SiemAddr, protocol, format)
+						log.Info("SIEM: пересылка EVE-алертов включена",
+							"addr", cfg.SiemAddr, "protocol", protocol, "format", format)
+					}
+					sent, err := fwd.forwardOnce()
+					if err != nil {
+						log.Warn("SIEM: отправка", "err", err)
+					}
+					if sent > 0 {
+						log.Debug("SIEM: переслано алертов", "count", sent)
+					}
+				}
+			}
+		}()
+	}
+
 	// Приём серверных сообщений до разрыва.
 	for {
 		msg, err := stream.Recv()
