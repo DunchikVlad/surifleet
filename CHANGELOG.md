@@ -7,6 +7,21 @@
 
 ### Added
 
+- Чанк 43 (2026-10-03): scoping ролей по кластерам (п. 8 ТЗ: «аналитик
+  видит/меняет только свои кластеры»). `UsersRepo.ClusterScope` — семантика:
+  ≥1 назначение scope_type='organization' → вся org (restricted=false);
+  иначе union cluster_ids из scope_type='clusters' (restricted=true;
+  пусто — ничего не видит). Identity + ScopeRestricted/ScopeClusters +
+  ClusterScopeAllowed; authMiddleware заполняет (dev/API-токен — без
+  ограничений). Применено: clusters (list — фильтр; get/patch/delete —
+  guard clusterAllowed), hosts (list — фильтр по ClusterID; get/create/
+  patch/delete — guard), instances (list — SQL-фильтр Instances.ListScoped
+  по кластерам хостов ANY($n), пустой scope → пусто; get/create/patch/
+  delete — guard instanceAllowed через кластер хоста). Объект вне scope →
+  404 (неотличим от несуществующего, п. 8). Юнит-тест ClusterScopeAllowed
+  (dev/org-scope/restricted/пустой scope). Таргетинг деплоев и матрица —
+  следующие чанки. (server, api, docs)
+
 - Чанк 42 (2026-10-03): постоянный SAML SP-ключ (снятие MVP-ограничения
   чанка 41). Самоподписанный ключ/сертификат Service Provider теперь
   хранится на диске (`ca_dir/saml-sp/sp.key.pem` 0600 + `sp.crt.pem` 0644,

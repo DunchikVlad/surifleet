@@ -10,6 +10,7 @@ import (
 )
 
 // listHosts — GET /api/v1/hosts[?cluster_id=][&q=].
+// Scoping (чанк 43): cluster-restricted — только хосты своих кластеров.
 func (h *handlers) listHosts(w http.ResponseWriter, r *http.Request) {
 	clusterID, ok := queryUUID(w, r, "cluster_id")
 	if !ok {
@@ -24,6 +25,16 @@ func (h *handlers) listHosts(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeStoreError(w, err)
 		return
+	}
+	id := identityFrom(r.Context())
+	if id != nil && id.ScopeRestricted {
+		filtered := make([]store.Host, 0, len(items))
+		for _, it := range items {
+			if id.ClusterScopeAllowed(it.ClusterID) {
+				filtered = append(filtered, it)
+			}
+		}
+		items = filtered
 	}
 	writeJSON(w, http.StatusOK, page[store.Host]{Items: items, NextCursor: next})
 }
@@ -50,6 +61,9 @@ func (h *handlers) createHost(w http.ResponseWriter, r *http.Request) {
 	}
 	if fe.any() {
 		writeValidation(w, fe)
+		return
+	}
+	if !h.clusterAllowed(w, r, in.ClusterID) { // scoping (чанк 43)
 		return
 	}
 	host, err := h.d.Store.Hosts.Create(r.Context(), in)
@@ -80,6 +94,9 @@ func (h *handlers) getHost(w http.ResponseWriter, r *http.Request) {
 		writeStoreError(w, err)
 		return
 	}
+	if !h.clusterAllowed(w, r, host.ClusterID) { // scoping (чанк 43)
+		return
+	}
 	// TODO(chunk 8+): подтянуть agents и instances реальными запросами.
 	writeJSON(w, http.StatusOK, hostDetail{Host: host, Agent: nil, Instances: []any{}})
 }
@@ -88,6 +105,14 @@ func (h *handlers) getHost(w http.ResponseWriter, r *http.Request) {
 func (h *handlers) updateHost(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathUUID(w, chi.URLParam(r, "id"), "id")
 	if !ok {
+		return
+	}
+	host, err := h.d.Store.Hosts.Get(r.Context(), id)
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	if !h.clusterAllowed(w, r, host.ClusterID) { // scoping (чанк 43)
 		return
 	}
 	var p store.HostPatch
@@ -102,18 +127,26 @@ func (h *handlers) updateHost(w http.ResponseWriter, r *http.Request) {
 		writeValidation(w, fe)
 		return
 	}
-	host, err := h.d.Store.Hosts.Update(r.Context(), id, p)
+	host2, err := h.d.Store.Hosts.Update(r.Context(), id, p)
 	if err != nil {
 		writeStoreError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, host)
+	writeJSON(w, http.StatusOK, host2)
 }
 
 // deleteHost — DELETE /api/v1/hosts/{id}.
 func (h *handlers) deleteHost(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathUUID(w, chi.URLParam(r, "id"), "id")
 	if !ok {
+		return
+	}
+	host, err := h.d.Store.Hosts.Get(r.Context(), id)
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	if !h.clusterAllowed(w, r, host.ClusterID) { // scoping (чанк 43)
 		return
 	}
 	if err := h.d.Store.Hosts.Delete(r.Context(), id); err != nil {

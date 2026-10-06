@@ -333,6 +333,41 @@ func (r *UsersRepo) CountActiveBreakGlass(ctx context.Context, orgID uuid.UUID) 
 	return n, translate(err)
 }
 
+// ClusterScope — scoping пользователя по кластерам (чанк 43, п. 8 ТЗ:
+// «аналитик видит/меняет только свои кластеры»). Семантика MVP:
+//   - есть хотя бы одно назначение scope_type='organization' → restricted=false
+//     (доступна вся организация, clusterIDs пуст);
+//   - иначе restricted=true и clusterIDs — объединение cluster_ids всех
+//     назначений scope_type='clusters' (может быть пустым — ничего не видит).
+func (r *UsersRepo) ClusterScope(ctx context.Context, userID uuid.UUID) (clusterIDs []uuid.UUID, restricted bool, err error) {
+	rows, err := r.pool.Query(ctx,
+		`SELECT scope_type, cluster_ids FROM user_roles WHERE user_id = $1`, userID)
+	if err != nil {
+		return nil, false, translate(err)
+	}
+	defer rows.Close()
+	seen := map[uuid.UUID]bool{}
+	clusterIDs = []uuid.UUID{}
+	for rows.Next() {
+		var scope string
+		var ids []uuid.UUID
+		if err := rows.Scan(&scope, &ids); err != nil {
+			return nil, false, translate(err)
+		}
+		if scope == "organization" {
+			return nil, false, translate(rows.Err()) // org-scoped → без ограничений
+		}
+		restricted = true
+		for _, id := range ids {
+			if !seen[id] {
+				seen[id] = true
+				clusterIDs = append(clusterIDs, id)
+			}
+		}
+	}
+	return clusterIDs, restricted, translate(rows.Err())
+}
+
 // ---------------------------------------------------------------------------
 // JIT-провижининг SSO-пользователей (чанк 35)
 // ---------------------------------------------------------------------------

@@ -43,7 +43,34 @@ stale (раньше висел бы online). ✅ РЕШЕНО в чанке 28: 
 (admin@surifleet.local / admin12345), сервер и агент под systemd, UI —
 React на `/app/` (`/` — редирект).
 
-**Следующий шаг после 42**:
+**Следующий шаг после 43**:
+1. Scoping: применить к таргетингу деплоев (создание на чужой кластер →
+   404/422) и матрице «правила × инстансы»; экспорт аудита.
+2. Мониторинг (п. 5.4, продолжение): пересылка EVE-алертов в SIEM,
+   дашборды флот/кластер/хост.
+3. E2E SSO на стенде (не проведены — sandbox блокирует SSH/IdP): OIDC
+   (35), LDAP (40), SAML (41) — против Keycloak/AD/OpenLDAP/Entra ID;
+   включить audit_hash_chain=true при перекате.
+
+Чанк 43 ГОТОВ (2026-10-03, этот коммит): scoping ролей по кластерам
+(п. 8 ТЗ — последний 🚧 в RBAC). `UsersRepo.ClusterScope`: ≥1 назначение
+scope_type='organization' → вся org (restricted=false); иначе union
+cluster_ids из scope_type='clusters' (restricted=true; пусто — ничего не
+видит). Identity + ScopeRestricted/ScopeClusters + ClusterScopeAllowed
+(dev/API-токен — без ограничений); authMiddleware заполняет scope после
+загрузки прав. Применено: clusters (list — фильтр items по ClusterScopeAllowed;
+get/patch/delete — guard h.clusterAllowed → 404), hosts (list — фильтр по
+ClusterID; get/create/patch/delete — guard по кластеру хоста), instances
+(list — SQL-фильтр Instances.ListScoped: h.cluster_id = ANY($n), пустой
+scope → пусто + явный ?cluster_id= вне scope → пусто; get/create/patch/
+delete — guard h.instanceAllowed через кластер хоста). Объект вне scope
+→ 404 (п. 8: неотличим от несуществующего). Юнит-тест scope_test.go:
+ClusterScopeAllowed (dev/org-scope/restricted в scope/вне scope/пустой).
+Проверки: go build/vet зелёные, httpapi/store тесты ok. Живой e2e не
+проводился (sandbox блокирует SSH): при перекате создать пользователя с
+ролью analyst scope_type=clusters [X] → GET /clusters видит только X,
+GET /clusters/{Y} → 404.
+
 1. Scoping ролей по кластерам (применение user_roles.scope_type/clusters);
    экспорт аудита.
 2. Мониторинг (п. 5.4, продолжение): пересылка EVE-алертов в SIEM,
@@ -993,6 +1020,7 @@ managed-файле (245 правил).
 
 | Чанк | Содержание | Коммит |
 |---|---|---|
+| 43 | Scoping ролей по кластерам (п. 8): `UsersRepo.ClusterScope` (org-scope → вся org; иначе union cluster_ids), Identity.ScopeRestricted/ScopeClusters + ClusterScopeAllowed, authMiddleware заполняет; применено к clusters/hosts/instances (list — фильтр/SQL ListScoped ANY, get/create/patch/delete — guard 404); вне scope — 404. Таргетинг деплоев/матрица — позже | (этот коммит) |
 | 42 | Постоянный SAML SP-ключ (снятие MVP-ограничения чанка 41): samlauth.Service + KeyDir — ключ/сертификат SP на диске (ca_dir/saml-sp, load-or-create 0600, tmp+rename), метаданные SP стабильны между рестартами; NewService(keyDir), main.go samlSPKeyDir. Юнит-тесты стабильности serial/ключа и прав 0600 | (этот коммит) |
 | 41 | SAML 2.0 SSO (п. 9): `internal/samlauth` (crewjam/saml) — ServiceProvider (самоподписанный ключ SP в памяти на процесс, MVP), метаданные IdP (inline/URL, кэш); эндпоинты GET /auth/saml/{id}/metadata, GET /auth/saml/{id}/login (302), POST /auth/saml/acs?provider_id= (проверка assertion → атрибуты → JIT oidc.Provision → сессия → HTML с токеном); type=saml в /sso_providers, аудит auth.login_saml. E2E с IdP не проводился (нет в sandbox) | (этот коммит) |
 | 40 | LDAP/AD-аутентификация (п. 9): `internal/ldapauth` (go-ldap/v3) — bind-аутентификация (поиск по user_filter с EscapeFilter → bind DN+паролем каталога), email/группы (memberOf→cn); JIT + маппинг групп→роли — общий oidc.Service.Provision; POST /auth/ldap/login (публичный, → authTokens), аудит auth.login_ldap; type=ldap в /sso_providers + ConfigRaw. E2E с каталогом не проводился (нет LDAP-сервера) | (этот коммит) |

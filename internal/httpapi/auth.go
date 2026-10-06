@@ -81,6 +81,11 @@ type Identity struct {
 	BreakGlass bool
 	// APITokenID — запрос аутентифицирован API-токеном (X-API-Key, чанк 29).
 	APITokenID *uuid.UUID
+	// ScopeRestricted — пользователь ограничен подмножеством кластеров
+	// (user_roles только scope_type='clusters'; чанк 43). false — вся org.
+	ScopeRestricted bool
+	// ScopeClusters — разрешённые cluster_id (при ScopeRestricted).
+	ScopeClusters []uuid.UUID
 }
 
 // HasPerm проверяет разрешение ('*' — все).
@@ -89,6 +94,20 @@ func (id Identity) HasPerm(perm string) bool {
 		return true
 	}
 	return id.Perms[PermAll] || id.Perms[perm]
+}
+
+// ClusterScopeAllowed — доступен ли кластер текущему identity (scoping по
+// кластерам, чанк 43). Dev/API-токен/org-scope — всегда true.
+func (id Identity) ClusterScopeAllowed(clusterID uuid.UUID) bool {
+	if id.Dev || !id.ScopeRestricted {
+		return true
+	}
+	for _, c := range id.ScopeClusters {
+		if c == clusterID {
+			return true
+		}
+	}
+	return false
 }
 
 // identityFrom возвращает identity из контекста (nil — не аутентифицирован).
@@ -199,9 +218,17 @@ func (h *handlers) authMiddleware(next http.Handler) http.Handler {
 		for _, p := range perms {
 			permSet[p] = true
 		}
+		// Scoping по кластерам (чанк 43): только cluster-scoped назначения
+		// → ограничение подмножеством кластеров. Ошибка чтения — без ограничений
+		// (fail-open нехорошо, но и не блокируем системных; scoping уточнят).
+		scopeClusters, scopeRestricted, err := h.d.Store.Users.ClusterScope(r.Context(), user.ID)
+		if err != nil {
+			errLog.Error("auth: cluster scope", "err", err)
+		}
 		ctx := context.WithValue(r.Context(), identityKey{}, &Identity{
 			UserID: user.ID, SessionID: sess.ID, OrgID: user.OrganizationID,
 			Email: user.Email, Perms: permSet, BreakGlass: user.IsBreakGlass,
+			ScopeRestricted: scopeRestricted, ScopeClusters: scopeClusters,
 		})
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})

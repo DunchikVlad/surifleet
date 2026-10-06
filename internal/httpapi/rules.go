@@ -55,6 +55,47 @@ func (h *handlers) resolveOrgID(w http.ResponseWriter, r *http.Request) (uuid.UU
 	return org.ID, true
 }
 
+// clusterAllowed — scoping по кластерам (чанк 43): если identity ограничен
+// подмножеством кластеров и clusterID вне scope — пишет 404 (объект вне
+// scope неотличим от несуществующего, п. 8) и возвращает false.
+func (h *handlers) clusterAllowed(w http.ResponseWriter, r *http.Request, clusterID uuid.UUID) bool {
+	id := identityFrom(r.Context())
+	if id == nil || id.ClusterScopeAllowed(clusterID) {
+		return true
+	}
+	writeError(w, http.StatusNotFound, CodeNotFound, "ресурс не найден", nil)
+	return false
+}
+
+// instanceAllowed — scoping инстанса по кластеру его хоста (чанк 43).
+// При внутренней ошибке чтения хоста — пишет её и false.
+func (h *handlers) instanceAllowed(w http.ResponseWriter, r *http.Request, hostID uuid.UUID) bool {
+	id := identityFrom(r.Context())
+	if id == nil || !id.ScopeRestricted {
+		return true
+	}
+	host, err := h.d.Store.Hosts.Get(r.Context(), hostID)
+	if err != nil {
+		writeStoreError(w, err)
+		return false
+	}
+	return h.clusterAllowed(w, r, host.ClusterID)
+}
+
+// clusterScopeFilter — разрешённый набор кластеров для фильтра списков
+// (nil = без ограничений). Возвращает restricted + множество.
+func (h *handlers) clusterScopeFilter(r *http.Request) (map[uuid.UUID]bool, bool) {
+	id := identityFrom(r.Context())
+	if id == nil || !id.ScopeRestricted {
+		return nil, false
+	}
+	set := make(map[uuid.UUID]bool, len(id.ScopeClusters))
+	for _, c := range id.ScopeClusters {
+		set[c] = true
+	}
+	return set, true
+}
+
 // importItem — ImportItem из разобранного правила (parsed → jsonb ревизии).
 func importItem(p *rules.Parsed) (store.ImportItem, error) {
 	parsedJSON, err := json.Marshal(p)

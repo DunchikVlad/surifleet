@@ -9,6 +9,8 @@ import (
 )
 
 // listClusters — GET /api/v1/clusters[?organization_id=].
+// Scoping (чанк 43): cluster-restricted пользователь видит только свои
+// кластеры (объекты вне scope неотличимы от несуществующих — п. 8).
 func (h *handlers) listClusters(w http.ResponseWriter, r *http.Request) {
 	orgID, ok := queryUUID(w, r, "organization_id")
 	if !ok {
@@ -22,6 +24,16 @@ func (h *handlers) listClusters(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeStoreError(w, err)
 		return
+	}
+	id := identityFrom(r.Context())
+	if id != nil && id.ScopeRestricted {
+		filtered := make([]store.Cluster, 0, len(items))
+		for _, c := range items {
+			if id.ClusterScopeAllowed(c.ID) {
+				filtered = append(filtered, c)
+			}
+		}
+		items = filtered
 	}
 	writeJSON(w, http.StatusOK, page[store.Cluster]{Items: items, NextCursor: next})
 }
@@ -62,6 +74,9 @@ func (h *handlers) getCluster(w http.ResponseWriter, r *http.Request) {
 		writeStoreError(w, err)
 		return
 	}
+	if !h.clusterAllowed(w, r, c.ID) { // scoping: вне scope → 404 (чанк 43)
+		return
+	}
 	writeJSON(w, http.StatusOK, c)
 }
 
@@ -69,6 +84,9 @@ func (h *handlers) getCluster(w http.ResponseWriter, r *http.Request) {
 func (h *handlers) updateCluster(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathUUID(w, chi.URLParam(r, "id"), "id")
 	if !ok {
+		return
+	}
+	if !h.clusterAllowed(w, r, id) { // scoping: вне scope → 404 (чанк 43)
 		return
 	}
 	var p store.ClusterPatch
@@ -95,6 +113,9 @@ func (h *handlers) updateCluster(w http.ResponseWriter, r *http.Request) {
 func (h *handlers) deleteCluster(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathUUID(w, chi.URLParam(r, "id"), "id")
 	if !ok {
+		return
+	}
+	if !h.clusterAllowed(w, r, id) { // scoping: вне scope → 404 (чанк 43)
 		return
 	}
 	if err := h.d.Store.Clusters.Delete(r.Context(), id); err != nil {

@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -127,7 +128,19 @@ func (r *InstancesRepo) Delete(ctx context.Context, id uuid.UUID) error {
 
 // List — keyset-листинг инстансов; hostID != uuid.Nil — фильтр ?host_id=,
 // clusterID != uuid.Nil — фильтр ?cluster_id= (через join с hosts).
+// List — keyset-листинг инстансов; hostID != uuid.Nil — фильтр ?host_id=,
+// clusterID != uuid.Nil — фильтр ?cluster_id= (через join с hosts).
 func (r *InstancesRepo) List(ctx context.Context, hostID, clusterID, cursor uuid.UUID, limit int) ([]Instance, *string, error) {
+	return r.ListScoped(ctx, hostID, clusterID, nil, cursor, limit)
+}
+
+// ListScoped — List + scoping по кластерам (чанк 43): allowedClusters != nil
+// ограничивает выборку инстансами хостов этих кластеров (пустой слайс —
+// ничего не видит). Вне scope объекты неотличимы от несуществующих (п. 8).
+func (r *InstancesRepo) ListScoped(ctx context.Context, hostID, clusterID uuid.UUID, allowedClusters []uuid.UUID, cursor uuid.UUID, limit int) ([]Instance, *string, error) {
+	if allowedClusters != nil && len(allowedClusters) == 0 {
+		return []Instance{}, nil, nil // restricted без кластеров — пусто
+	}
 	var hostArg, clusterArg, cursorArg *uuid.UUID
 	if hostID != uuid.Nil {
 		hostArg = &hostID
@@ -138,15 +151,22 @@ func (r *InstancesRepo) List(ctx context.Context, hostID, clusterID, cursor uuid
 	if cursor != uuid.Nil {
 		cursorArg = &cursor
 	}
+	where := `($1::uuid IS NULL OR i.host_id = $1)
+		   AND ($2::uuid IS NULL OR h.cluster_id = $2)
+		   AND ($3::uuid IS NULL OR i.id > $3)`
+	args := []any{hostArg, clusterArg, cursorArg}
+	if allowedClusters != nil {
+		args = append(args, allowedClusters)
+		where += fmt.Sprintf(" AND h.cluster_id = ANY($%d)", len(args))
+	}
+	args = append(args, limit+1)
 	rows, err := r.pool.Query(ctx,
 		`SELECT `+instanceColumnsI+` FROM instances i
 		 JOIN hosts h ON h.id = i.host_id
-		 WHERE ($1::uuid IS NULL OR i.host_id = $1)
-		   AND ($2::uuid IS NULL OR h.cluster_id = $2)
-		   AND ($3::uuid IS NULL OR i.id > $3)
+		 WHERE `+where+`
 		 ORDER BY i.id
-		 LIMIT $4`,
-		hostArg, clusterArg, cursorArg, limit+1,
+		 LIMIT $`+fmt.Sprint(len(args)),
+		args...,
 	)
 	if err != nil {
 		return nil, nil, translate(err)

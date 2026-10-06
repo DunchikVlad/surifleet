@@ -11,6 +11,7 @@ import (
 )
 
 // listInstances — GET /api/v1/instances[?host_id=][&cluster_id=].
+// Scoping (чанк 43): cluster-restricted — только инстансы своих кластеров.
 func (h *handlers) listInstances(w http.ResponseWriter, r *http.Request) {
 	hostID, ok := queryUUID(w, r, "host_id")
 	if !ok {
@@ -24,7 +25,17 @@ func (h *handlers) listInstances(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	items, next, err := h.d.Store.Instances.List(r.Context(), hostID, clusterID, cursor, limit)
+	// Scoping: restricted — ограничиваем выборку своими кластерами.
+	var allowed []uuid.UUID
+	if id := identityFrom(r.Context()); id != nil && id.ScopeRestricted {
+		allowed = id.ScopeClusters // пусто → ничего не видит (ListScoped вернёт [])
+		// Явный ?cluster_id= вне scope → пустой результат (вне scope несуществует).
+		if clusterID != uuid.Nil && !id.ClusterScopeAllowed(clusterID) {
+			writeJSON(w, http.StatusOK, page[store.Instance]{Items: []store.Instance{}, NextCursor: nil})
+			return
+		}
+	}
+	items, next, err := h.d.Store.Instances.ListScoped(r.Context(), hostID, clusterID, allowed, cursor, limit)
 	if err != nil {
 		writeStoreError(w, err)
 		return
@@ -59,6 +70,9 @@ func (h *handlers) createInstance(w http.ResponseWriter, r *http.Request) {
 		writeValidation(w, fe)
 		return
 	}
+	if !h.instanceAllowed(w, r, in.HostID) { // scoping (чанк 43): хост вне scope
+		return
+	}
 	inst, err := h.d.Store.Instances.Create(r.Context(), in)
 	if err != nil {
 		writeStoreError(w, err)
@@ -78,6 +92,9 @@ func (h *handlers) getInstance(w http.ResponseWriter, r *http.Request) {
 		writeStoreError(w, err)
 		return
 	}
+	if !h.instanceAllowed(w, r, inst.HostID) { // scoping (чанк 43)
+		return
+	}
 	writeJSON(w, http.StatusOK, inst)
 }
 
@@ -85,6 +102,14 @@ func (h *handlers) getInstance(w http.ResponseWriter, r *http.Request) {
 func (h *handlers) updateInstance(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathUUID(w, chi.URLParam(r, "id"), "id")
 	if !ok {
+		return
+	}
+	cur, err := h.d.Store.Instances.Get(r.Context(), id)
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	if !h.instanceAllowed(w, r, cur.HostID) { // scoping (чанк 43)
 		return
 	}
 	var p store.InstancePatch
@@ -120,6 +145,14 @@ func (h *handlers) updateInstance(w http.ResponseWriter, r *http.Request) {
 func (h *handlers) deleteInstance(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathUUID(w, chi.URLParam(r, "id"), "id")
 	if !ok {
+		return
+	}
+	cur, err := h.d.Store.Instances.Get(r.Context(), id)
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	if !h.instanceAllowed(w, r, cur.HostID) { // scoping (чанк 43)
 		return
 	}
 	if err := h.d.Store.Instances.Delete(r.Context(), id); err != nil {
