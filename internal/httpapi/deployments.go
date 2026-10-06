@@ -105,6 +105,12 @@ func (h *handlers) createDeployment(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	// Scoping таргетинга (чанк 46, п. 8): cluster-restricted пользователь
+	// не может деплоить на чужие кластеры — цели пересекаются с его scope.
+	instanceIDs, ok = h.scopeTargets(w, r, instanceIDs, in.Targeting)
+	if !ok {
+		return
+	}
 	if len(instanceIDs) == 0 {
 		writeError(w, http.StatusBadRequest, CodeValidation,
 			"таргетинг не выбрал ни одного инстанса", nil)
@@ -210,6 +216,84 @@ func (h *handlers) resolveTargets(w http.ResponseWriter, r *http.Request, orgID 
 	}
 	writeError(w, http.StatusBadRequest, CodeValidation, "неизвестный targeting.mode", nil)
 	return nil, false
+}
+
+// scopeTargets — scoping таргетинга деплоя (чанк 46, п. 8): для
+// cluster-restricted пользователя цели деплоя пересекаются с его кластерами.
+// Явные списки (selected_clusters/specific_hosts/specific_instances) —
+// проверяются по одному: чужой id → 404 (объект вне scope неотличим от
+// несуществующего). Режимы all_clusters/all_except_clusters — молча
+// сужаются до разрешённых кластеров.
+func (h *handlers) scopeTargets(w http.ResponseWriter, r *http.Request, ids []uuid.UUID, t targetingInput) ([]uuid.UUID, bool) {
+	id := identityFrom(r.Context())
+	if id == nil || !id.ScopeRestricted {
+		return ids, true
+	}
+	// Явные id: проверка членства в scope (чужой → 404).
+	check := func(val string, clusterOf func(uuid.UUID) bool) ([]uuid.UUID, bool) {
+		u, err := uuid.Parse(val)
+		if err != nil {
+			return nil, true // битый UUID уже отловлен в resolveTargets
+		}
+		if !clusterOf(u) {
+			writeError(w, http.StatusNotFound, CodeNotFound, "ресурс не найден", nil)
+			return nil, false
+		}
+		return nil, true
+	}
+	for _, cs := range t.ClusterIDs {
+		if out, ok := check(cs, id.ClusterScopeAllowed); !ok {
+			return out, false
+		}
+	}
+	for _, hs := range t.HostIDs {
+		if out, ok := check(hs, func(hid uuid.UUID) bool {
+			host, err := h.d.Store.Hosts.Get(r.Context(), hid)
+			return err == nil && id.ClusterScopeAllowed(host.ClusterID)
+		}); !ok {
+			return out, false
+		}
+	}
+	for _, is := range t.InstanceIDs {
+		if out, ok := check(is, func(iid uuid.UUID) bool {
+			inst, err := h.d.Store.Instances.Get(r.Context(), iid)
+			if err != nil {
+				return false
+			}
+			host, err := h.d.Store.Hosts.Get(r.Context(), inst.HostID)
+			return err == nil && id.ClusterScopeAllowed(host.ClusterID)
+		}); !ok {
+			return out, false
+		}
+	}
+	// Молчаливое сужение результата до разрешённых кластеров (режимы
+	// all_clusters / all_except_clusters — ids уже разрешёны из БД без
+	// учёта scope): оставляем только инстансы хостов разрешённых кластеров.
+	if t.Mode == "all_clusters" || t.Mode == "all_except_clusters" {
+		scoped, err := h.d.Store.Instances.IDsForClusters(r.Context(), id.ScopeClusters)
+		if err != nil {
+			writeStoreError(w, err)
+			return nil, false
+		}
+		return intersectIDs(ids, scoped), true
+	}
+	return ids, true
+}
+
+// intersectIDs — пересечение списка целей с разрешённым множеством (порядок
+// сохраняется). Чистая функция для теста (чанк 46).
+func intersectIDs(ids, allowed []uuid.UUID) []uuid.UUID {
+	set := make(map[uuid.UUID]bool, len(allowed))
+	for _, a := range allowed {
+		set[a] = true
+	}
+	out := make([]uuid.UUID, 0, len(ids))
+	for _, i := range ids {
+		if set[i] {
+			out = append(out, i)
+		}
+	}
+	return out
 }
 
 // listDeployments — GET /api/v1/deployments?status=...: keyset-листинг.

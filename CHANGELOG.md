@@ -7,6 +7,18 @@
 
 ### Added
 
+- Чанк 46 (2026-10-03): scoping таргетинга деплоев (п. 8 ТЗ, завершение
+  эпика scoping). `handlers.scopeTargets` в createDeployment: для
+  cluster-restricted пользователя цели деплоя пересекаются с его кластерами.
+  Явные списки (selected_clusters/specific_hosts/specific_instances) —
+  каждый id проверяется: чужой (кластер/хост по кластеру/инстанс по
+  кластеру хоста) → 404 (объект вне scope неотличим от несуществующего).
+  Режимы all_clusters/all_except_clusters — молча сужаются до разрешённых
+  кластеров (intersectIDs результата с IDsForClusters(scope); пусто → 400
+  «не выбрал ни одного инстанса»). Юнит-тест intersectIDs (пересечение,
+  порядок, пустые). Матрица «правила × инстансы» — следующий чанк.
+  (server, api, docs)
+
 - Чанк 45 (2026-10-03): пересылка EVE-алертов в SIEM (п. 5.4 ТЗ:
   «пересылка EVE-алертов … в SIEM»). Агент `cmd/agent/siem.go`: tail
   eve.json (offset, устойчив к ротации, ≤16 МБ/тик — как метрики чанка 34)

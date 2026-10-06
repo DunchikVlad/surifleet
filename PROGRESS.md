@@ -43,7 +43,30 @@ stale (раньше висел бы online). ✅ РЕШЕНО в чанке 28: 
 (admin@surifleet.local / admin12345), сервер и агент под systemd, UI —
 React на `/app/` (`/` — редирект).
 
-**Следующий шаг после 45**:
+**Следующий шаг после 46**:
+1. Scoping: матрица «правила × инстансы» (cluster_id фильтр уже есть —
+   применить scope к нему).
+2. Мониторинг (п. 5.4): SIEM-конфиг с сервера (ConfigPush на кластер/хост),
+   полноценные дашборды флот/кластер/хост.
+3. E2E на стенде (не проведены — sandbox блокирует SSH): SSO (35/40/41),
+   SIEM (45), scoping (43/46), audit_hash_chain=true при перекате.
+
+Чанк 46 ГОТОВ (2026-10-03, этот коммит): scoping таргетинга деплоев
+(п. 8 ТЗ — завершение эпика scoping, начатого чанком 43). `handlers.
+scopeTargets` в createDeployment (после resolveTargets): restricted
+пользователь — цели деплоя пересекаются с его ScopeClusters. Явные
+списки: selected_clusters — каждый cluster_id через ClusterScopeAllowed;
+specific_hosts — каждый host_id → host.ClusterID; specific_instances —
+каждый instance_id → inst.HostID → host.ClusterID; чужой id → 404 (п. 8:
+объект вне scope неотличим от несуществующего). Режимы all_clusters/
+all_except_clusters — молчаливое сужение результата: intersectIDs(ids,
+IDsForClusters(ScopeClusters)); пустой итог → 400 «не выбрал ни одного
+инстанса». Юнит-тест intersectIDs (deploy_scope_test.go: пересечение,
+порядок, пустые). Проверки: go build/vet зелёные, httpapi тесты ok. Живой
+e2e не проводился (sandbox блокирует SSH): при перекате analyst
+scope=clusters [X] → деплой all_clusters затрагивает только инстансы X;
+деплой specific_instances с инстансом кластера Y → 404.
+
 1. Scoping: применить к таргетингу деплоев (создание на чужой кластер →
    404/422) и матрице «правила × инстансы».
 2. Мониторинг (п. 5.4): SIEM-конфиг с сервера (ConfigPush на кластер/хост
@@ -1073,6 +1096,7 @@ managed-файле (245 правил).
 
 | Чанк | Содержание | Коммит |
 |---|---|---|
+| 46 | Scoping таргетинга деплоев (п. 8, завершение эпика): `scopeTargets` в createDeployment — явные списки (selected_clusters/specific_hosts/specific_instances) проверяются по кластеру (чужой → 404), режимы all_clusters/all_except_clusters молча сужаются до ScopeClusters (intersectIDs с IDsForClusters); пусто → 400. Юнит-тест intersectIDs | (этот коммит) |
 | 45 | Пересылка EVE-алертов в SIEM (п. 5.4): агент `siem.go` — tail eve.json → alert-события → syslog UDP(RFC 5426)/TCP(RFC 6587 octet-counting, реконнект), формат CEF (экранирование, severity→CEF) или сырой JSON; конфиг `agent.siem_addr/protocol/format`, горутина в session.go. Юнит-тесты toCEF/newAlerts/forwardOnce по UDP. E2E не проводился (sandbox блокирует SSH) | (этот коммит) |
 | 44 | Экспорт аудита (п. 8, закрытие эпика): `AuditRepo.ListRange` (период [from,to) ASC); GET /audit_log/export?from&to&format=csv|json (audit.read, ≤50k строк, Content-Disposition); CSV через encoding/csv (квотинг, nil-поля, diff как JSON); юнит-тест writeAuditCSV | (этот коммит) |
 | 43 | Scoping ролей по кластерам (п. 8): `UsersRepo.ClusterScope` (org-scope → вся org; иначе union cluster_ids), Identity.ScopeRestricted/ScopeClusters + ClusterScopeAllowed, authMiddleware заполняет; применено к clusters/hosts/instances (list — фильтр/SQL ListScoped ANY, get/create/patch/delete — guard 404); вне scope — 404. Таргетинг деплоев/матрица — позже | (этот коммит) |
