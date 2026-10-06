@@ -52,7 +52,7 @@ React на `/app/` (`/` — редирект).
    SAML 35/40/41), SIEM-пересылка (45 — поднять syslog-заглушку, проверить
    CEF-датаграммы), audit_hash_chain=true при перекате.
 
-Чанк 45 ГОТОВ (2026-10-03, этот коммит): пересылка EVE-алертов в SIEM
+Чанк 45 ГОТОВ (2026-10-03, 0ffe88e): пересылка EVE-алертов в SIEM
 (п. 5.4 ТЗ — последний функциональный пробел мониторинга). Агент
 `cmd/agent/siem.go`: siemForwarder — tail eve.json (offset, устойчив к
 ротации, siemMaxRead 16 МБ/тик), newAlerts — только event_type=alert
