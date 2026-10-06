@@ -749,3 +749,30 @@ func (r *AuditRepo) List(ctx context.Context, orgID uuid.UUID, actionPrefix stri
 	}
 	return items, next, nil
 }
+
+// ListRange — записи аудита за период [from, to) хронологически (ASC) —
+// для экспорта (чанк 44). limit — жёсткий предел строк (вызывающий код
+// ограничивает, напр. 50000).
+func (r *AuditRepo) ListRange(ctx context.Context, orgID uuid.UUID, from, to time.Time, limit int) ([]AuditListItem, error) {
+	rows, err := r.pool.Query(ctx,
+		`SELECT id, created_at, actor_type, actor_name, action, object_type, object_id, result, reason, ip::text, diff
+		 FROM audit_log
+		 WHERE (organization_id = $1 OR organization_id IS NULL)
+		   AND created_at >= $2 AND created_at < $3
+		 ORDER BY created_at ASC, id ASC LIMIT $4`,
+		orgID, from, to, limit)
+	if err != nil {
+		return nil, translate(err)
+	}
+	defer rows.Close()
+	items := []AuditListItem{}
+	for rows.Next() {
+		var it AuditListItem
+		if err := rows.Scan(&it.ID, &it.CreatedAt, &it.ActorType, &it.ActorName, &it.Action,
+			&it.ObjectType, &it.ObjectID, &it.Result, &it.Reason, &it.IP, &it.Diff); err != nil {
+			return nil, translate(err)
+		}
+		items = append(items, it)
+	}
+	return items, translate(rows.Err())
+}

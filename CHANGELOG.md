@@ -7,6 +7,17 @@
 
 ### Added
 
+- Чанк 44 (2026-10-03): экспорт аудита (п. 8 ТЗ: «поиск и фильтрация в
+  UI; экспорт»). `AuditRepo.ListRange` — записи за период [from,to)
+  хронологически (ASC, ≤ предела). `GET /audit_log/export?from&to&format=
+  csv|json` (право audit.read; from/to — обязательные RFC3339, format
+  default csv; ≤ 50000 строк; Content-Disposition attachment audit-
+  YYYYMMDD-YYYYMMDD.{csv,json}). CSV — encoding/csv (заголовок created_at/
+  actor_type/…/diff; nil-поля → пусто; diff как JSON). Юнит-тест
+  writeAuditCSV (парсинг обратно, квотинг запятых/кавычек, nil-поля).
+  Эпик аудита (п. 8) полностью закрыт: diff + цепочка хэшей + экспорт.
+  (server, api, docs)
+
 - Чанк 43 (2026-10-03): scoping ролей по кластерам (п. 8 ТЗ: «аналитик
   видит/меняет только свои кластеры»). `UsersRepo.ClusterScope` — семантика:
   ≥1 назначение scope_type='organization' → вся org (restricted=false);

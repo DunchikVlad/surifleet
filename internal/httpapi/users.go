@@ -2,6 +2,7 @@
 package httpapi
 
 import (
+	"encoding/csv"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -422,4 +423,78 @@ func (h *handlers) verifyAuditChain(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, res)
+}
+
+// exportMaxRows — предел строк экспорта аудита (чанк 44).
+const exportMaxRows = 50000
+
+// exportAuditLog — GET /audit_log/export?from&to&format=csv|json (audit.read):
+// выгрузка аудита за период [from,to) (чанк 44, п. 8 «экспорт»).
+func (h *handlers) exportAuditLog(w http.ResponseWriter, r *http.Request) {
+	orgID, ok := h.resolveOrgID(w, r)
+	if !ok {
+		return
+	}
+	fe := fieldErrors{}
+	from, errFrom := time.Parse(time.RFC3339, r.URL.Query().Get("from"))
+	if errFrom != nil {
+		fe.add("from", "обязательный RFC3339 (напр. 2026-10-01T00:00:00Z)")
+	}
+	to, errTo := time.Parse(time.RFC3339, r.URL.Query().Get("to"))
+	if errTo != nil {
+		fe.add("to", "обязательный RFC3339")
+	}
+	format := r.URL.Query().Get("format")
+	if format == "" {
+		format = "csv"
+	}
+	if format != "csv" && format != "json" {
+		fe.add("format", "csv|json")
+	}
+	if fe.any() {
+		writeValidation(w, fe)
+		return
+	}
+	items, err := h.d.Store.Audit.ListRange(r.Context(), orgID, from, to, exportMaxRows)
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	fname := "audit-" + from.UTC().Format("20060102") + "-" + to.UTC().Format("20060102")
+	if format == "json" {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Content-Disposition", `attachment; filename="`+fname+`.json"`)
+		writeJSON(w, http.StatusOK, map[string]any{"items": items, "count": len(items)})
+		return
+	}
+	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
+	w.Header().Set("Content-Disposition", `attachment; filename="`+fname+`.csv"`)
+	writeAuditCSV(w, items)
+}
+
+// writeAuditCSV — CSV-выгрузка аудита (заголовок + строки; diff как JSON).
+func writeAuditCSV(w http.ResponseWriter, items []store.AuditListItem) {
+	cw := csv.NewWriter(w)
+	defer cw.Flush()
+	_ = cw.Write([]string{"created_at", "actor_type", "actor_name", "action", "object_type", "object_id", "result", "reason", "ip", "diff"})
+	str := func(p *string) string {
+		if p == nil {
+			return ""
+		}
+		return *p
+	}
+	uid := func(p *uuid.UUID) string {
+		if p == nil {
+			return ""
+		}
+		return p.String()
+	}
+	for _, it := range items {
+		_ = cw.Write([]string{
+			it.CreatedAt.UTC().Format(time.RFC3339),
+			it.ActorType, str(it.ActorName), it.Action,
+			str(it.ObjectType), uid(it.ObjectID), it.Result, str(it.Reason), str(it.IP),
+			string(it.Diff),
+		})
+	}
 }

@@ -43,7 +43,32 @@ stale (раньше висел бы online). ✅ РЕШЕНО в чанке 28: 
 (admin@surifleet.local / admin12345), сервер и агент под systemd, UI —
 React на `/app/` (`/` — редирект).
 
-**Следующий шаг после 43**:
+**Следующий шаг после 44**:
+1. Scoping: применить к таргетингу деплоев (создание на чужой кластер →
+   404/422) и матрице «правила × инстансы».
+2. Мониторинг (п. 5.4, продолжение): пересылка EVE-алертов в SIEM,
+   дашборды флот/кластер/хост.
+3. E2E SSO на стенде (не проведены — sandbox блокирует SSH/IdP): OIDC
+   (35), LDAP (40), SAML (41) — против Keycloak/AD/OpenLDAP/Entra ID;
+   включить audit_hash_chain=true при перекате.
+
+Чанк 44 ГОТОВ (2026-10-03, этот коммит): экспорт аудита (п. 8 ТЗ
+«экспорт» — последний 🚧 эпика аудита). `AuditRepo.ListRange` — записи
+за период [from,to) хронологически (created_at ASC, id ASC, ≤ limit).
+Хэндлер exportAuditLog: GET /audit_log/export?from&to&format=csv|json
+(право audit.read; from/to обязательные RFC3339 → 400 при мусоре; format
+default csv, csv|json; предел 50000 строк; Content-Disposition attachment
+audit-YYYYMMDD-YYYYMMDD.{csv,json}; JSON — {items, count}). writeAuditCSV
+— encoding/csv (заголовок created_at/actor_type/actor_name/action/
+object_type/object_id/result/reason/ip/diff; nil-поля → пусто; diff как
+JSON). Роут /audit_log/export в router. Юнит-тест writeAuditCSV
+(csv.ReadAll обратно, квотинг запятой в имени и кавычек в reason, nil-поля
+пустые). Проверки: go build/vet зелёные, httpapi тесты ok. Эпик аудита
+(п. 8) полностью закрыт: diff (37, 39) + цепочка хэшей (38) + экспорт
+(44). Живой e2e не проводился (sandbox блокирует SSH): при перекате
+GET /audit_log/export?from=2026-10-01T00:00:00Z&to=2026-10-04T00:00:00Z
+→ CSV-файл с записями.
+
 1. Scoping: применить к таргетингу деплоев (создание на чужой кластер →
    404/422) и матрице «правила × инстансы»; экспорт аудита.
 2. Мониторинг (п. 5.4, продолжение): пересылка EVE-алертов в SIEM,
@@ -1020,6 +1045,7 @@ managed-файле (245 правил).
 
 | Чанк | Содержание | Коммит |
 |---|---|---|
+| 44 | Экспорт аудита (п. 8, закрытие эпика): `AuditRepo.ListRange` (период [from,to) ASC); GET /audit_log/export?from&to&format=csv|json (audit.read, ≤50k строк, Content-Disposition); CSV через encoding/csv (квотинг, nil-поля, diff как JSON); юнит-тест writeAuditCSV | (этот коммит) |
 | 43 | Scoping ролей по кластерам (п. 8): `UsersRepo.ClusterScope` (org-scope → вся org; иначе union cluster_ids), Identity.ScopeRestricted/ScopeClusters + ClusterScopeAllowed, authMiddleware заполняет; применено к clusters/hosts/instances (list — фильтр/SQL ListScoped ANY, get/create/patch/delete — guard 404); вне scope — 404. Таргетинг деплоев/матрица — позже | (этот коммит) |
 | 42 | Постоянный SAML SP-ключ (снятие MVP-ограничения чанка 41): samlauth.Service + KeyDir — ключ/сертификат SP на диске (ca_dir/saml-sp, load-or-create 0600, tmp+rename), метаданные SP стабильны между рестартами; NewService(keyDir), main.go samlSPKeyDir. Юнит-тесты стабильности serial/ключа и прав 0600 | (этот коммит) |
 | 41 | SAML 2.0 SSO (п. 9): `internal/samlauth` (crewjam/saml) — ServiceProvider (самоподписанный ключ SP в памяти на процесс, MVP), метаданные IdP (inline/URL, кэш); эндпоинты GET /auth/saml/{id}/metadata, GET /auth/saml/{id}/login (302), POST /auth/saml/acs?provider_id= (проверка assertion → атрибуты → JIT oidc.Provision → сессия → HTML с токеном); type=saml в /sso_providers, аудит auth.login_saml. E2E с IdP не проводился (нет в sandbox) | (этот коммит) |

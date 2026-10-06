@@ -141,6 +141,9 @@ curl -H "Authorization: Bearer $TOKEN" http://192.168.31.28:8080/api/v1/agents
   целостности: `GET /audit_log/verify?limit=N` (право audit.read) —
   пересчёт hash (детект подделки полей) и связность звеньев (детект
   удаления/вставки); кнопка «проверить цепочку» во вкладке «Аудит».
+- **Экспорт аудита (чанк 44)**: `GET /audit_log/export?from=<RFC3339>&to=
+  <RFC3339>&format=csv|json` (право audit.read; ≤ 50000 строк, файл
+  audit-YYYYMMDD-YYYYMMDD.{csv,json}).
 - **SSO / OIDC (чанк 35)**: вход через корпоративный IdP (Authorization
   Code + PKCE). Провайдеры настраиваются на вкладке «SSO» (или API
   `/sso_providers`, права sso.read/write): issuer_url, client_id,
