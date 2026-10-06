@@ -52,7 +52,7 @@ React на `/app/` (`/` — редирект).
    (35), LDAP (40), SAML (41) — против Keycloak/AD/OpenLDAP/Entra ID;
    включить audit_hash_chain=true при перекате.
 
-Чанк 43 ГОТОВ (2026-10-03, этот коммит): scoping ролей по кластерам
+Чанк 43 ГОТОВ (2026-10-03, 05acf9a): scoping ролей по кластерам
 (п. 8 ТЗ — последний 🚧 в RBAC). `UsersRepo.ClusterScope`: ≥1 назначение
 scope_type='organization' → вся org (restricted=false); иначе union
 cluster_ids из scope_type='clusters' (restricted=true; пусто — ничего не
