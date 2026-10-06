@@ -52,7 +52,7 @@ React на `/app/` (`/` — редирект).
    (35), LDAP (40), SAML (41) — против Keycloak/AD/OpenLDAP/Entra ID;
    включить audit_hash_chain=true при перекате.
 
-Чанк 44 ГОТОВ (2026-10-03, этот коммит): экспорт аудита (п. 8 ТЗ
+Чанк 44 ГОТОВ (2026-10-03, 5594179): экспорт аудита (п. 8 ТЗ
 «экспорт» — последний 🚧 эпика аудита). `AuditRepo.ListRange` — записи
 за период [from,to) хронологически (created_at ASC, id ASC, ≤ limit).
 Хэндлер exportAuditLog: GET /audit_log/export?from&to&format=csv|json
