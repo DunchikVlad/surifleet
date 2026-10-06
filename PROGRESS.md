@@ -51,7 +51,7 @@ React на `/app/` (`/` — редирект).
 3. E2E на стенде (не проведены — sandbox блокирует SSH): SSO (35/40/41),
    SIEM (45), scoping (43/46), audit_hash_chain=true при перекате.
 
-Чанк 46 ГОТОВ (2026-10-03, этот коммит): scoping таргетинга деплоев
+Чанк 46 ГОТОВ (2026-10-03, 724d81e): scoping таргетинга деплоев
 (п. 8 ТЗ — завершение эпика scoping, начатого чанком 43). `handlers.
 scopeTargets` в createDeployment (после resolveTargets): restricted
 пользователь — цели деплоя пересекаются с его ScopeClusters. Явные
