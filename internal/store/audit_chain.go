@@ -34,7 +34,10 @@ const auditChainLockID int64 = 0x73757269666c6565 // "suriflee"
 const auditHashVersion = "v1"
 
 // canonStr — каноническая строка записи для хэширования: поля через \x1f
-// (unit separator), nil → "". created_at — RFC3339Nano UTC.
+// (unit separator), nil → "". created_at — RFC3339Nano UTC, усечённый до
+// МИКРОсекунд: timestamptz в PG хранит микросекунды, иначе запись (ns) и
+// чтение (µs) дают разные канонические строки (живой баг чанка 47-48:
+// verify ложно «подделка»).
 func (e AuditEntry) canonStr(createdAt time.Time, prevHash string) string {
 	s := func(p *string) string {
 		if p == nil {
@@ -51,7 +54,7 @@ func (e AuditEntry) canonStr(createdAt time.Time, prevHash string) string {
 	fields := []string{
 		auditHashVersion,
 		prevHash,
-		createdAt.UTC().Format(time.RFC3339Nano),
+		createdAt.UTC().Truncate(time.Microsecond).Format(time.RFC3339Nano),
 		u(e.OrganizationID),
 		e.ActorType, u(e.ActorUserID), u(e.ActorSessionID), u(e.ActorAPIKeyID),
 		e.ActorName, s(e.IP), s(e.UserAgent),
@@ -157,16 +160,25 @@ func (r *AuditRepo) VerifyChain(ctx context.Context, limit int) (ChainVerifyResu
 	for rows.Next() {
 		var cr auditChainRow
 		var e AuditEntry
-		var ip, ua, objType, objName, reason *string
+		var actorName, ip, ua, objType, objName, reason *string
 		var orgID, actorUID, sessID, apiKeyID, objID *uuid.UUID
 		var diff json.RawMessage
 		if err := rows.Scan(&cr.id, &cr.createdAt, &orgID, &e.ActorType, &actorUID, &sessID,
-			&apiKeyID, &e.ActorName, &ip, &ua, &e.Action, &objType, &objID,
+			&apiKeyID, &actorName, &ip, &ua, &e.Action, &objType, &objID,
 			&objName, &e.Result, &reason, &diff, &cr.prevHash, &cr.hash); err != nil {
 			return ChainVerifyResult{}, translate(err)
 		}
+		if actorName != nil {
+			e.ActorName = *actorName
+		}
+		// ip — inet: PG отдаёт CIDR-нотацию ("192.168.31.50/32"), а в канон
+		// при записи шёл чистый адрес — нормализуем к хосту (без /маски).
+		if ip != nil {
+			host, _, _ := strings.Cut(*ip, "/")
+			e.IP = &host
+		}
 		e.OrganizationID, e.ActorUserID, e.ActorSessionID, e.ActorAPIKeyID = orgID, actorUID, sessID, apiKeyID
-		e.IP, e.UserAgent, e.ObjectType, e.ObjectID, e.ObjectName, e.Reason, e.Diff = ip, ua, objType, objID, objName, reason, diff
+		e.UserAgent, e.ObjectType, e.ObjectID, e.ObjectName, e.Reason, e.Diff = ua, objType, objID, objName, reason, diff
 		cr.entry = e
 		chain = append(chain, cr)
 	}

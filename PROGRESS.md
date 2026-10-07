@@ -54,12 +54,27 @@ stale (раньше висел бы online). ✅ РЕШЕНО в чанке 28: 
 (admin@surifleet.local / admin12345), сервер и агент под systemd, UI —
 React на `/app/` (`/` — редирект).
 
-**Следующий шаг после 47**:
+**Следующий шаг после 48**:
 1. Мониторинг (п. 5.4): SIEM-конфиг с сервера (ConfigPush на кластер/хост),
    полноценные дашборды флот/кластер/хост; retention agent_metrics.
-2. E2E на стенде, остаток долга: SSO (35/40/41), scoping (43),
-   audit_hash_chain=true при перекате. ~~SIEM (45)~~ — проверено 07.10.
+2. E2E на стенде, остаток долга: SSO (35/40/41), scoping (43).
+   ~~SIEM (45)~~ 07.10 ✓, ~~audit_hash_chain~~ 07.10 ✓.
 3. OIDC — провайдеры через UI (вкладка «SSO»), маппинг групп.
+
+Чанк 48 ГОТОВ (2026-10-07, этот коммит): цепочка хэшей аудита включена
+на стенде (server.yaml audit_hash_chain: true) + три фикса VerifyChain,
+найденные живой проверкой (первый запуск давал 500): (1) scan NULL
+actor_name → *string; (2) ip из PG возвращается CIDR-нотацией
+("192.168.31.50/32"), а в канон при записи шёл чистый адрес → нормализация
+к хосту при чтении; (3) усечение created_at до микросекунд в canonStr
+(timestamptz хранит µs, запись с ns давала иной канонический вид).
+Живой e2e: verify?limit=500 → {"checked":42,"chained":2,"ok":true}, после
+нового login chained=3 (цепь наращивается). Гигиена стенда: записи с
+битым хэшем, наплодившиеся при отладке (до фиксов), удалены из audit_log
+через временное снятие триггера audit_log_no_update_delete (функция —
+forbid_append_only_mutation; триггер возвращён, append-only проверен).
+ВНИМАНИЕ: функция триггера — forbid_append_only_mutation, не
+«audit_log_immutable» (по имени триггера не гадать).
 
 Верификация чанка 45 ПРОЙДЕНА (2026-10-07, без коммита кода): SIEM-
 пересылка EVE-алертов живьём. На .28 поднят UDP-слушатель
@@ -1133,7 +1148,9 @@ managed-файле (245 правил).
 
 | Чанк | Содержание | Коммит |
 |---|---|---|
-| 46 | Scoping таргетинга деплоев (п. 8, завершение эпика): `scopeTargets` в createDeployment — явные списки (selected_clusters/specific_hosts/specific_instances) проверяются по кластеру (чужой → 404), режимы all_clusters/all_except_clusters молча сужаются до ScopeClusters (intersectIDs с IDsForClusters); пусто → 400. Юнит-тест intersectIDs | (этот коммит) |
+| 47 | Scoping в матрице «правила × инстансы»: MatrixInstancesPage +scope []uuid.UUID (SQL ANY), restricted: чужой cluster_id → 404, без фильтра — ось сужается до ScopeClusters. Живой e2e: scoped analyst видит только свой кластер, чужой → 404 | c1d25d2 |
+| 48 | Аудит hash-chain на стенде + фиксы VerifyChain: server.yaml audit_hash_chain=true; фиксы живого запуска — scan NULL actor_name, нормализация inet /32 → хост при чтении, created_at усечён до µs в canonStr (timestamptz хранит µs). verify → ok:true, цепь наращивается (chained 2→3 после login); битые отладочные записи удалены (триггер append-only временно снят и возвращён — функция forbid_append_only_mutation) | (этот коммит) |
+| 46 | Scoping таргетинга деплоев (п. 8, завершение эпика): `scopeTargets` в createDeployment — явные списки (selected_clusters/specific_hosts/specific_instances) проверяются по кластеру (чужой → 404), режимы all_clusters/all_except_clusters молча сужаются до ScopeClusters (intersectIDs с IDsForClusters); пусто → 400. Юнит-тест intersectIDs | 724d81e |
 | 45 | Пересылка EVE-алертов в SIEM (п. 5.4): агент `siem.go` — tail eve.json → alert-события → syslog UDP(RFC 5426)/TCP(RFC 6587 octet-counting, реконнект), формат CEF (экранирование, severity→CEF) или сырой JSON; конфиг `agent.siem_addr/protocol/format`, горутина в session.go. Юнит-тесты toCEF/newAlerts/forwardOnce по UDP. E2E не проводился (sandbox блокирует SSH) | (этот коммит) |
 | 44 | Экспорт аудита (п. 8, закрытие эпика): `AuditRepo.ListRange` (период [from,to) ASC); GET /audit_log/export?from&to&format=csv|json (audit.read, ≤50k строк, Content-Disposition); CSV через encoding/csv (квотинг, nil-поля, diff как JSON); юнит-тест writeAuditCSV | (этот коммит) |
 | 43 | Scoping ролей по кластерам (п. 8): `UsersRepo.ClusterScope` (org-scope → вся org; иначе union cluster_ids), Identity.ScopeRestricted/ScopeClusters + ClusterScopeAllowed, authMiddleware заполняет; применено к clusters/hosts/instances (list — фильтр/SQL ListScoped ANY, get/create/patch/delete — guard 404); вне scope — 404. Таргетинг деплоев/матрица — позже | (этот коммит) |
