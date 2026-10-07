@@ -112,11 +112,13 @@ func (c *Client) EnsureTable(ctx context.Context, retentionDays int) error {
 	return c.applyRetention(ctx, retentionDays)
 }
 
-// retentionExpr — TTL-выражение ALTER TABLE: > 0 — «MODIFY TTL ts + INTERVAL
-// N DAY», иначе — «REMOVE TTL» (бессрочное хранение).
+// retentionExpr — TTL-выражение ALTER TABLE: > 0 — «MODIFY TTL
+// toDateTime(ts) + INTERVAL N DAY», иначе — «REMOVE TTL» (бессрочное
+// хранение). toDateTime обязателен: TTL-выражение не может быть
+// DateTime64 (CH 24.8: BAD_TTL_EXPRESSION — живой баг чанка 49).
 func retentionExpr(days int) string {
 	if days > 0 {
-		return fmt.Sprintf("MODIFY TTL ts + INTERVAL %d DAY", days)
+		return fmt.Sprintf("MODIFY TTL toDateTime(ts) + INTERVAL %d DAY", days)
 	}
 	return "REMOVE TTL"
 }

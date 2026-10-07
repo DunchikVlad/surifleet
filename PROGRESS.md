@@ -54,9 +54,21 @@ stale (раньше висел бы online). ✅ РЕШЕНО в чанке 28: 
 (admin@surifleet.local / admin12345), сервер и агент под systemd, UI —
 React на `/app/` (`/` — редирект).
 
-**Следующий шаг после 48**:
+Чанк 49 ГОТОВ (2026-10-07, этот коммит): фикс retention ClickHouse
+(чанк 36 писался без живого e2e). TTL-выражение «MODIFY TTL ts +
+INTERVAL N DAY» падало на CH 24.8 — TTL не может быть DateTime64
+(BAD_TTL_EXPRESSION, Code 450; ошибка висела в server.log при каждом
+старте). Фикс: toDateTime(ts) + INTERVAL N DAY (retentionExpr +
+тесты). Живой e2e на стенде: после переката обе таблицы (agent_logs,
+agent_metrics) получили TTL toDateTime(ts) + 30 дней (SHOW CREATE);
+старая тестовая точка (2026-08-01) удалена OPTIMIZE FINAL (TTL
+срабатывает на мерже), свежая осталась; compliance in_sync 1/1.
+Retention конфигурируется server.ch_retention_days (default 30, 0 —
+бессрочно/REMOVE TTL).
+
+**Следующий шаг после 49**:
 1. Мониторинг (п. 5.4): SIEM-конфиг с сервера (ConfigPush на кластер/хост),
-   полноценные дашборды флот/кластер/хост; retention agent_metrics.
+   полноценные дашборды флот/кластер/хост.
 2. E2E на стенде, остаток долга: SSO (35/40/41).
    ~~SIEM (45)~~ 07.10 ✓, ~~audit_hash_chain~~ 07.10 ✓,
    ~~scoping (43)~~ 07.10 ✓ (ниже).
@@ -1157,6 +1169,7 @@ managed-файле (245 правил).
 | Чанк | Содержание | Коммит |
 |---|---|---|
 | 47 | Scoping в матрице «правила × инстансы»: MatrixInstancesPage +scope []uuid.UUID (SQL ANY), restricted: чужой cluster_id → 404, без фильтра — ось сужается до ScopeClusters. Живой e2e: scoped analyst видит только свой кластер, чужой → 404 | c1d25d2 |
+| 49 | Фикс retention ClickHouse: TTL-выражение toDateTime(ts)+INTERVAL N DAY (CHAN 24.8 не принимает DateTime64 в TTL — BAD_TTL_EXPRESSION при каждом старте); живой e2e: TTL на обеих таблицах (SHOW CREATE), старая точка удалена OPTIMIZE FINAL, свежая осталась; ch_retention_days default 30 | (этот коммит) |
 | 48 | Аудит hash-chain на стенде + фиксы VerifyChain: server.yaml audit_hash_chain=true; фиксы живого запуска — scan NULL actor_name, нормализация inet /32 → хост при чтении, created_at усечён до µs в canonStr (timestamptz хранит µs). verify → ok:true, цепь наращивается (chained 2→3 после login); битые отладочные записи удалены (триггер append-only временно снят и возвращён — функция forbid_append_only_mutation) | (этот коммит) |
 | 46 | Scoping таргетинга деплоев (п. 8, завершение эпика): `scopeTargets` в createDeployment — явные списки (selected_clusters/specific_hosts/specific_instances) проверяются по кластеру (чужой → 404), режимы all_clusters/all_except_clusters молча сужаются до ScopeClusters (intersectIDs с IDsForClusters); пусто → 400. Юнит-тест intersectIDs | 724d81e |
 | 45 | Пересылка EVE-алертов в SIEM (п. 5.4): агент `siem.go` — tail eve.json → alert-события → syslog UDP(RFC 5426)/TCP(RFC 6587 octet-counting, реконнект), формат CEF (экранирование, severity→CEF) или сырой JSON; конфиг `agent.siem_addr/protocol/format`, горутина в session.go. Юнит-тесты toCEF/newAlerts/forwardOnce по UDP. E2E не проводился (sandbox блокирует SSH) | (этот коммит) |

@@ -278,6 +278,13 @@
 
 ### Fixed
 
+- Чанк 49 (2026-10-07): retention ClickHouse не работал — TTL-выражение
+  «ts + INTERVAL N DAY» отклоняется CH 24.8 (TTL не может быть
+  DateTime64: BAD_TTL_EXPRESSION; ошибка на каждом старте сервера).
+  Фикс: toDateTime(ts) + INTERVAL N DAY. Живой e2e: TTL 30 дней на
+  agent_logs и agent_metrics (SHOW CREATE), просроченная точка
+  удаляется на мерже (OPTIMIZE FINAL), свежая остаётся. (server)
+
 - Чанк 48 (2026-10-07): цепочка хэшей аудита включена на стенде
   (audit_hash_chain: true) + фиксы VerifyChain, найденные первым живым
   запуском (до них GET /audit_log/verify отдавал 500, а после — ложный
