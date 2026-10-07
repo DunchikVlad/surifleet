@@ -371,3 +371,30 @@ func (r *ComplianceRepo) ListByStatus(ctx context.Context, status string, cluste
 	}
 	return items, next, nil
 }
+
+// NextAutoVersion — следующая авто-версия ruleset'а организации (чанк 50):
+// v<N+1>, где N — максимум среди версий формата "v<цифры>"; нет таких → "v1".
+func (r *RulesetsRepo) NextAutoVersion(ctx context.Context, orgID uuid.UUID) (string, error) {
+	rows, err := r.pool.Query(ctx,
+		`SELECT version FROM ruleset_versions
+		 WHERE organization_id = $1 AND version ~ '^v[0-9]+$'`, orgID)
+	if err != nil {
+		return "", translate(err)
+	}
+	defer rows.Close()
+	maxN := 0
+	for rows.Next() {
+		var v string
+		if err := rows.Scan(&v); err != nil {
+			return "", translate(err)
+		}
+		var n int
+		if _, err := fmt.Sscanf(v, "v%d", &n); err == nil && n > maxN {
+			maxN = n
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return "", translate(err)
+	}
+	return fmt.Sprintf("v%d", maxN+1), nil
+}

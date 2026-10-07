@@ -433,3 +433,35 @@ func (r *OrganizationsRepo) First(ctx context.Context) (Organization, error) {
 	}
 	return o, nil
 }
+
+// RuleBrief — краткие данные правила для состава ruleset'а (чанк 50).
+type RuleBrief struct {
+	Msg    string
+	Status string
+}
+
+// BriefsBySids — msg/status правил организации по списку sid
+// (обогащение состава ruleset'а; удалённые тоже возвращаются со
+// status=deleted — manifest ruleset'а фиксирует историю).
+func (r *RulesRepo) BriefsBySids(ctx context.Context, orgID uuid.UUID, sids []int64) (map[int64]RuleBrief, error) {
+	out := map[int64]RuleBrief{}
+	if len(sids) == 0 {
+		return out, nil
+	}
+	rows, err := r.pool.Query(ctx,
+		`SELECT sid, msg, status FROM rules WHERE organization_id = $1 AND sid = ANY($2)`,
+		orgID, sids)
+	if err != nil {
+		return nil, translate(err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var sid int64
+		var b RuleBrief
+		if err := rows.Scan(&sid, &b.Msg, &b.Status); err != nil {
+			return nil, translate(err)
+		}
+		out[sid] = b
+	}
+	return out, translate(rows.Err())
+}

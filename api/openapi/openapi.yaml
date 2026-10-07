@@ -1334,6 +1334,36 @@ paths:
               schema: {$ref: '#/components/schemas/RulesetVersionDetail'}
         default: {$ref: '#/components/responses/Error'}
 
+  /rulesets/{id}/rules:
+    parameters:
+      - {$ref: '#/components/parameters/PathId'}
+    get:
+      operationId: get_ruleset_rules
+      tags: [rulesets]
+      summary: Состав ruleset'а — какие правила внутри версии
+      description: "Требуется право: rules.read. Порядок — как в manifest; msg/status — актуальные из репозитория (удалённое правило помечается status=deleted, отсутствующее — без msg/status)."
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ruleset_id: {type: string, format: uuid}
+                  version: {type: string}
+                  rule_count: {type: integer}
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        sid: {type: integer}
+                        rev: {type: integer}
+                        msg: {type: string}
+                        status: {type: string, enum: [enabled, disabled, expired, under_review, deleted]}
+        default: {$ref: '#/components/responses/Error'}
+
   /deployments:
     get:
       operationId: list_deployments
@@ -3050,9 +3080,8 @@ components:
 
     RulesetBuildInput:
       type: object
-      required: [version]
       properties:
-        version: {type: string, description: Человекочитаемая версия (semver или метка)}
+        version: {type: string, description: 'Версия/тег ruleset; пусто — автоинкремент v<N+1> по организации (чанк 50)'}
         rule_filter: {$ref: '#/components/schemas/RuleFilter', description: По умолчанию — все enabled правила}
         rule_ids: {type: array, items: {type: string, format: uuid}, description: Явный список id правил; имеет приоритет над rule_filter (фильтр при этом не применяется)}
         note: {type: string}

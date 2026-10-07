@@ -50,7 +50,17 @@ func (h *handlers) buildRuleset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	fe := fieldErrors{}
-	if !validName(in.Version) {
+	// Версия опциональна (чанк 50): пустая → автоинкремент v<N+1> per-org;
+	// непустая — произвольный тег (validName).
+	version := in.Version
+	if version == "" {
+		var err error
+		version, err = h.d.Store.Rulesets.NextAutoVersion(r.Context(), orgID)
+		if err != nil {
+			writeStoreError(w, err)
+			return
+		}
+	} else if !validName(version) {
 		fe.add("version", "обязательное поле, 1..200 символов")
 	}
 	if fe.any() {
@@ -142,7 +152,7 @@ func (h *handlers) buildRuleset(w http.ResponseWriter, r *http.Request) {
 		"built_at":    time.Now().UTC().Format(time.RFC3339),
 	})
 
-	v, created, err := h.d.Store.Rulesets.Create(r.Context(), orgID, in.Version, sha, key, manifest, len(manifestRules))
+	v, created, err := h.d.Store.Rulesets.Create(r.Context(), orgID, version, sha, key, manifest, len(manifestRules))
 	if err != nil {
 		writeStoreError(w, err)
 		return
@@ -190,6 +200,60 @@ func (h *handlers) getRuleset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, v)
+}
+
+// rulesetRuleView — элемент состава ruleset'а (manifest + актуальные
+// msg/status правила).
+type rulesetRuleView struct {
+	Sid    int64  `json:"sid"`
+	Rev    int    `json:"rev"`
+	Msg    string `json:"msg,omitempty"`
+	Status string `json:"status,omitempty"`
+}
+
+// getRulesetRules — GET /api/v1/rulesets/{id}/rules (чанк 50): состав
+// ruleset'а — какие правила внутри версии (порядок manifest; msg/status —
+// актуальные из репозитория, удалённые помечаются status=deleted).
+func (h *handlers) getRulesetRules(w http.ResponseWriter, r *http.Request) {
+	orgID, ok := h.resolveOrgID(w, r)
+	if !ok {
+		return
+	}
+	id, ok := pathUUID(w, chi.URLParam(r, "id"), "id")
+	if !ok {
+		return
+	}
+	v, err := h.d.Store.Rulesets.Get(r.Context(), id)
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	var m struct {
+		Rules []manifestRule `json:"rules"`
+	}
+	if err := json.Unmarshal(v.Manifest, &m); err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	sids := make([]int64, len(m.Rules))
+	for i, mr := range m.Rules {
+		sids[i] = mr.Sid
+	}
+	briefs, err := h.d.Store.Rules.BriefsBySids(r.Context(), orgID, sids)
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	items := make([]rulesetRuleView, len(m.Rules))
+	for i, mr := range m.Rules {
+		items[i] = rulesetRuleView{Sid: mr.Sid, Rev: mr.Rev}
+		if b, ok := briefs[mr.Sid]; ok {
+			items[i].Msg, items[i].Status = b.Msg, b.Status
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ruleset_id": id, "version": v.Version, "rule_count": v.RuleCount, "items": items,
+	})
 }
 
 // computedRulesFromManifest — [{sid,rev,status:"enabled"}] из manifest

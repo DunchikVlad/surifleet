@@ -23,6 +23,9 @@ export default function Rulesets({ active }: { active: boolean }) {
   const [version, setVersion] = React.useState("");
   const [note, setNote] = React.useState("");
   const [result, setResult] = React.useState("");
+  // Состав ruleset'а (drill-down по клику на версию, чанк 50).
+  const [expanded, setExpanded] = React.useState<string | null>(null);
+  const toggleExpand = (id: string) => setExpanded(prev => (prev === id ? null : id));
 
   const load = React.useCallback(async () => {
     try {
@@ -62,15 +65,16 @@ export default function Rulesets({ active }: { active: boolean }) {
   };
 
   const build = async () => {
-    if (!version.trim()) { setResult("укажите версию ruleset"); return; }
     if (!selected.size) { setResult("не выбрано ни одного правила"); return; }
     try {
-      // Явный rule_ids имеет приоритет над rule_filter (см. buildRuleset).
-      const r = await apiPostEx<Ruleset>("/rulesets", {
-        version: version.trim(),
+      // Явный rule_ids имеет приоритет над rule_filter (см. buildRuleset);
+      // пустая версия → автоинкремент vN на сервере (чанк 50).
+      const body: Record<string, unknown> = {
         note: note.trim(),
         rule_ids: [...selected.keys()],
-      });
+      };
+      if (version.trim()) body.version = version.trim();
+      const r = await apiPostEx<Ruleset>("/rulesets", body);
       const v = r.body;
       setResult(
         (r.status === 201
@@ -96,13 +100,22 @@ export default function Rulesets({ active }: { active: boolean }) {
           </thead>
           <tbody>
             {items.map(v => (
-              <tr key={v.id}>
-                <td><b>{v.version}</b></td>
-                <td className="muted">{short(v.id)}</td>
-                <td>{v.rule_count}</td>
-                <td className="muted">{(v.sha256 || "").slice(0, 16)}…</td>
-                <td className="muted">{fmtTime(v.created_at)}</td>
-              </tr>
+              <React.Fragment key={v.id}>
+                <tr onClick={() => toggleExpand(v.id)} style={{ cursor: "pointer" }} title="показать состав">
+                  <td><b>{v.version}</b></td>
+                  <td className="muted">{short(v.id)}</td>
+                  <td>{v.rule_count}</td>
+                  <td className="muted">{(v.sha256 || "").slice(0, 16)}…</td>
+                  <td className="muted">{fmtTime(v.created_at)}</td>
+                </tr>
+                {expanded === v.id && (
+                  <tr>
+                    <td colSpan={5}>
+                      <RulesetRules id={v.id} version={v.version} />
+                    </td>
+                  </tr>
+                )}
+              </React.Fragment>
             ))}
           </tbody>
         </table>
@@ -184,7 +197,8 @@ export default function Rulesets({ active }: { active: boolean }) {
       <h3>Собрать ruleset из выбранных</h3>
       <div className="toolbar">
         <input
-          placeholder="версия, напр. 2026-09-16-01"
+          placeholder="версия/тег (пусто → авто vN)"
+          title="пусто — автоинкремент v<N+1> по организации; непусто — произвольный тег"
           value={version}
           onChange={e => setVersion(e.target.value)}
           style={{ maxWidth: 220 }}
@@ -206,5 +220,44 @@ export default function Rulesets({ active }: { active: boolean }) {
         </>
       )}
     </>
+  );
+}
+
+// RulesetRules — состав ruleset'а (drill-down, чанк 50):
+// GET /rulesets/{id}/rules — sid/rev/msg/status каждого правила версии.
+function RulesetRules({ id, version }: { id: string; version: string }) {
+  const [rules, setRules] = React.useState<{ sid: number; rev: number; msg?: string; status?: string }[] | null>(null);
+  const [err, setErr] = React.useState<unknown>(null);
+
+  React.useEffect(() => {
+    (async () => {
+      try {
+        const d = await apiGet<{ items: { sid: number; rev: number; msg?: string; status?: string }[] }>(`/rulesets/${id}/rules`);
+        setRules(d.items || []);
+      } catch (e) { setErr(e); }
+    })();
+  }, [id]);
+
+  if (err) return <ErrorBox error={err} />;
+  if (!rules) return <span className="muted">загрузка состава…</span>;
+  return (
+    <div className="panel">
+      <p className="muted">Состав ruleset'а <b>{version}</b> — {rules.length} правил:</p>
+      <table>
+        <thead>
+          <tr><th>SID</th><th>rev</th><th>msg</th><th>статус сейчас</th></tr>
+        </thead>
+        <tbody>
+          {rules.map(r => (
+            <tr key={r.sid}>
+              <td>{r.sid}</td>
+              <td className="muted">{r.rev}</td>
+              <td>{r.msg || <span className="muted">—</span>}</td>
+              <td>{r.status ? <Badge status={r.status} /> : <span className="muted">нет в репозитории</span>}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }

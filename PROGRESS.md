@@ -66,7 +66,21 @@ agent_metrics) получили TTL toDateTime(ts) + 30 дней (SHOW CREATE);
 Retention конфигурируется server.ch_retention_days (default 30, 0 —
 бессрочно/REMOVE TTL).
 
-**Следующий шаг после 49**:
+Чанк 50 ГОТОВ (2026-10-07, этот коммит; стенд выключен — e2e
+отложен): план 1A, первый срез — версия ruleset'а и её состав.
+POST /rulesets: version опциональна — пустая → автоинкремент v<N+1>
+по организации (`RulesetsRepo.NextAutoVersion`: max по версиям формата
+"v<цифры>"; тег = непустая строка как раньше). GET /rulesets/{id}/rules —
+состав версии: порядок manifest, msg/status актуальные из репозитория
+(`RulesRepo.BriefsBySids`; удалённое — status=deleted, отсутствующее —
+без msg/status). UI «Ruleset'ы»: клик по версии → drill-down состава
+(таблица sid/rev/msg/статус), в конструкторе версия необязательна
+(подсказка «пусто → авто vN»). OpenAPI: /rulesets/{id}/rules,
+RulesetBuildInput.version не required. Проверки: go build/vet/test
+зелёные (кроме известного samlauth-NTFS), npm build чисто. Живой e2e —
+при включении стенда.
+
+**Следующий шаг после 50**:
 1. Мониторинг (п. 5.4): SIEM-конфиг с сервера (ConfigPush на кластер/хост),
    полноценные дашборды флот/кластер/хост.
 2. E2E на стенде, остаток долга: SSO (35/40/41).
@@ -1169,6 +1183,7 @@ managed-файле (245 правил).
 | Чанк | Содержание | Коммит |
 |---|---|---|
 | 47 | Scoping в матрице «правила × инстансы»: MatrixInstancesPage +scope []uuid.UUID (SQL ANY), restricted: чужой cluster_id → 404, без фильтра — ось сужается до ScopeClusters. Живой e2e: scoped analyst видит только свой кластер, чужой → 404 | c1d25d2 |
+| 50 | План 1A, срез 1: версия ruleset'а автоинкремент v<N+1> per-org (version в POST /rulesets необязательна, тег — непустая) + GET /rulesets/{id}/rules (состав: порядок manifest + актуальные msg/status, BriefsBySids); UI — drill-down состава по клику на версию. Стенд выключен — e2e отложен | (этот коммит) |
 | 49 | Фикс retention ClickHouse: TTL-выражение toDateTime(ts)+INTERVAL N DAY (CHAN 24.8 не принимает DateTime64 в TTL — BAD_TTL_EXPRESSION при каждом старте); живой e2e: TTL на обеих таблицах (SHOW CREATE), старая точка удалена OPTIMIZE FINAL, свежая осталась; ch_retention_days default 30 | (этот коммит) |
 | 48 | Аудит hash-chain на стенде + фиксы VerifyChain: server.yaml audit_hash_chain=true; фиксы живого запуска — scan NULL actor_name, нормализация inet /32 → хост при чтении, created_at усечён до µs в canonStr (timestamptz хранит µs). verify → ok:true, цепь наращивается (chained 2→3 после login); битые отладочные записи удалены (триггер append-only временно снят и возвращён — функция forbid_append_only_mutation) | (этот коммит) |
 | 46 | Scoping таргетинга деплоев (п. 8, завершение эпика): `scopeTargets` в createDeployment — явные списки (selected_clusters/specific_hosts/specific_instances) проверяются по кластеру (чужой → 404), режимы all_clusters/all_except_clusters молча сужаются до ScopeClusters (intersectIDs с IDsForClusters); пусто → 400. Юнит-тест intersectIDs | 724d81e |
