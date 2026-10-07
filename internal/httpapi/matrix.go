@@ -82,6 +82,17 @@ func (h *handlers) getRulesMatrix(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	// Scoping по кластерам (чанк 47): чужой cluster_id → 404 (объект вне
+	// scope неотличим от несуществующего), без фильтра — ось инстансов
+	// сужается до ScopeClusters.
+	var scope []uuid.UUID
+	if id := identityFrom(r.Context()); id != nil && id.ScopeRestricted {
+		if clusterID != uuid.Nil && !id.ClusterScopeAllowed(clusterID) {
+			writeError(w, http.StatusNotFound, CodeNotFound, "ресурс не найден", nil)
+			return
+		}
+		scope = id.ScopeClusters
+	}
 
 	// limit общий для обеих осей (openapi: default 100, max 1000).
 	limit := defaultLimit
@@ -118,7 +129,7 @@ func (h *handlers) getRulesMatrix(w http.ResponseWriter, r *http.Request) {
 		writeStoreError(w, err)
 		return
 	}
-	instances, nextInst, err := h.d.Store.Instances.MatrixInstancesPage(ctx, clusterID, instCursor, limit)
+	instances, nextInst, err := h.d.Store.Instances.MatrixInstancesPage(ctx, clusterID, scope, instCursor, limit)
 	if err != nil {
 		writeStoreError(w, err)
 		return

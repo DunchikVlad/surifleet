@@ -112,8 +112,9 @@ func (r *RulesRepo) MatrixRulesPage(ctx context.Context, orgID uuid.UUID, status
 }
 
 // MatrixInstancesPage — страница оси инстансов с hostname (keyset по id
-// инстанса, фильтр по cluster_id).
-func (r *InstancesRepo) MatrixInstancesPage(ctx context.Context, clusterID, cursor uuid.UUID, limit int) ([]MatrixInstance, *string, error) {
+// инстанса, фильтр по cluster_id). scope — scoping по кластерам
+// (чанк 47): nil — без ограничений, иначе только инстансы этих кластеров.
+func (r *InstancesRepo) MatrixInstancesPage(ctx context.Context, clusterID uuid.UUID, scope []uuid.UUID, cursor uuid.UUID, limit int) ([]MatrixInstance, *string, error) {
 	var clusterArg, cursorArg *uuid.UUID
 	if clusterID != uuid.Nil {
 		clusterArg = &clusterID
@@ -127,8 +128,9 @@ func (r *InstancesRepo) MatrixInstancesPage(ctx context.Context, clusterID, curs
 		 JOIN hosts h ON h.id = i.host_id
 		 WHERE ($1::uuid IS NULL OR h.cluster_id = $1)
 		   AND ($2::uuid IS NULL OR i.id > $2)
+		   AND ($4::uuid[] IS NULL OR h.cluster_id = ANY($4))
 		 ORDER BY i.id LIMIT $3`,
-		clusterArg, cursorArg, limit+1)
+		clusterArg, cursorArg, limit+1, scope)
 	if err != nil {
 		return nil, nil, translate(err)
 	}

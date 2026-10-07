@@ -7,6 +7,14 @@
 
 ### Added
 
+- Чанк 47 (2026-10-07): scoping в матрице «правила × инстансы»
+  (завершение эпика scoping, чанки 43/46). Ось инстансов для
+  restricted-пользователя сужается до его ScopeClusters (фильтр в SQL,
+  `h.cluster_id = ANY(scope)` — пагинация не ломается); явный
+  ?cluster_id= вне scope → 404 (объект вне scope неотличим от
+  несуществующего). Живой e2e: scoped analyst (scope=DC-1) видит только
+  инстанс test1; чужой кластер → 404; admin → 200. (server)
+
 - Чанк 46 (2026-10-03): scoping таргетинга деплоев (п. 8 ТЗ, завершение
   эпика scoping). `handlers.scopeTargets` в createDeployment: для
   cluster-restricted пользователя цели деплоя пересекаются с его кластерами.
