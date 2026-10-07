@@ -57,11 +57,24 @@ React на `/app/` (`/` — редирект).
 **Следующий шаг после 47**:
 1. Мониторинг (п. 5.4): SIEM-конфиг с сервера (ConfigPush на кластер/хост),
    полноценные дашборды флот/кластер/хост; retention agent_metrics.
-2. E2E на стенде (не проведены — sandbox блокирует SSH): SSO (35/40/41),
-   SIEM (45), scoping (43), audit_hash_chain=true при перекате.
+2. E2E на стенде, остаток долга: SSO (35/40/41), scoping (43),
+   audit_hash_chain=true при перекате. ~~SIEM (45)~~ — проверено 07.10.
 3. OIDC — провайдеры через UI (вкладка «SSO»), маппинг групп.
 
-Чанк 47 ГОТОВ (2026-10-07, этот коммит): scoping в матрице «правила ×
+Верификация чанка 45 ПРОЙДЕНА (2026-10-07, без коммита кода): SIEM-
+пересылка EVE-алертов живьём. На .28 поднят UDP-слушатель
+(python3, 0.0.0.0:5514 → /tmp/siem.log); на .67 в agent.yaml добавлен
+`siem_addr: "192.168.31.28:5514"` (udp/cef дефолты) + systemctl restart
+surifleet-agent. Агент залогировал «SIEM: пересылка EVE-алертов
+запущена»; в /tmp/siem.log пошли CEF-строки (CEF:0|SuriFleet|Suricata|1.0|
+9000010|manual rule|2|src=… dst=… proto=TCP rt=… cs1Label=
+SuricataSignatureID cs1=9000010) — ~139 КБ за ~2 мин (в т.ч. backlog
+eve.json при старте tailer'а). Наблюдение (не блокер): в части событий
+rt — не ISO-дата (rt=2731) — формат поля rt в CEF от редких событий с
+не-ISO timestamp. Стенд возвращён: siem_addr убран (agent.yaml из бэкапа),
+агент перезапущен (active), слушатель и файлы удалены, порт закрыт.
+
+Чанк 47 ГОТОВ (2026-10-07, c1d25d2): scoping в матрице «правила ×
 инстансы» (завершение п. 1 после чанка 46). MatrixInstancesPage +параметр
 scope []uuid.UUID (SQL `h.cluster_id = ANY($4)`); getRulesMatrix: для
 ScopeRestricted-identity явный cluster_id вне scope → 404 (объект вне
