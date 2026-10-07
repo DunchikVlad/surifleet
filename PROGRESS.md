@@ -80,7 +80,20 @@ RulesetBuildInput.version не required. Проверки: go build/vet/test
 зелёные (кроме известного samlauth-NTFS), npm build чисто. Живой e2e —
 при включении стенда.
 
-**Следующий шаг после 50**:
+Чанк 51 ГОТОВ (2026-10-07, этот коммит; стенд выключен — e2e
+отложен): план 1A, срез 2 — клонирование правил и контроль дублей sid.
+POST /rules/{id}/clone (rules.write): копия с новым sid из локального
+диапазона 9000000..9099999 (`RulesRepo.NextFreeSid` — max+1, исчерпан →
+409) и msg (по умолчанию «<msg> (копия)»; явный — из тела).
+`rewriteRuleRaw`: sid→новый, rev→1, msg заменяется по границам с учётом
+экранирования кавычек; клон через rules.Parse + CreateManual →
+status=under_review, source_type='file'; аудит rules.clone. Контроль
+дублей sid в buildRuleset: повтор sid в наборе → 400. Юнит-тест
+TestRewriteRuleRaw. UI «Правила»: кнопки «ред.» (prompt msg → PATCH) и
+«клон» (prompt msg → POST clone) по праву rules.write. OpenAPI +
+/rules/{id}/clone. Проверки: go build/vet/test зелёные, npm build чисто.
+
+**Следующий шаг после 51**:
 1. Мониторинг (п. 5.4): SIEM-конфиг с сервера (ConfigPush на кластер/хост),
    полноценные дашборды флот/кластер/хост.
 2. E2E на стенде, остаток долга: SSO (35/40/41).
@@ -1183,6 +1196,7 @@ managed-файле (245 правил).
 | Чанк | Содержание | Коммит |
 |---|---|---|
 | 47 | Scoping в матрице «правила × инстансы»: MatrixInstancesPage +scope []uuid.UUID (SQL ANY), restricted: чужой cluster_id → 404, без фильтра — ось сужается до ScopeClusters. Живой e2e: scoped analyst видит только свой кластер, чужой → 404 | c1d25d2 |
+| 51 | План 1A, срез 2: POST /rules/{id}/clone (новый sid 9000xxx max+1, msg «(копия)»/явный, rev→1, rewriteRuleRaw с экранированием, under_review, аудит rules.clone); контроль дублей sid в buildRuleset → 400; UI кнопки «ред.»/«клон». Стенд выключен — e2e отложен | (этот коммит) |
 | 50 | План 1A, срез 1: версия ruleset'а автоинкремент v<N+1> per-org (version в POST /rulesets необязательна, тег — непустая) + GET /rulesets/{id}/rules (состав: порядок manifest + актуальные msg/status, BriefsBySids); UI — drill-down состава по клику на версию. Стенд выключен — e2e отложен | (этот коммит) |
 | 49 | Фикс retention ClickHouse: TTL-выражение toDateTime(ts)+INTERVAL N DAY (CHAN 24.8 не принимает DateTime64 в TTL — BAD_TTL_EXPRESSION при каждом старте); живой e2e: TTL на обеих таблицах (SHOW CREATE), старая точка удалена OPTIMIZE FINAL, свежая осталась; ch_retention_days default 30 | (этот коммит) |
 | 48 | Аудит hash-chain на стенде + фиксы VerifyChain: server.yaml audit_hash_chain=true; фиксы живого запуска — scan NULL actor_name, нормализация inet /32 → хост при чтении, created_at усечён до µs в canonStr (timestamptz хранит µs). verify → ok:true, цепь наращивается (chained 2→3 после login); битые отладочные записи удалены (триггер append-only временно снят и возвращён — функция forbid_append_only_mutation) | (этот коммит) |

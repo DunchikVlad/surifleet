@@ -398,3 +398,24 @@ func (r *RulesetsRepo) NextAutoVersion(ctx context.Context, orgID uuid.UUID) (st
 	}
 	return fmt.Sprintf("v%d", maxN+1), nil
 }
+
+// NextFreeSid — свободный sid в локальном диапазоне ручных правил
+// (9000000..9099999, чанк 51 — клонирование): max+1, либо 9000000;
+// диапазон исчерпан → ошибка.
+func (r *RulesRepo) NextFreeSid(ctx context.Context, orgID uuid.UUID) (int64, error) {
+	var maxSid *int64
+	err := r.pool.QueryRow(ctx,
+		`SELECT max(sid) FROM rules
+		 WHERE organization_id = $1 AND sid >= 9000000 AND sid <= 9099999`,
+		orgID).Scan(&maxSid)
+	if err != nil {
+		return 0, translate(err)
+	}
+	if maxSid == nil {
+		return 9000000, nil
+	}
+	if *maxSid >= 9099999 {
+		return 0, ErrConflict // диапазон локальных sid исчерпан
+	}
+	return *maxSid + 1, nil
+}

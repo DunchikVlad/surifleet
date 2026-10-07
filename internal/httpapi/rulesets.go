@@ -122,7 +122,16 @@ func (h *handlers) buildRuleset(w http.ResponseWriter, r *http.Request) {
 
 	rules := make([]ruleset.RawRule, len(raw))
 	manifestRules := make([]manifestRule, len(raw))
+	seenSid := map[int64]bool{}
 	for i, rr := range raw {
+		// Контроль дублей sid (чанк 51): sid в (org, sid) уникален в БД,
+		// но защита дешёвая — отсекаем заранее (явный rule_ids).
+		if seenSid[rr.SID] {
+			writeError(w, http.StatusBadRequest, CodeValidation,
+				"в наборе правил дубликат sid", map[string]any{"sid": rr.SID})
+			return
+		}
+		seenSid[rr.SID] = true
 		rules[i] = ruleset.RawRule{SID: rr.SID, Raw: rr.Raw}
 		manifestRules[i] = manifestRule{Sid: rr.SID, Rev: rr.Rev}
 	}

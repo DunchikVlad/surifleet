@@ -1,5 +1,5 @@
 import React from "react";
-import { apiGet, apiPost, Page, Rule } from "../api";
+import { apiGet, apiPost, apiPatch, Page, Rule } from "../api";
 import { Badge, ErrorBox } from "../components";
 import { useCan } from "../perms";
 
@@ -40,6 +40,27 @@ export default function Rules({ active }: { active: boolean }) {
     } catch (e) { alert("Операция не выполнена: " + (e as Error).message); }
   };
 
+  // Клонирование правила (чанк 51): новый sid 9000xxx + msg (копия).
+  const clone = async (r: Rule) => {
+    const msg = prompt("msg клона (sid будет выдан из диапазона 9000xxx):", (r.msg || "") + " (копия)");
+    if (msg === null) return;
+    try {
+      const created = await apiPost<Rule>(`/rules/${r.id}/clone`, { msg });
+      alert(`Создан клон: sid ${created.sid} (under_review)`);
+      setLoaded(false);
+    } catch (e) { alert("Клонирование не удалось: " + (e as Error).message); }
+  };
+
+  // Правка msg (PATCH /rules/{id}).
+  const editMsg = async (r: Rule) => {
+    const msg = prompt("Новое msg правила:", r.msg || "");
+    if (msg === null || !msg.trim()) return;
+    try {
+      await apiPatch(`/rules/${r.id}`, { msg: msg.trim() });
+      setItems(prev => prev.map(x => (x.id === r.id ? { ...x, msg: msg.trim() } : x)));
+    } catch (e) { alert("Правка не удалась: " + (e as Error).message); }
+  };
+
   return (
     <>
       <h2>Правила</h2>
@@ -73,11 +94,17 @@ export default function Rules({ active }: { active: boolean }) {
                 <td><Badge status={r.status} /></td>
                 <td className="muted">{r.category || "—"}</td>
                 <td className="muted">{r.source_type}</td>
-                <td>
+                <td style={{ whiteSpace: "nowrap" }}>
                   {can("rules.write") && r.status === "enabled" &&
                     <button className="btn" onClick={() => toggle(r.id, "disable")}>откл.</button>}
                   {can("rules.write") && r.status === "disabled" &&
                     <button className="btn" onClick={() => toggle(r.id, "enable")}>вкл.</button>}
+                  {can("rules.write") && (
+                    <>
+                      {" "}<button className="btn" title="правка msg" onClick={() => editMsg(r)}>ред.</button>
+                      {" "}<button className="btn" title="клон с новым sid (9000xxx)" onClick={() => clone(r)}>клон</button>
+                    </>
+                  )}
                 </td>
               </tr>
             ))}

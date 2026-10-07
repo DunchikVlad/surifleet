@@ -874,6 +874,29 @@ paths:
             application/json: {}
         default: {$ref: '#/components/responses/Error'}
 
+  /rules/{id}/clone:
+    parameters:
+      - {$ref: '#/components/parameters/PathId'}
+    post:
+      operationId: clone_rule
+      tags: [rules]
+      summary: Клонировать правило (новый sid 9000xxx + msg)
+      description: "Требуется право: rules.write. Копия правила с новым sid из локального диапазона (9000000..9099999, max+1) и msg (по умолчанию \"<msg> (копия)\"): sid/rev/msg переписываются в raw (rev → 1), клон создаётся со status=under_review и source_type='file'. Диапазон исчерпан → 409."
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                msg: {type: string, description: 'msg клона; пусто → "<msg> (копия)"'}
+      responses:
+        '201':
+          description: Клон создан
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Rule'}
+        default: {$ref: '#/components/responses/Error'}
+
   /rules/{id}/revisions:
     parameters:
       - {$ref: '#/components/parameters/PathId'}
