@@ -7,6 +7,13 @@
 
 ### Added
 
+- Чанк 52 (2026-10-07): экспорт правил (план 1A, срез 3; стенд
+  выключен — e2e отложен). POST /rules/export?format=text|stix|dataset:
+  text — .rules по фильтру; stix — STIX 2.1 bundle (indicator
+  pattern_type="suricata", id детерминирован по sid); dataset —
+  активные IOC в формате Suricata Dataset (type,value). Ответ-файл
+  (attachment + ETag). UI «Правила»: кнопки экспорта. (server, ui, api)
+
 - Чанк 51 (2026-10-07): клонирование правил и контроль дублей sid
   (план 1A, срез 2; стенд выключен — e2e отложен). POST
   /rules/{id}/clone — копия с новым sid из локального диапазона

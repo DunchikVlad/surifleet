@@ -1,5 +1,5 @@
 import React from "react";
-import { apiGet, apiPost, apiPatch, Page, Rule } from "../api";
+import { apiGet, apiPost, apiPatch, getToken, Page, Rule } from "../api";
 import { Badge, ErrorBox } from "../components";
 import { useCan } from "../perms";
 
@@ -40,6 +40,31 @@ export default function Rules({ active }: { active: boolean }) {
     } catch (e) { alert("Операция не выполнена: " + (e as Error).message); }
   };
 
+  // Экспорт правил файлом (чанк 52): POST /rules/export?format=...
+  const exportRules = async (format: "text" | "stix" | "dataset") => {
+    try {
+      const base = import.meta.env.VITE_API_BASE ?? "/api/v1";
+      const r = await fetch(`${base}/rules/export?format=${format}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(getToken() ? { Authorization: "Bearer " + getToken() } : {}),
+        },
+        body: JSON.stringify({ rule_filter: { status: status || "enabled" } }),
+      });
+      if (!r.ok) {
+        const j = await r.json().catch(() => null);
+        throw new Error("HTTP " + r.status + (j?.error?.message ? ": " + j.error.message : ""));
+      }
+      const blob = await r.blob();
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = format === "text" ? "rules.rules" : format === "stix" ? "rules.stix.json" : "dataset.lst";
+      a.click();
+      URL.revokeObjectURL(a.href);
+    } catch (e) { alert("Экспорт не удался: " + (e as Error).message); }
+  };
+
   // Клонирование правила (чанк 51): новый sid 9000xxx + msg (копия).
   const clone = async (r: Rule) => {
     const msg = prompt("msg клона (sid будет выдан из диапазона 9000xxx):", (r.msg || "") + " (копия)");
@@ -78,6 +103,11 @@ export default function Rules({ active }: { active: boolean }) {
           onKeyDown={e => { if (e.key === "Enter") { setLoaded(false); } }}
         />
         <button className="btn" onClick={() => setLoaded(false)}>Найти</button>
+        {" "}
+        <span className="muted">экспорт:</span>{" "}
+        <button className="btn" onClick={() => exportRules("text")}>.rules</button>{" "}
+        <button className="btn" onClick={() => exportRules("stix")}>stix</button>{" "}
+        <button className="btn" onClick={() => exportRules("dataset")}>dataset</button>
       </div>
       <ErrorBox error={err} />
       {loaded && !items.length && !err && <p className="muted">Правил по фильтру нет.</p>}
