@@ -186,6 +186,8 @@ func NewRouter(d Deps) http.Handler {
 				r.With(h.requirePerm(PermHostsWrite)).Delete("/", h.deleteHost)
 				r.With(h.requirePerm(PermHostsRead)).Get("/discovery", h.getDiscovery)
 				r.With(h.requirePerm(PermHostsWrite)).Post("/confirm_discovery", h.confirmDiscovery)
+			r.With(h.requirePerm(PermHostsRead)).Get("/capabilities", h.getHostCapabilities)
+			r.With(h.requirePerm(PermHostsWrite)).Put("/capabilities", h.setHostCapabilities)
 			})
 		})
 

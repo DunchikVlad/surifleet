@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -154,4 +155,84 @@ func (h *handlers) deleteHost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// knownCapabilities — каталог capability поэтапной передачи контроля
+// (ТЗ п.4; совпадает с proto SetCapabilitiesTask).
+var knownCapabilities = map[string]bool{
+	"monitoring": true, "rules": true, "log_rotation": true,
+	"service_mgmt": true, "packages": true, "config": true,
+}
+
+// validateCapabilities — чистая валидация набора: известные, без дублей.
+func validateCapabilities(caps []string) []string {
+	var bad []string
+	seen := map[string]bool{}
+	for _, c := range caps {
+		if !knownCapabilities[c] || seen[c] {
+			bad = append(bad, c)
+		}
+		seen[c] = true
+	}
+	return bad
+}
+
+// getHostCapabilities — GET /hosts/{id}/capabilities (hosts.read):
+// host-level записи (пусто — наследуется от кластера/дефолта monitoring).
+func (h *handlers) getHostCapabilities(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathUUID(w, chi.URLParam(r, "id"), "id")
+	if !ok {
+		return
+	}
+	host, err := h.d.Store.Hosts.Get(r.Context(), id)
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	if !h.clusterAllowed(w, r, host.ClusterID) { // scoping (чанк 43)
+		return
+	}
+	caps, err := h.d.Store.Capabilities.HostCaps(r.Context(), host.ID)
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"capabilities": caps, "known": []string{"monitoring", "rules", "log_rotation", "service_mgmt", "packages", "config"}})
+}
+
+// setHostCapabilities — PUT /hosts/{id}/capabilities (hosts.write):
+// заменить host-level набор. Агент применит его при следующем Hello
+// (HelloAck.Config.Capabilities); действующие задачи гейтятся на агенте.
+func (h *handlers) setHostCapabilities(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathUUID(w, chi.URLParam(r, "id"), "id")
+	if !ok {
+		return
+	}
+	host, err := h.d.Store.Hosts.Get(r.Context(), id)
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	if !h.clusterAllowed(w, r, host.ClusterID) { // scoping (чанк 43)
+		return
+	}
+	var in struct {
+		Capabilities []string `json:"capabilities"`
+	}
+	if !decodeJSON(w, r, &in) {
+		return
+	}
+	if bad := validateCapabilities(in.Capabilities); len(bad) > 0 {
+		writeValidation(w, fieldErrors{"capabilities": "неизвестные или повторяющиеся: " + strings.Join(bad, ", ")})
+		return
+	}
+	uid := identityFrom(r.Context()).UserID
+	if err := h.d.Store.Capabilities.SetHostCaps(r.Context(), host.ID, in.Capabilities, &uid); err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	objType := "host"
+	reason := "capabilities = [" + strings.Join(in.Capabilities, ", ") + "]"
+	h.audit(r, identityFrom(r.Context()), "hosts.capabilities", &objType, &host.ID, "success", reason)
+	writeJSON(w, http.StatusOK, map[string]any{"capabilities": in.Capabilities})
 }
