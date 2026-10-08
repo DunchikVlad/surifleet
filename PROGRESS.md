@@ -270,6 +270,24 @@ CapabilitiesSet (фактический контракт capability — плос
 на CapabilitiesSet). YAML валиден (safe_load). Перекат .28 с чанком 63:
 health ok, compliance in_sync 1/1.
 
+Чанк 64 ГОТОВ (2026-10-09, f39ac54; стенд не перекатан — миграция 000012
+применится при следующем деплое): профили конфигураций, фундамент.
+Миграция 000012 config_profiles (org, name, scope_type/scope_id, parent_id
+self-ref — наследование кластер→хост→инстанс, content_yaml, version,
+индексы org/scope) + зеркало. Store ConfigProfilesRepo: Create/Get/
+List (keyset + фильтр scope)/Update (смена content_yaml → version+1)/
+Delete (дочерние → parent_id NULL). API по спеке openapi: GET/POST
+/config_profiles + GET/PATCH/DELETE /{id} (config.read/write; scope_id
+проверяется по типу с scoping, аудит config_profiles.*). Не сделано:
+рендер шаблона с переменными (наследование содержимого по parent_id),
+история версий, POST /render|/validate, UI. Проверки: build/vet/test
+зелёные.
+
+**Следующий шаг после 64**: рендер профиля (resolve parent-цепочки +
+подстановка переменных {{var}} — решить синтаксис) и интеграция с
+deploy_config (деплой отрендеренного профиля); затем волновой деплой
+конфигов через оркестратор; перекат .28 (миграция 000012).
+
 **Следующий шаг после 63**: волновой деплой конфигов через оркестратор,
 профили с переменными по кластеру (спека /config_profiles уже в OpenAPI
 — реализация с нуля).
@@ -1417,6 +1435,7 @@ managed-файле (245 правил).
 
 | Чанк | Содержание | Коммит |
 |---|---|---|
+| 64 | Профили конфигураций, фундамент: миграция 000012 config_profiles (parent_id self-ref, version), ConfigProfilesRepo CRUD, API /config_profiles по спеке (scoping, аудит). Рендер переменных — следующие чанки | f39ac54 |
 | 63 | OpenAPI под факт чанков 54–62: /config_versions*, /instances/{id}/config/current+history, /clusters/{id}/capabilities, схемы ConfigVersion/ConfigDeploy/CapabilitiesSet. Перекатан .28, health ok | (этот коммит) |
 | 62 | SetCapabilitiesTask: живое применение capability без рестарта (агент applyCapabilities под mu; сервер push после PUT). Код, e2e после переката | (этот коммит) |
 | 61 | UI capability хоста: HostCapsPanel в «Конфигурациях» (GET/PUT /hosts/{id}/capabilities, чекбоксы каталога, apiPut). Перекат .28 прерван зависанием ВМ | (этот коммит) |

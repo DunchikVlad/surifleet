@@ -394,6 +394,20 @@
 
 ### BREAKING
 
+- Чанк 64 (2026-10-09): профили конфигураций — фундамент (план 1B).
+  Миграция 000012 config_profiles (scope_type/scope_id, parent_id
+  self-ref — наследование кластер→хост→инстанс, content_yaml, version
+  с инкрементом при смене содержимого). Store ConfigProfilesRepo CRUD;
+  API GET/POST /config_profiles + GET/PATCH/DELETE /{id} (config.read/
+  write, проверка scope_id с scoping, аудит config_profiles.*).
+  Рендер переменных, история версий, /render|/validate — следующие
+  чанки. (server, db, api)
+
+### BREAKING
+
+- Миграция 000012 (db): таблица config_profiles. Применится при
+  перекате сервера; откат — 000012 down.
+
 - Миграция 000011 (db): таблица instance_config_history (история
   deploy_config по инстансам).
 
