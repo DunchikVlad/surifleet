@@ -7,6 +7,16 @@
 
 ### Added
 
+- Чанк 55 (2026-10-08): чтение фактического suricata.yaml с сенсора
+  (план 1B, срез 2; стенд выключен — e2e отложен). Proto: FetchConfigTask
+  (Task oneof =17), FetchConfigResult content/sha256/size_bytes
+  (TaskResult oneof =16). hub: реестр taskWaiters + SendTaskAndWait —
+  синхронное ожидание результата задачи от агента. Агент: executeFetch —
+  чтение config_path из bound_instances HelloAck, sha256, предел 4 МБ,
+  capability config. API: GET /instances/{id}/config/current
+  (config.read, scoping) — YAML с заголовком X-Config-Sha256; 409
+  offline/таймаут, 502 ошибка чтения. (proto, server, agent, api)
+
 - Чанк 54 (2026-10-08): конфигурации — версии suricata.yaml и деплой
   конфигурации (план 1B, срез 1; стенд выключен — e2e отложен).
   Миграция 000010: таблица config_versions (контент — content-addressed
@@ -22,12 +32,6 @@
   restart/reload systemd-юнита (capability config). UI: вкладка
   «Конфигурации» (список, создание, просмотр контента, деплой на
   инстанс). (server, agent, ui, db, api)
-
-### BREAKING
-
-- Миграция 000010 (db): новая таблица config_versions + UPDATE
-  встроенной роли operator (config.read/config.write). Применится
-  автоматически при старте сервера; откат — 000010 down.
 
 - Чанк 53 (2026-10-08): таргетинг на уровне ruleset + сортировка в вебе
   (план 1A, срез 4 — закрытие 1A; стенд выключен — e2e отложен). POST
@@ -329,6 +333,18 @@
   защита break-glass, аудит-цепочка в GET /audit_log; compliance
   in_sync 1/1. Стенд переведён на auth_mode: token
   (admin@surifleet.local / admin12345). (server, ui, db, docs)
+
+### BREAKING
+
+- Чанк 55 (2026-10-08): proto — FetchConfigTask (Task oneof =17) и
+  FetchConfigResult (TaskResult oneof =16). Обновлять агент и сервер
+  совместно: сторона на старом proto честно откажет («тип задачи не
+  поддерживается»), новые задачи fetch_config до переката работать не
+  будут.
+
+- Миграция 000010 (db): новая таблица config_versions + UPDATE
+  встроенной роли operator (config.read/config.write). Применится
+  автоматически при старте сервера; откат — 000010 down.
 
 ### Fixed
 

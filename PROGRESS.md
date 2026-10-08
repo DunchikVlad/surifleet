@@ -146,6 +146,29 @@ config.read/config.write. React: вкладка «Конфигурации» (pe
 зелёные (кроме известного samlauth-NTFS), npm build чисто (фикс: «configs»
 добавлен в union TabName — WIP прервался на этой ошибке).
 
+Чанк 55 ГОТОВ (2026-10-08, 5b76511; стенд выключен — e2e отложен):
+план 1B, срез 2 — чтение фактического suricata.yaml с сенсора. Proto:
+FetchConfigTask (Task oneof =17) + FetchConfigResult (content/sha256/
+size_bytes, TaskResult oneof =16), реген через scripts/gen-proto.sh.
+hub: реестр taskWaiters (sync.Map task_id → chan¹) + SendTaskAndWait —
+синхронная отправка задачи с ожиданием результата (таймаут/контекст);
+уведомление в handleTaskResult ДО подписчика-оркестратора. Агент
+`cmd/agent/fetch_config.go`: executeFetch — чтение config_path инстанса
+из bound_instances HelloAck, sha256, предел 4 МБ, capability-гейт config,
+дедлайн; в журнал идемпотентности не пишется (read-only). API: GET
+/instances/{id}/config/current (config.read, scoping instanceAllowed) —
+синхронная FetchConfigTask через hub.SendTaskAndWait (30 с); ответ —
+application/yaml + заголовок X-Config-Sha256; 409 «агент offline/не
+ответил», 502 с текстом ошибки агента. Проверки: go build/vet зелёные,
+тесты cmd/agent + httpapi ok. Следующий срез 1B: редактор «как на хосте»
+в UI (загрузка fetch → правка → POST /config_versions) и история
+применённых конфигов по инстансу + откат.
+
+**Следующий шаг после 55** (план 1B продолжение): редактор «как на хосте»
+во вкладке «Конфигурации» (GET /instances/{id}/config/current → правка →
+сохранить версию), история применённых версий по инстансу + откат
+прошлой версии, волновой деплой через оркестратор, профили.
+
 **Следующий шаг после 54** (план 1B продолжение): чтение фактического
 suricata.yaml с сенсора (задача fetch → редактор «как на хосте»),
 история применённых версий по инстансу + откат прошлой версии,
@@ -1254,6 +1277,7 @@ managed-файле (245 правил).
 
 | Чанк | Содержание | Коммит |
 |---|---|---|
+| 55 | План 1B, срез 2: чтение фактического suricata.yaml с сенсора — proto FetchConfigTask/Result, hub.SendTaskAndWait (taskWaiters), агент executeFetch (config_path из bindings, sha256, 4 МБ), GET /instances/{id}/config/current (config.read, scoping, X-Config-Sha256). Стенд выключен — e2e отложен | 5b76511 |
 | 54 | План 1B, срез 1: конфигурации — миграция 000010 config_versions (S3 content-addressed, cfg-vN авто), ConfigsRepo, API /config_versions (+content, +deploy через hub-задачу DeployConfigTask, validate_only, аудит configs.deploy), агент executeConfig (бэкап → suricata -T → откат → restart юнита), права config.read/write, React-вкладка «Конфигурации». Стенд выключен — e2e отложен | 329b1d1 |
 | 47 | Scoping в матрице «правила × инстансы»: MatrixInstancesPage +scope []uuid.UUID (SQL ANY), restricted: чужой cluster_id → 404, без фильтра — ось сужается до ScopeClusters. Живой e2e: scoped analyst видит только свой кластер, чужой → 404 | c1d25d2 |
 | 53 | План 1A закрыт: таргетинг на уровне ruleset (targeting {cluster_ids,host_ids} в manifest; createDeployment сужает цели через Instances.FilterByClustersHosts; виден в GET /rulesets/{id}/rules) + сортировка колонок в вебе (components SortTh/sortBy; Правила/Ruleset'ы/Аудит). Стенд выключен — e2e отложен | (этот коммит) |
