@@ -1,6 +1,6 @@
 import React from "react";
 import { apiGet, AuditEntry, ChainVerifyResult, Page } from "../api";
-import { ErrorBox, fmtTime, short } from "../components";
+import { ErrorBox, fmtTime, short, SortState, SortTh, sortBy } from "../components";
 
 const LIMIT = 50;
 
@@ -11,6 +11,7 @@ export default function Audit(_: { active: boolean }) {
   const [cursor, setCursor] = React.useState<string | null>(null);
   const [action, setAction] = React.useState("");
   const [err, setErr] = React.useState<unknown>(null);
+  const [sort, setSort] = React.useState<SortState>({ key: "created_at", dir: -1 });
   const [verify, setVerify] = React.useState<ChainVerifyResult | null>(null);
 
   const checkChain = async () => {
@@ -55,10 +56,25 @@ export default function Audit(_: { active: boolean }) {
       </p>
       <table>
         <thead>
-          <tr><th>Время</th><th>Актор</th><th>Действие</th><th>Объект</th><th>Результат</th><th>IP</th></tr>
+          <tr>
+            <SortTh label="Время" k="created_at" sort={sort} onSort={setSort} />
+            <SortTh label="Актор" k="actor" sort={sort} onSort={setSort} />
+            <SortTh label="Действие" k="action" sort={sort} onSort={setSort} />
+            <th>Объект</th>
+            <SortTh label="Результат" k="result" sort={sort} onSort={setSort} />
+            <th>IP</th>
+          </tr>
         </thead>
         <tbody>
-          {items.map(e => (
+          {sortBy(items, sort, (e, k) => {
+            switch (k) {
+              case "created_at": return e.created_at;
+              case "actor": return e.actor_name ?? undefined;
+              case "action": return e.action;
+              case "result": return e.result;
+              default: return undefined;
+            }
+          }).map(e => (
             <tr key={e.id}>
               <td className="muted">{fmtTime(e.created_at)}</td>
               <td>{e.actor_name ?? "—"} <span className="muted">({e.actor_type})</span></td>

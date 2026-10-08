@@ -3108,6 +3108,12 @@ components:
         rule_filter: {$ref: '#/components/schemas/RuleFilter', description: По умолчанию — все enabled правила}
         rule_ids: {type: array, items: {type: string, format: uuid}, description: Явный список id правил; имеет приоритет над rule_filter (фильтр при этом не применяется)}
         note: {type: string}
+        targeting:
+          type: object
+          description: 'Таргетинг на уровне ruleset (чанк 53): деплой такого ruleset сужается до инстансов этих кластеров/хостов; пусто — без ограничений'
+          properties:
+            cluster_ids: {type: array, items: {type: string, format: uuid}}
+            host_ids: {type: array, items: {type: string, format: uuid}}
 
     Deployment:
       type: object

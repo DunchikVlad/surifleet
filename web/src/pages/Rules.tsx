@@ -1,6 +1,6 @@
 import React from "react";
 import { apiGet, apiPost, apiPatch, getToken, Page, Rule } from "../api";
-import { Badge, ErrorBox } from "../components";
+import { Badge, ErrorBox, SortState, SortTh, sortBy } from "../components";
 import { useCan } from "../perms";
 
 const LIMIT = 50;
@@ -13,6 +13,7 @@ export default function Rules({ active }: { active: boolean }) {
   const [q, setQ] = React.useState("");
   const [err, setErr] = React.useState<unknown>(null);
   const [loaded, setLoaded] = React.useState(false);
+  const [sort, setSort] = React.useState<SortState>({ key: "sid", dir: 1 });
 
   const load = React.useCallback(async (append: boolean) => {
     let path = `/rules?limit=${LIMIT}`;
@@ -114,10 +115,26 @@ export default function Rules({ active }: { active: boolean }) {
       {items.length > 0 && (
         <table>
           <thead>
-            <tr><th>SID</th><th>Сообщение</th><th>Статус</th><th>Категория</th><th>Источник</th><th></th></tr>
+            <tr>
+              <SortTh label="SID" k="sid" sort={sort} onSort={setSort} />
+              <SortTh label="Сообщение" k="msg" sort={sort} onSort={setSort} />
+              <SortTh label="Статус" k="status" sort={sort} onSort={setSort} />
+              <SortTh label="Категория" k="category" sort={sort} onSort={setSort} />
+              <SortTh label="Источник" k="source" sort={sort} onSort={setSort} />
+              <th></th>
+            </tr>
           </thead>
           <tbody>
-            {items.map(r => (
+            {sortBy(items, sort, (r, k) => {
+              switch (k) {
+                case "sid": return r.sid;
+                case "msg": return r.msg;
+                case "status": return r.status;
+                case "category": return r.category;
+                case "source": return r.source_type;
+                default: return undefined;
+              }
+            }).map(r => (
               <tr key={r.id}>
                 <td>{r.sid}</td>
                 <td>{r.msg || ""}</td>

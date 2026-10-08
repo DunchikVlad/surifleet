@@ -1,6 +1,6 @@
 import React from "react";
 import { apiGet, apiPostEx, Page, Rule, Ruleset } from "../api";
-import { Badge, ErrorBox, fmtTime, short } from "../components";
+import { Badge, ErrorBox, fmtTime, short, SortState, SortTh, sortBy } from "../components";
 import { useCan } from "../perms";
 
 const LIMIT = 50;
@@ -26,6 +26,7 @@ export default function Rulesets({ active }: { active: boolean }) {
   // Состав ruleset'а (drill-down по клику на версию, чанк 50).
   const [expanded, setExpanded] = React.useState<string | null>(null);
   const toggleExpand = (id: string) => setExpanded(prev => (prev === id ? null : id));
+  const [sort, setSort] = React.useState<SortState>({ key: "created_at", dir: -1 });
 
   const load = React.useCallback(async () => {
     try {
@@ -96,10 +97,23 @@ export default function Rulesets({ active }: { active: boolean }) {
       {items && items.length > 0 && (
         <table>
           <thead>
-            <tr><th>Версия</th><th>ID</th><th>Правил</th><th>SHA-256</th><th>Создан</th></tr>
+            <tr>
+              <SortTh label="Версия" k="version" sort={sort} onSort={setSort} />
+              <th>ID</th>
+              <SortTh label="Правил" k="rule_count" sort={sort} onSort={setSort} />
+              <th>SHA-256</th>
+              <SortTh label="Создан" k="created_at" sort={sort} onSort={setSort} />
+            </tr>
           </thead>
           <tbody>
-            {items.map(v => (
+            {sortBy(items, sort, (v, k) => {
+              switch (k) {
+                case "version": return v.version;
+                case "rule_count": return v.rule_count;
+                case "created_at": return v.created_at;
+                default: return undefined;
+              }
+            }).map(v => (
               <React.Fragment key={v.id}>
                 <tr onClick={() => toggleExpand(v.id)} style={{ cursor: "pointer" }} title="показать состав">
                   <td><b>{v.version}</b></td>

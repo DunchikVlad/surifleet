@@ -105,7 +105,22 @@ attachment + ETag по sha256). UI «Правила»: кнопки экспор
 (.rules/stix/dataset) — POST с токеном и фильтром статуса, скачивание
 blob. Проверки: go build/vet/test зелёные, npm build чисто.
 
-**Следующий шаг после 52**:
+Чанк 53 ГОТОВ (2026-10-08, этот коммит; стенд выключен — e2e
+отложен): план 1A, срез 4 (закрытие 1A) — таргетинг на уровне ruleset +
+сортировка в вебе. POST /rulesets принимает targeting {cluster_ids,
+host_ids} (uuid-валидация, в manifest); createDeployment: при наличии
+таргетинга цели сужаются до пересечения (`Instances.FilterByClustersHosts`,
+инстанс входит, если его кластер ИЛИ хост в списке; сужение — в лог,
+пусто → 400 «таргетинг не выбрал ни одного инстанса»); таргетинг виден в
+GET /rulesets/{id}/rules. UI-сортировка (components.tsx: SortState,
+sortBy, SortTh — кликабельные заголовки ▲/▼; строки localeCompare,
+числа численно, пустые в конец): «Правила» (sid/msg/статус/категория/
+источник), «Ruleset'ы» (версия/правил/создан, default created_at desc),
+«Аудит» (время/актор/действие/результат, default время desc). OpenAPI:
+RulesetBuildInput + targeting. Проверки: go build/vet/test зелёные
+(кроме известного samlauth-NTFS), npm build чисто. План 1A ЗАКРЫТ.
+
+**Следующий шаг после 53** (план 1A закрыт): 1B — конфигурации (весь suricata.yaml под управлением: чтение с сенсора, редактор в UI, версии, deploy_config с suricata -T + откат, профили):
 1. Мониторинг (п. 5.4): SIEM-конфиг с сервера (ConfigPush на кластер/хост),
    полноценные дашборды флот/кластер/хост.
 2. E2E на стенде, остаток долга: SSO (35/40/41).
@@ -1208,6 +1223,7 @@ managed-файле (245 правил).
 | Чанк | Содержание | Коммит |
 |---|---|---|
 | 47 | Scoping в матрице «правила × инстансы»: MatrixInstancesPage +scope []uuid.UUID (SQL ANY), restricted: чужой cluster_id → 404, без фильтра — ось сужается до ScopeClusters. Живой e2e: scoped analyst видит только свой кластер, чужой → 404 | c1d25d2 |
+| 53 | План 1A закрыт: таргетинг на уровне ruleset (targeting {cluster_ids,host_ids} в manifest; createDeployment сужает цели через Instances.FilterByClustersHosts; виден в GET /rulesets/{id}/rules) + сортировка колонок в вебе (components SortTh/sortBy; Правила/Ruleset'ы/Аудит). Стенд выключен — e2e отложен | (этот коммит) |
 | 52 | План 1A, срез 3: POST /rules/export?format=text|stix|dataset (text — .rules по фильтру; stix — bundle indicator pattern_type=suricata, id детерминирован; dataset — активные IOC type,value; attachment + ETag); UI кнопки экспорта. Стенд выключен — e2e отложен | (этот коммит) |
 | 51 | План 1A, срез 2: POST /rules/{id}/clone (новый sid 9000xxx max+1, msg «(копия)»/явный, rev→1, rewriteRuleRaw с экранированием, under_review, аудит rules.clone); контроль дублей sid в buildRuleset → 400; UI кнопки «ред.»/«клон». Стенд выключен — e2e отложен | (этот коммит) |
 | 50 | План 1A, срез 1: версия ruleset'а автоинкремент v<N+1> per-org (version в POST /rulesets необязательна, тег — непустая) + GET /rulesets/{id}/rules (состав: порядок manifest + актуальные msg/status, BriefsBySids); UI — drill-down состава по клику на версию. Стенд выключен — e2e отложен | (этот коммит) |

@@ -15,10 +15,18 @@ import (
 
 // rulesetBuildInput — POST /api/v1/rulesets (openapi RulesetBuildInput).
 type rulesetBuildInput struct {
-	Version    string          `json:"version"`
-	RuleFilter ruleFilterInput `json:"rule_filter"`
-	RuleIDs    []string        `json:"rule_ids"`
-	Note       string          `json:"note"`
+	Version    string           `json:"version"`
+	RuleFilter ruleFilterInput  `json:"rule_filter"`
+	RuleIDs    []string         `json:"rule_ids"`
+	Note       string           `json:"note"`
+	Targeting  rulesetTargeting `json:"targeting"`
+}
+
+// rulesetTargeting — таргетинг на уровне ruleset (чанк 53): деплой такого
+// ruleset'а сужается до инстансов этих кластеров/хостов. Пусто — все.
+type rulesetTargeting struct {
+	ClusterIDs []string `json:"cluster_ids"`
+	HostIDs    []string `json:"host_ids"`
 }
 
 // ruleFilterInput — фильтр правил для сборки (подмножество openapi RuleFilter).
@@ -152,10 +160,28 @@ func (h *handlers) buildRuleset(w http.ResponseWriter, r *http.Request) {
 		}
 		sample = append(sample, mr.Sid)
 	}
+	// Таргетинг ruleset (чанк 53): uuid-валидация, в manifest.
+	var clIDs, hostIDs []uuid.UUID
+	var badID string
+	if clIDs, badID = uuidStrings(in.Targeting.ClusterIDs); badID != "" {
+		fe.add("targeting.cluster_ids", "невалидный uuid: "+badID)
+	}
+	if hostIDs, badID = uuidStrings(in.Targeting.HostIDs); badID != "" {
+		fe.add("targeting.host_ids", "невалидный uuid: "+badID)
+	}
+	if fe.any() {
+		writeValidation(w, fe)
+		return
+	}
+	var targeting any
+	if len(clIDs) > 0 || len(hostIDs) > 0 {
+		targeting = map[string]any{"cluster_ids": clIDs, "host_ids": hostIDs}
+	}
 	manifest, _ := json.Marshal(map[string]any{
 		"count":       len(manifestRules),
 		"filter":      in.RuleFilter,
 		"note":        in.Note,
+		"targeting":   targeting,
 		"rules":       manifestRules,
 		"sids_sample": sample,
 		"built_at":    time.Now().UTC().Format(time.RFC3339),
@@ -260,9 +286,26 @@ func (h *handlers) getRulesetRules(w http.ResponseWriter, r *http.Request) {
 			items[i].Msg, items[i].Status = b.Msg, b.Status
 		}
 	}
+	clIDs, hostIDs := rulesetTargets(v.Manifest)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ruleset_id": id, "version": v.Version, "rule_count": v.RuleCount, "items": items,
+		"targeting": map[string]any{"cluster_ids": clIDs, "host_ids": hostIDs},
 	})
+}
+
+// rulesetTargets — таргетинг ruleset'а из manifest (чанк 53):
+// cluster_ids/host_ids; пусто — ruleset для всех целей.
+func rulesetTargets(manifest json.RawMessage) (clusterIDs, hostIDs []uuid.UUID) {
+	var m struct {
+		Targeting *struct {
+			ClusterIDs []uuid.UUID `json:"cluster_ids"`
+			HostIDs    []uuid.UUID `json:"host_ids"`
+		} `json:"targeting"`
+	}
+	if err := json.Unmarshal(manifest, &m); err != nil || m.Targeting == nil {
+		return nil, nil
+	}
+	return m.Targeting.ClusterIDs, m.Targeting.HostIDs
 }
 
 // computedRulesFromManifest — [{sid,rev,status:"enabled"}] из manifest

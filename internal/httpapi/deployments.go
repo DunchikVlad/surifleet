@@ -105,6 +105,20 @@ func (h *handlers) createDeployment(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	// Таргетинг ruleset (чанк 53): если ruleset собран под кластеры/хосты —
+	// цели деплоя сужаются до пересечения (пусто → 400).
+	if clIDs, hostIDs := rulesetTargets(rv.Manifest); len(clIDs) > 0 || len(hostIDs) > 0 {
+		filtered, ferr := h.d.Store.Instances.FilterByClustersHosts(r.Context(), instanceIDs, clIDs, hostIDs)
+		if ferr != nil {
+			writeStoreError(w, ferr)
+			return
+		}
+		if len(filtered) < len(instanceIDs) {
+			errLog.Info("деплой: цели сужены таргетингом ruleset",
+				"ruleset_id", rv.ID, "before", len(instanceIDs), "after", len(filtered))
+		}
+		instanceIDs = filtered
+	}
 	// Scoping таргетинга (чанк 46, п. 8): cluster-restricted пользователь
 	// не может деплоить на чужие кластеры — цели пересекаются с его scope.
 	instanceIDs, ok = h.scopeTargets(w, r, instanceIDs, in.Targeting)

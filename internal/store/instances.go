@@ -250,3 +250,39 @@ func (r *InstancesRepo) idQuery(ctx context.Context, query string, args ...any) 
 	}
 	return ids, translate(rows.Err())
 }
+
+// FilterByClustersHosts — из ids оставляет инстансы, чей хост принадлежит
+// одному из кластеров clusterIDs или сам хост в hostIDs (чанк 53 —
+// таргетинг на уровне ruleset). Пустой список = без ограничений по нему.
+func (r *InstancesRepo) FilterByClustersHosts(ctx context.Context, ids []uuid.UUID, clusterIDs, hostIDs []uuid.UUID) ([]uuid.UUID, error) {
+	if len(ids) == 0 || (len(clusterIDs) == 0 && len(hostIDs) == 0) {
+		return ids, nil
+	}
+	// Пустой список → NULL (иначе ANY('{}') ни к чему не матчится).
+	var clusterArg, hostArg []uuid.UUID
+	if len(clusterIDs) > 0 {
+		clusterArg = clusterIDs
+	}
+	if len(hostIDs) > 0 {
+		hostArg = hostIDs
+	}
+	rows, err := r.pool.Query(ctx,
+		`SELECT i.id FROM instances i JOIN hosts h ON h.id = i.host_id
+		 WHERE i.id = ANY($1)
+		   AND ( ($2::uuid[] IS NOT NULL AND h.cluster_id = ANY($2))
+		      OR ($3::uuid[] IS NOT NULL AND h.id = ANY($3)) )`,
+		ids, clusterArg, hostArg)
+	if err != nil {
+		return nil, translate(err)
+	}
+	defer rows.Close()
+	out := []uuid.UUID{}
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, translate(err)
+		}
+		out = append(out, id)
+	}
+	return out, translate(rows.Err())
+}

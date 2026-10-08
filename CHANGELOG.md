@@ -7,6 +7,15 @@
 
 ### Added
 
+- Чанк 53 (2026-10-08): таргетинг на уровне ruleset + сортировка в вебе
+  (план 1A, срез 4 — закрытие 1A; стенд выключен — e2e отложен). POST
+  /rulesets принимает targeting {cluster_ids, host_ids} (в manifest);
+  createDeployment сужает цели до пересечения (инстанс входит, если его
+  кластер или хост в списке ruleset; пусто → 400); таргетинг виден в
+  GET /rulesets/{id}/rules. UI: кликабельные заголовки колонок
+  (SortTh/sortBy) на вкладках «Правила», «Ruleset'ы», «Аудит».
+  (server, ui, api)
+
 - Чанк 52 (2026-10-07): экспорт правил (план 1A, срез 3; стенд
   выключен — e2e отложен). POST /rules/export?format=text|stix|dataset:
   text — .rules по фильтру; stix — STIX 2.1 bundle (indicator

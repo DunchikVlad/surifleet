@@ -40,3 +40,41 @@ export function useInterval(cb: () => void, ms: number, active = true) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ms, active]);
 }
+
+// --- сортировка таблиц (чанк 53): кликабельные заголовки колонок ---
+
+export interface SortState { key: string; dir: 1 | -1 }
+
+// sortBy — клиентская сортировка: acc возвращает значение колонки
+// (строки — localeCompare, числа/даты — численно, undefined — в конец).
+export function sortBy<T>(items: T[], sort: SortState, acc: (t: T, key: string) => string | number | undefined): T[] {
+  const out = [...items];
+  out.sort((a, b) => {
+    const va = acc(a, sort.key);
+    const vb = acc(b, sort.key);
+    if (va === undefined && vb === undefined) return 0;
+    if (va === undefined) return 1;
+    if (vb === undefined) return -1;
+    let c: number;
+    if (typeof va === "number" && typeof vb === "number") c = va - vb;
+    else c = String(va).localeCompare(String(vb), "ru");
+    return c * sort.dir;
+  });
+  return out;
+}
+
+// SortTh — <th> с переключением сортировки (▲/▼).
+export function SortTh({ label, k, sort, onSort }: {
+  label: string; k: string; sort: SortState; onSort: (s: SortState) => void;
+}) {
+  const active = sort.key === k;
+  return (
+    <th
+      style={{ cursor: "pointer", userSelect: "none", whiteSpace: "nowrap" }}
+      title="сортировка"
+      onClick={() => onSort({ key: k, dir: active ? (sort.dir === 1 ? -1 : 1) : 1 })}
+    >
+      {label} {active ? (sort.dir === 1 ? "▲" : "▼") : ""}
+    </th>
+  );
+}
