@@ -571,13 +571,13 @@ paths:
       operationId: get_host_capabilities
       tags: [hosts]
       summary: Capability хоста (6 штук) с учётом наследования от кластера
-      description: "Требуется право: hosts.read. Источник значения: default | cluster | host."
+      description: "Требуется право: hosts.read. Host-level записи; пусто — наследование от кластера/дефолта monitoring."
       responses:
         '200':
           description: OK
           content:
             application/json:
-              schema: {$ref: '#/components/schemas/CapabilitiesView'}
+              schema: {$ref: '#/components/schemas/CapabilitiesSet'}
         default: {$ref: '#/components/responses/Error'}
     put:
       operationId: put_host_capabilities
@@ -588,7 +588,7 @@ paths:
         required: true
         content:
           application/json:
-            schema: {$ref: '#/components/schemas/CapabilitiesInput'}
+            schema: {$ref: '#/components/schemas/CapabilitiesSet'}
       responses:
         '200':
           description: OK
@@ -1934,6 +1934,182 @@ paths:
   # Конфигурации
   # --------------------------------------------------------------------------
 
+  /config_versions:
+    get:
+      operationId: list_config_versions
+      tags: [config]
+      summary: Список версий конфигурации suricata.yaml
+      description: "Требуется право: config.read. Контент версий — content-addressed блобы в S3 (sha256)."
+      parameters:
+        - {$ref: '#/components/parameters/Limit'}
+        - {$ref: '#/components/parameters/Cursor'}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items: {type: array, items: {$ref: '#/components/schemas/ConfigVersion'}}
+                  next_cursor: {type: string, nullable: true}
+        default: {$ref: '#/components/responses/Error'}
+    post:
+      operationId: create_config_version
+      tags: [config]
+      summary: Сохранить конфигурацию как версию
+      description: "Требуется право: config.write. version пусто → авто cfg-v<N> per-org. Идемпотентно по sha256 (дубль → существующая запись)."
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [yaml]
+              properties:
+                version: {type: string, description: "Пусто → автоинкремент cfg-vN"}
+                yaml: {type: string, description: "Полное содержимое suricata.yaml"}
+                note: {type: string}
+      responses:
+        '201':
+          description: Создано
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ConfigVersion'}
+        default: {$ref: '#/components/responses/Error'}
+
+  /config_versions/{id}:
+    parameters:
+      - {$ref: '#/components/parameters/PathId'}
+    get:
+      operationId: get_config_version
+      tags: [config]
+      summary: Версия конфигурации
+      description: "Требуется право: config.read"
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ConfigVersion'}
+        default: {$ref: '#/components/responses/Error'}
+
+  /config_versions/{id}/content:
+    parameters:
+      - {$ref: '#/components/parameters/PathId'}
+    get:
+      operationId: get_config_version_content
+      tags: [config]
+      summary: Содержимое версии (suricata.yaml)
+      description: "Требуется право: config.read. Ответ — text/yaml из блоба S3."
+      responses:
+        '200':
+          description: OK
+          content:
+            application/yaml: {}
+        default: {$ref: '#/components/responses/Error'}
+
+  /config_versions/{id}/deploy:
+    parameters:
+      - {$ref: '#/components/parameters/PathId'}
+    post:
+      operationId: deploy_config_version
+      tags: [config]
+      summary: Деплой конфигурации на инстанс (deploy_config)
+      description: "Требуется право: config.write. Прямая задача DeployConfigTask агенту (волновой оркестратор — позже): бэкап → запись → suricata -T (откат при провале) → restart юнита. validate_only — только suricata -T. Требуется capability config на хосте. 409 — агент offline."
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [instance_id]
+              properties:
+                instance_id: {type: string, format: uuid}
+                validate_only: {type: boolean, default: false}
+      responses:
+        '202':
+          description: Задача отправлена агенту
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  task_id: {type: string, format: uuid}
+                  config_version_id: {type: string, format: uuid}
+                  version: {type: string}
+                  instance_id: {type: string, format: uuid}
+                  agent_id: {type: string, format: uuid}
+        default: {$ref: '#/components/responses/Error'}
+
+  /instances/{id}/config/current:
+    parameters:
+      - {$ref: '#/components/parameters/PathId'}
+    get:
+      operationId: fetch_instance_config
+      tags: [config]
+      summary: Фактический suricata.yaml инстанса с сенсора
+      description: "Требуется право: config.read. Синхронная FetchConfigTask агенту (ожидание ≤30 с); заголовок X-Config-Sha256. 409 — агент offline/таймаут."
+      responses:
+        '200':
+          description: OK
+          content:
+            application/yaml: {}
+        default: {$ref: '#/components/responses/Error'}
+
+  /instances/{id}/config/history:
+    parameters:
+      - {$ref: '#/components/parameters/PathId'}
+    get:
+      operationId: get_instance_config_history
+      tags: [config]
+      summary: История применения конфигураций на инстансе
+      description: "Требуется право: config.read. Статусы: validated (validate_only ok), applied, validation_failed (suricata -T), deploy_failed."
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items: {type: array, items: {$ref: '#/components/schemas/ConfigDeploy'}}
+                  count: {type: integer}
+        default: {$ref: '#/components/responses/Error'}
+
+  /clusters/{id}/capabilities:
+    parameters:
+      - {$ref: '#/components/parameters/PathId'}
+    get:
+      operationId: get_cluster_capabilities
+      tags: [fleet]
+      summary: Capability кластера
+      description: "Требуется право: hosts.read. Хосты без своих записей наследуют cluster-level набор."
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/CapabilitiesSet'}
+        default: {$ref: '#/components/responses/Error'}
+    put:
+      operationId: set_cluster_capabilities
+      tags: [fleet]
+      summary: Заменить capability кластера
+      description: "Требуется право: hosts.write. Подключённым агентам кластера набор пушится мгновенно (SetCapabilitiesTask); офлайн-агенты — при следующем Hello."
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/CapabilitiesSet'}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/CapabilitiesSet'}
+        default: {$ref: '#/components/responses/Error'}
+
   /config_profiles:
     get:
       operationId: list_config_profiles
@@ -2765,6 +2941,40 @@ components:
             properties:
               capability: {type: string, enum: [monitoring, rules, log_rotation, service_mgmt, packages, config]}
               enabled: {type: boolean}
+
+    # CapabilitiesSet — фактический контракт чанков 59–62: плоские списки
+    # строк (не пары capability/enabled из ранней спецификации).
+    CapabilitiesSet:
+      type: object
+      properties:
+        capabilities:
+          type: array
+          items: {type: string, enum: [monitoring, rules, log_rotation, service_mgmt, packages, config]}
+        known:
+          type: array
+          items: {type: string}
+
+    ConfigVersion:
+      type: object
+      properties:
+        id: {type: string, format: uuid}
+        organization_id: {type: string, format: uuid}
+        version: {type: string, description: "cfg-vN (автоинкремент per-org) или тег"}
+        sha256: {type: string}
+        s3_key: {type: string}
+        note: {type: string, nullable: true}
+        created_by: {type: string, format: uuid, nullable: true}
+        created_at: {type: string, format: date-time}
+
+    ConfigDeploy:
+      type: object
+      properties:
+        id: {type: string, format: uuid}
+        instance_id: {type: string, format: uuid}
+        config_version: {type: string}
+        status: {type: string, enum: [validated, applied, validation_failed, deploy_failed]}
+        validation_output: {type: string, nullable: true}
+        reported_at: {type: string, format: date-time}
 
     JoinTokenInput:
       type: object
