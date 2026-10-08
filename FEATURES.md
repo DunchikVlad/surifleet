@@ -54,7 +54,7 @@
 |---|---|---|---|
 | Организация → Кластеры → Хосты → Инстансы | 🚧 | CRUD organizations/clusters/hosts: `internal/store`, `internal/httpapi`; instances — после discovery (чанк 9) | чанки 7–8 |
 | Онбординг без переустановки (детект существующей Suricata) | ✅ | `cmd/agent/discovery.go` (бинарь/yaml/юнит/интерфейсы), GET /hosts/{id}/discovery, POST confirm_discovery → instances; проверено на Suricata 8.0.3 | чанк 9 |
-| 6 capability поэтапной передачи контроля | 🚧 | Таблица capabilities (000001), наследование host→cluster→default monitoring в `CapabilitiesRepo.ForHost`, выдача в HelloAck; **(чанк 59)**: REST GET/PUT `/hosts/{id}/capabilities` (валидация каталогом из 6 capability, аудит); **(чанк 60)**: GET/PUT `/clusters/{id}/capabilities`; **(чанк 61)**: UI-панель capability хоста (чекбоксы каталога, PUT по hosts.write). Не сделано: выдача SetCapabilitiesTask без рестарта стрима (применение — при следующем Hello) | чанки 59–61 |
+| 6 capability поэтапной передачи контроля | 🚧 | Таблица capabilities (000001), наследование host→cluster→default monitoring в `CapabilitiesRepo.ForHost`, выдача в HelloAck; **(чанк 59)**: REST GET/PUT `/hosts/{id}/capabilities` (валидация каталогом из 6 capability, аудит); **(чанк 60)**: GET/PUT `/clusters/{id}/capabilities`; **(чанк 61)**: UI-панель capability хоста (чекбоксы каталога, PUT по hosts.write); **(чанк 62)**: SetCapabilitiesTask — мгновенное применение набора без рестарта стрима (push после PUT; офлайн-агенты — при следующем Hello). Эпик п.4 закрыт по функционалу (кроме пакетов/ротации-логов — нет задач в стриме) | чанки 59–62 |
 
 ## 10. Нефункциональные
 

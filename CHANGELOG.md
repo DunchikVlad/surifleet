@@ -7,6 +7,13 @@
 
 ### Added
 
+- Чанк 62 (2026-10-09): SetCapabilitiesTask — живое применение
+  capability без рестарта стрима. Агент: applyCapabilities (набор под
+  mu, чтения hasCap). Сервер: после PUT capabilities эффективный набор
+  пушится подключённым агентам (pushCapabilities/
+  pushClusterCapabilities); офлайн-агенты — при следующем Hello.
+  (agent, server, api)
+
 - Чанк 61 (2026-10-09): UI capability хоста — панель «Capability хоста»
   на вкладке «Конфигурации» (HostCapsPanel): выбор хоста → GET
   /hosts/{id}/capabilities, чекбоксы каталога из 6 capability, сохранение

@@ -239,6 +239,21 @@ monitoring неизменно). Проверки: build/vet/test httpapi ok.
 сохранение PUT по праву hosts.write (apiPut в api.ts); подсказка про
 применение при следующем Hello. Проверки: npm build чисто, go build ok.
 
+Чанк 62 ГОТОВ (2026-10-09, этот коммит): SetCapabilitiesTask — живое
+применение capability без рестарта стрима (последний пробел эпика п.4
+«UI» закрыт чанком 61). Агент: handle() принимает задачу,
+applyCapabilities мгновенно заменяет набор (caps под mu, чтения через
+hasCap — deploy_rules/deploy_config/fetch_config). Сервер: после PUT
+/hosts|clusters/{id}/capabilities эффективный набор (ForHost) пушится
+подключённым агентам (pushCapabilities/pushClusterCapabilities);
+офлайн-агенты — при следующем Hello (неизменно). Проверки: build/vet
+зелёные, cmd/agent + httpapi тесты ok.
+
+**Следующий шаг после 62**: перекат .28+.67 (оба бинаря — proto-совместимы,
+но capability-push требует новых обеих сторон), живой e2e: UI-чекбокс →
+агент применил без рестарта (в логе «capability обновлены без
+рестарта»); далее волновой деплой конфигов через оркестратор, профили.
+
 **Следующий шаг после 60/61**: перекат .28 (бинарь пересобрать — чанк
 61 изменил embed dist), живой e2e эндпоинтов capability; далее
 волновой деплой конфигов через оркестратор, профили с переменными.
@@ -1377,6 +1392,7 @@ managed-файле (245 правил).
 
 | Чанк | Содержание | Коммит |
 |---|---|---|
+| 62 | SetCapabilitiesTask: живое применение capability без рестарта (агент applyCapabilities под mu; сервер push после PUT). Код, e2e после переката | (этот коммит) |
 | 61 | UI capability хоста: HostCapsPanel в «Конфигурациях» (GET/PUT /hosts/{id}/capabilities, чекбоксы каталога, apiPut). Перекат .28 прерван зависанием ВМ | (этот коммит) |
 | 60 | Cluster-level capability: GET/PUT /clusters/{id}/capabilities (аудит, scoping, валидация каталогом), ClusterCaps/SetClusterCaps. Перекат .28 прерван зависанием ВМ | 5c617b1 |
 | 59 | REST capability хоста (п. 4 ТЗ): GET/PUT /hosts/{id}/capabilities (валидация каталогом, аудит, scoping), CapabilitiesRepo.HostCaps/SetHostCaps. Код без e2e | 3af0f61 |
