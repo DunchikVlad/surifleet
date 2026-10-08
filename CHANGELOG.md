@@ -7,6 +7,23 @@
 
 ### Added
 
+- Чанк 59 (2026-10-08): REST для capability хоста (п. 4 ТЗ, первый
+  срез эпика поэтапной передачи контроля). GET/PUT
+  /hosts/{id}/capabilities (hosts.read/write, scoping clusterAllowed):
+  валидация по каталогу (monitoring/rules/log_rotation/service_mgmt/
+  packages/config, дубли/мусор → 400), аудит hosts.capabilities.
+  Store: CapabilitiesRepo.HostCaps/SetHostCaps (tx-замена host-level
+  набора; пусто — наследование кластера/дефолта monitoring). Агент
+  применяет набор при следующем Hello (HelloAck.Config.Capabilities).
+  (server, api)
+
+- Чанк 58 (2026-10-08): UI истории применений конфигураций + откат
+  (план 1B, срез 5). Вкладка «Конфигурации»: панель истории по
+  инстансу (GET /instances/{id}/config/history; таблица
+  время/версия/статус-бейдж/вывод валидатора), кнопка «Откат к
+  последней applied» — redeploy последней applied-версии на инстанс
+  истории (deploy + опциональный target). (ui)
+
 - Чанк 57 (2026-10-08): история применения конфигураций по инстансу
   (план 1B, срез 4; стенд выключен — e2e отложен). Proto: DeployConfigResult
   + instance_id, validate_only (BREAKING — обновлять совместно).

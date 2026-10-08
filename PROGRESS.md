@@ -204,6 +204,28 @@ API: GET /instances/{id}/config/history (config.read, scoping 43,
 {items,count}). UI пока не показывает (следующий срез). Проверки:
 go build/vet зелёные, hub/agent/httpapi тесты ok.
 
+Чанки 58+59 ГОТОВЫ (2026-10-08, bd491a4 + 3af0f61; только код,
+документы — этот коммит; стенд: чанк 58 не перекатан):
+чанк 58 (план 1B, срез 5) — UI истории применений конфигураций:
+панель «История по инстансу» (селектор → GET
+/instances/{id}/config/history; таблица время/версия/статус-бейдж/
+последняя строка вывода валидатора, полный — в title), кнопка
+«Откат к последней applied» (последняя applied-запись → версия из
+репозитория → deploy_config на инстанс истории; deploy() +опц.
+target). Чанк 59 (п. 4 ТЗ — первый срез эпика capability): REST
+GET/PUT /hosts/{id}/capabilities (hosts.read/write, scoping
+clusterAllowed, валидация по каталогу monitoring/rules/log_rotation/
+service_mgmt/packages/config — дубли/мусор 400, аудит
+hosts.capabilities); store CapabilitiesRepo.HostCaps/SetHostCaps
+(tx-замена host-level набора; пусто — наследование кластера/дефолта
+monitoring); применение агентом — при следующем Hello. Снимает
+ручной INSERT capabilities на стенде (деплой 08.10). Проверки:
+go build/vet зелёные, httpapi/store тесты ok, npm build чисто.
+
+**Следующий шаг после 58/59**: перекат .28 с чанком 58 (UI) при
+следующем деплое; capability — cluster-level API + UI (эпик п.4),
+волновой деплой конфигов через оркестратор, профили с переменными.
+
 **Следующий шаг после 57** (план 1B продолжение): UI истории на
 вкладке «Конфигурации» (панель по инстансу: статус/версия/вывод
 валидатора) + кнопка «откат» на последнюю applied-версию (деплой той же
@@ -1329,6 +1351,8 @@ managed-файле (245 правил).
 
 | Чанк | Содержание | Коммит |
 |---|---|---|
+| 59 | REST capability хоста (п. 4 ТЗ): GET/PUT /hosts/{id}/capabilities (валидация каталогом, аудит, scoping), CapabilitiesRepo.HostCaps/SetHostCaps. Код без e2e | 3af0f61 |
+| 58 | План 1B, срез 5: UI истории применений конфигов (панель по инстансу, бейджи статусов) + откат к последней applied (deploy с target-переопределением). Код без переката | bd491a4 |
 | 57 | План 1B, срез 4: история применения конфигов по инстансу — proto DeployConfigResult +instance_id/validate_only, миграция 000011 instance_config_history, RecordDeploy/DeployHistory, hub configDeployStatus + тест, GET /instances/{id}/config/history. Стенд выключен — e2e отложен | 68a39cb |
 | 56 | План 1B, срез 3: редактор «как на хосте» в UI «Конфигурации» — «Загрузить с сенсора» (fetch → textarea), «в редактор» из версии, цикл правка→версия. Только фронт | 0877e38 |
 | 55 | План 1B, срез 2: чтение фактического suricata.yaml с сенсора — proto FetchConfigTask/Result, hub.SendTaskAndWait (taskWaiters), агент executeFetch (config_path из bindings, sha256, 4 МБ), GET /instances/{id}/config/current (config.read, scoping, X-Config-Sha256). Стенд выключен — e2e отложен | 5b76511 |
