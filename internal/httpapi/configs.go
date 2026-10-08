@@ -210,3 +210,53 @@ func (h *handlers) deployConfig(w http.ResponseWriter, r *http.Request) {
 		"instance_id": instID, "agent_id": agent.ID,
 	})
 }
+
+// fetchInstanceConfig — GET /instances/{id}/config/current (config.read):
+// фактический suricata.yaml инстанса с сенсора — синхронная FetchConfigTask
+// агенту через hub (ожидание результата до 30 с; чанк 55, план 1B).
+func (h *handlers) fetchInstanceConfig(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathUUID(w, chi.URLParam(r, "id"), "id")
+	if !ok {
+		return
+	}
+	inst, err := h.d.Store.Instances.Get(r.Context(), id)
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	if !h.instanceAllowed(w, r, inst.HostID) { // scoping (чанк 43)
+		return
+	}
+	agent, err := h.d.Store.Agents.GetByHostID(r.Context(), nil, inst.HostID)
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	task := &agentv1.Task{
+		TaskId: uuid.New().String(),
+		Type:   &agentv1.Task_FetchConfig{FetchConfig: &agentv1.FetchConfigTask{InstanceId: inst.ID.String()}},
+	}
+	res, ok := h.d.Hub.SendTaskAndWait(r.Context(), agent.ID, task, 30*time.Second)
+	if !ok {
+		writeError(w, http.StatusConflict, CodeConflict,
+			"агент инстанса не подключён (offline) или не ответил вовремя", nil)
+		return
+	}
+	if res.GetStatus() != agentv1.TaskStatus_TASK_STATUS_SUCCESS {
+		msg := res.GetError()
+		if msg == "" {
+			msg = "агент не смог прочитать конфигурацию"
+		}
+		writeError(w, http.StatusBadGateway, CodeInternal, msg, nil)
+		return
+	}
+	fc := res.GetFetchConfig()
+	if fc == nil {
+		writeError(w, http.StatusBadGateway, CodeInternal, "агент вернул результат без содержимого", nil)
+		return
+	}
+	w.Header().Set("Content-Type", "application/yaml; charset=utf-8")
+	w.Header().Set("X-Config-Sha256", fc.GetSha256())
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte(fc.GetContent()))
+}

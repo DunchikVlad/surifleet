@@ -279,7 +279,8 @@ message TaskResult {
     RollbackResult rollback = 13;
     BundleResult bundle = 14;
     AgentUpdateResult agent_update = 15;
-    // 16–49 зарезервировано под результаты будущих типов задач.
+    FetchConfigResult fetch_config = 16;  // фактический suricata.yaml с сенсора
+    // 17–49 зарезервировано под результаты будущих типов задач.
   }
 
   StateReport state_after = 20;  // снапшот actual state после изменения (если задача меняла состояние)
@@ -330,6 +331,13 @@ message AgentUpdateResult {
   string current_version = 2;  // совпадает с заказанной при успехе
 }
 
+// FetchConfigResult — фактическое содержимое suricata.yaml инстанса.
+message FetchConfigResult {
+  string content = 1;    // полный текст конфигурации
+  string sha256 = 2;     // хэш содержимого (для сравнения с версиями)
+  int64 size_bytes = 3;
+}
+
 // ---------------------------------------------------------------------------
 // Сервер → агент: задачи и управление
 // ---------------------------------------------------------------------------
@@ -348,7 +356,8 @@ message Task {
     CollectBundleTask collect_bundle = 14;
     AgentUpdateTask agent_update = 15;
     SetCapabilitiesTask set_capabilities = 16;
-    // 17–49 зарезервировано под будущие типы задач.
+    FetchConfigTask fetch_config = 17;  // чтение фактического suricata.yaml с сенсора
+    // 18–49 зарезервировано под будущие типы задач.
   }
 }
 
@@ -378,6 +387,12 @@ message DeployConfigTask {
   }
 
   bool validate_only = 5;  // true — только прогнать `suricata -T`, не применять
+}
+
+// FetchConfigTask — прочитать фактический suricata.yaml инстанса с сенсора
+// (исходник для редактора «как на хосте»). Результат — FetchConfigResult.
+message FetchConfigTask {
+  string instance_id = 1;
 }
 
 // ServiceAction — действие над systemd-сервисом инстанса.

@@ -75,6 +75,10 @@ type Server struct {
 	// (троттлинг heartbeat-пульса, chunk 23).
 	lastTouch sync.Map
 
+	// taskWaiters — ожидающие результаты синхронных задач (task_id → chan
+	// с буфером 1; chunk 55 — fetch-конфиг). Уведомление в handleTaskResult.
+	taskWaiters sync.Map
+
 	// OnTaskResult — подписчик результатов задач (оркестратор деплоев).
 	OnTaskResult func(ctx context.Context, agentID uuid.UUID, res *agentv1.TaskResult)
 	// OnAgentOnline — подписчик подключения агента (подхват pending-задач).

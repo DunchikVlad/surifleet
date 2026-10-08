@@ -107,6 +107,10 @@ func (e *taskExecutor) handle(task *agentv1.Task) {
 		go e.executeConfig(task, dc, e.disc)
 		return
 	}
+	if fc := task.GetFetchConfig(); fc != nil {
+		go e.executeFetch(task, fc)
+		return
+	}
 	e.reply(&agentv1.TaskResult{
 		TaskId: task.GetTaskId(),
 		Status: agentv1.TaskStatus_TASK_STATUS_FAILED,

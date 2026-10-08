@@ -51,6 +51,26 @@ func (s *Server) SendTask(agentID uuid.UUID, task *agentv1.Task) bool {
 	}
 }
 
+// SendTaskAndWait — синхронная вариация SendTask (chunk 55, fetch_config):
+// ставит задачу и ждёт результат агента до timeout. Второе false —
+// результат не получен (таймаут/отказ).
+func (s *Server) SendTaskAndWait(ctx context.Context, agentID uuid.UUID, task *agentv1.Task, timeout time.Duration) (*agentv1.TaskResult, bool) {
+	ch := make(chan *agentv1.TaskResult, 1)
+	s.taskWaiters.Store(task.GetTaskId(), ch)
+	defer s.taskWaiters.Delete(task.GetTaskId())
+	if !s.SendTask(agentID, task) {
+		return nil, false
+	}
+	select {
+	case res := <-ch:
+		return res, true
+	case <-time.After(timeout):
+		return nil, false
+	case <-ctx.Done():
+		return nil, false
+	}
+}
+
 // handleStateReport — полный/инкрементальный снапшот actual state инстанса:
 // upsert в actual_state, кэш в Redis, пересчёт compliance.
 // При full=false loaded_rules не менялись с прошлого отчёта — сохраняем
@@ -149,6 +169,12 @@ func (s *Server) handleTaskResult(ctx context.Context, log *slog.Logger, agentID
 		"task_id", res.GetTaskId(), "status", res.GetStatus().String(), "error", res.GetError())
 	if sa := res.GetStateAfter(); sa != nil {
 		s.handleStateReport(ctx, log, sa)
+	}
+	if w, ok := s.taskWaiters.LoadAndDelete(res.GetTaskId()); ok {
+		select {
+		case w.(chan *agentv1.TaskResult) <- res:
+		default:
+		}
 	}
 	if s.OnTaskResult != nil {
 		s.OnTaskResult(ctx, agentID, res)
