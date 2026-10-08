@@ -40,6 +40,8 @@ const (
 	PermIocWrite    = "ioc.write"
 	PermFeedsRead   = "feeds.read"
 	PermFeedsWrite  = "feeds.write" // CRUD фидов + sync
+	PermConfigRead  = "config.read"  // версии конфигураций (чанк 54)
+	PermConfigWrite = "config.write" // создание версий + deploy_config
 	PermUsersRead   = "users.read"
 	PermUsersWrite  = "users.write" // пользователи + отзыв сессий
 	PermTokensRead  = "tokens.read" // API-токены автоматизации (чанк 29)
@@ -57,7 +59,8 @@ var knownPermissions = map[string]bool{
 	PermFleetRead: true, PermHostsRead: true, PermHostsWrite: true,
 	PermAgentsRead: true, PermRulesRead: true, PermRulesWrite: true,
 	PermRulesDeploy: true, PermIocRead: true, PermIocWrite: true,
-	PermFeedsRead: true, PermFeedsWrite: true, PermUsersRead: true,
+	PermFeedsRead: true, PermFeedsWrite: true, PermConfigRead: true,
+	PermConfigWrite: true, PermUsersRead: true,
 	PermUsersWrite: true, PermTokensRead: true, PermTokensWrite: true,
 	PermRolesRead: true, PermRolesWrite: true,
 	PermAuditRead: true, PermSsoRead: true, PermSsoWrite: true,

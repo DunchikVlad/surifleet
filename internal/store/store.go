@@ -35,6 +35,7 @@ type Store struct {
 	Sessions      *SessionsRepo
 	Audit         *AuditRepo
 	ApiTokens     *ApiTokensRepo
+	Configs       *ConfigsRepo
 	SsoProviders  *SsoProvidersRepo
 	OidcStates    *OidcStatesRepo
 }
@@ -84,6 +85,7 @@ func Connect(ctx context.Context, dsn string) (*Store, error) {
 	s.Sessions = &SessionsRepo{pool: pool}
 	s.Audit = &AuditRepo{pool: pool}
 	s.ApiTokens = &ApiTokensRepo{pool: pool}
+	s.Configs = &ConfigsRepo{pool: pool}
 	s.SsoProviders = &SsoProvidersRepo{pool: pool}
 	s.OidcStates = &OidcStatesRepo{pool: pool}
 	return s, nil

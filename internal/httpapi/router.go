@@ -15,6 +15,7 @@ import (
 	"github.com/surifleet/surifleet/internal/blob"
 	"github.com/surifleet/surifleet/internal/chlogs"
 	"github.com/surifleet/surifleet/internal/feedsync"
+	"github.com/surifleet/surifleet/internal/hub"
 	"github.com/surifleet/surifleet/internal/oidc"
 	"github.com/surifleet/surifleet/internal/orchestrator"
 	"github.com/surifleet/surifleet/internal/samlauth"
@@ -38,6 +39,8 @@ type Deps struct {
 	Blob *blob.Store
 	// Orch — оркестратор волновых деплоев (chunk 11).
 	Orch *orchestrator.Orchestrator
+	// Hub — прямая отправка задач агентам (deploy_config, чанк 54).
+	Hub *hub.Server
 
 	// CHLogs — чтение логов агентов из ClickHouse (chunk 13c; nil — 503).
 	CHLogs *chlogs.Client
@@ -140,6 +143,16 @@ func NewRouter(d Deps) http.Handler {
 			r.With(h.requirePerm(PermTokensRead)).Get("/", h.listApiTokens)
 			r.With(h.requirePerm(PermTokensWrite)).Post("/", h.createApiToken)
 			r.With(h.requirePerm(PermTokensWrite)).Delete("/{id}", h.revokeApiToken)
+		})
+
+		r.Route("/config_versions", func(r chi.Router) {
+			r.With(h.requirePerm(PermConfigRead)).Get("/", h.listConfigVersions)
+			r.With(h.requirePerm(PermConfigWrite)).Post("/", h.createConfigVersion)
+			r.Route("/{id}", func(r chi.Router) {
+				r.With(h.requirePerm(PermConfigRead)).Get("/", h.getConfigVersion)
+				r.With(h.requirePerm(PermConfigRead)).Get("/content", h.getConfigContent)
+				r.With(h.requirePerm(PermConfigWrite)).Post("/deploy", h.deployConfig)
+			})
 		})
 
 		r.Route("/organizations", func(r chi.Router) {

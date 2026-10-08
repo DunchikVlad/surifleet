@@ -112,7 +112,11 @@ func runSession(ctx context.Context, cfg *config.AgentConfig, id *identity, leve
 
 	// Исполнитель задач сервера (chunk 11): capability из HelloAck.Config,
 	// журнал обработанных task_id в data_dir (идемпотентность).
-	exec := newTaskExecutor(cfg.DataDir, ack.GetConfig().GetCapabilities(), send, log)
+	// Привязки инстансов (чанк 54 — пути для deploy_config) + discovery
+	// (systemd-юниты) — в исполнителе. disc объявляется до исполнителя,
+	// заполняется асинхронным discovery ниже.
+	var disc atomic.Pointer[agentv1.DiscoveryReport]
+	exec := newTaskExecutor(cfg.DataDir, ack.GetConfig().GetCapabilities(), ack.GetBoundInstances(), &disc, send, log)
 
 	// Смещение часов относительно сервера (по SentAt HelloAck, без поправки
 	// на RTT — грубая оценка для детекта заметного рассинхрона).
@@ -124,7 +128,6 @@ func runSession(ctx context.Context, cfg *config.AgentConfig, id *identity, leve
 	// Discovery существующей установки Suricata (ТЗ п.4): один раз за сессию,
 	// асинхронно — вызовы --build-info/systemctl не должны задерживать старт
 	// heartbeat'ов. Отчёт кэшируется: heartbeat использует версию и юниты.
-	var disc atomic.Pointer[agentv1.DiscoveryReport]
 	wg0 := sync.WaitGroup{}
 	wg0.Add(1)
 	go func() {

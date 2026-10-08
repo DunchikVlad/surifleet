@@ -17,12 +17,13 @@ import Roles from "./pages/Roles";
 import Tokens from "./pages/Tokens";
 import Audit from "./pages/Audit";
 import Metrics from "./pages/Metrics";
+import Configs from "./pages/Configs";
 import Sso from "./pages/Sso";
 
 type TabName =
   | "overview" | "instances" | "rules" | "rulesets"
   | "deployments" | "logs" | "matrix" | "iocs" | "feeds"
-  | "users" | "roles" | "tokens" | "audit" | "metrics" | "sso";
+  | "users" | "roles" | "tokens" | "audit" | "metrics" | "configs" | "sso";
 
 // perm — разрешение для показа вкладки (ТЗ: UI скрывает недоступное;
 // авторизация всё равно на backend). Пусто — видна всем.
@@ -37,6 +38,7 @@ const TABS: { name: TabName; label: string; perm?: string }[] = [
   { name: "matrix", label: "Матрица" },
   { name: "iocs", label: "IOC" },
   { name: "feeds", label: "Фиды" },
+  { name: "configs", label: "Конфигурации", perm: "config.read" },
   { name: "users", label: "Пользователи", perm: "users.read" },
   { name: "roles", label: "Роли", perm: "roles.read" },
   { name: "tokens", label: "Токены", perm: "tokens.read" },
@@ -54,6 +56,7 @@ const PAGES: Record<TabName, React.ComponentType<{ active: boolean }>> = {
   deployments: Deployments,
   logs: Logs,
   metrics: Metrics,
+  configs: Configs,
   matrix: Matrix,
   iocs: Iocs,
   feeds: Feeds,

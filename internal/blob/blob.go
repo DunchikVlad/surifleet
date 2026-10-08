@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"net/url"
 	"time"
 
@@ -78,4 +79,14 @@ func (s *Store) PresignGet(ctx context.Context, key string, ttl time.Duration) (
 		return "", fmt.Errorf("s3 presign %s: %w", key, err)
 	}
 	return u.String(), nil
+}
+
+// Get читает блоб целиком (для API контента конфигураций, чанк 54).
+func (s *Store) Get(ctx context.Context, key string) ([]byte, error) {
+	obj, err := s.cli.GetObject(ctx, s.bucket, key, minio.GetObjectOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("s3 get %s: %w", key, err)
+	}
+	defer obj.Close()
+	return io.ReadAll(obj)
 }

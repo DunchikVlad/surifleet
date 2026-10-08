@@ -17,6 +17,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -54,10 +55,12 @@ const (
 // taskExecutor — исполнитель задач сервера: capability-гейт, идемпотентность
 // по task_id (журнал processed_tasks.jsonl), деплой правил end-to-end.
 type taskExecutor struct {
-	log     *slog.Logger
-	dataDir string
-	caps    map[string]bool
-	send    func(*agentv1.AgentMessage) error
+	log      *slog.Logger
+	dataDir  string
+	caps     map[string]bool
+	send     func(*agentv1.AgentMessage) error
+	bindings map[string]*agentv1.InstanceBinding          // instance_id → пути (чанк 54)
+	disc     *atomic.Pointer[agentv1.DiscoveryReport]     // юниты инстансов (чанк 54)
 
 	mu        sync.Mutex
 	processed map[string]cachedResult
@@ -67,9 +70,10 @@ type taskExecutor struct {
 // cachedResult — сохранённый результат задачи (для повторной отправки
 // при дубле доставки: at-least-once → агент отвечает тем же результатом).
 type cachedResult struct {
-	Status string                     `json:"status"` // succeeded | failed | cancelled
-	Error  string                     `json:"error,omitempty"`
-	Deploy *agentv1.DeployRulesResult `json:"deploy,omitempty"`
+	Status string                      `json:"status"` // succeeded | failed | cancelled
+	Error  string                      `json:"error,omitempty"`
+	Deploy *agentv1.DeployRulesResult  `json:"deploy,omitempty"`
+	Config *agentv1.DeployConfigResult `json:"config,omitempty"`
 }
 
 // journalEntry — строка журнала обработанных задач (JSONL).
@@ -79,28 +83,35 @@ type journalEntry struct {
 	Result cachedResult `json:"result"`
 }
 
-func newTaskExecutor(dataDir string, caps []string, send func(*agentv1.AgentMessage) error, log *slog.Logger) *taskExecutor {
+func newTaskExecutor(dataDir string, caps []string, bindings []*agentv1.InstanceBinding, disc *atomic.Pointer[agentv1.DiscoveryReport], send func(*agentv1.AgentMessage) error, log *slog.Logger) *taskExecutor {
 	m := map[string]bool{}
 	for _, c := range caps {
 		m[c] = true
 	}
-	return &taskExecutor{log: log, dataDir: dataDir, caps: m, send: send, processed: map[string]cachedResult{}}
+	b := map[string]*agentv1.InstanceBinding{}
+	for _, bi := range bindings {
+		b[bi.GetInstanceId()] = bi
+	}
+	return &taskExecutor{log: log, dataDir: dataDir, caps: m, bindings: b, disc: disc, send: send, processed: map[string]cachedResult{}}
 }
 
-// handle разбирает задачу сервера. DeployRulesTask выполняется асинхронно
-// (скачивание + валидация + reload — секунды), остальные типы — честный отказ.
+// handle разбирает задачу сервера. DeployRulesTask и DeployConfigTask
+// выполняются асинхронно, остальные типы — честный отказ.
 func (e *taskExecutor) handle(task *agentv1.Task) {
 	e.log.Info("получена задача", "task_id", task.GetTaskId(), "type", taskTypeName(task))
-	dr := task.GetDeployRules()
-	if dr == nil {
-		e.reply(&agentv1.TaskResult{
-			TaskId: task.GetTaskId(),
-			Status: agentv1.TaskStatus_TASK_STATUS_FAILED,
-			Error:  "тип задачи не поддерживается агентом: " + taskTypeName(task),
-		})
+	if dr := task.GetDeployRules(); dr != nil {
+		go e.executeDeploy(task, dr)
 		return
 	}
-	go e.executeDeploy(task, dr)
+	if dc := task.GetDeployConfig(); dc != nil {
+		go e.executeConfig(task, dc, e.disc)
+		return
+	}
+	e.reply(&agentv1.TaskResult{
+		TaskId: task.GetTaskId(),
+		Status: agentv1.TaskStatus_TASK_STATUS_FAILED,
+		Error:  "тип задачи не поддерживается агентом: " + taskTypeName(task),
+	})
 }
 
 func taskTypeName(task *agentv1.Task) string {

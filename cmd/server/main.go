@@ -205,7 +205,7 @@ func main() {
 		go runAgentOfflineSweeper(ctx, hubSrv, cfg.OfflineSweepInterval.D(), cfg.AgentOfflineAfter.D(), log)
 	}
 
-	app := &App{cfg: cfg, log: log, db: db, ca: ca, rdb: rdb, hubID: hubID, blob: blobStore, orch: orch, chLogs: chLogs, feedSync: feedSync}
+	app := &App{cfg: cfg, log: log, db: db, ca: ca, rdb: rdb, hubID: hubID, hub: hubSrv, blob: blobStore, orch: orch, chLogs: chLogs, feedSync: feedSync}
 	errCh := make(chan error, 4)
 
 	// HTTP API (роль api|all).
@@ -313,6 +313,7 @@ type App struct {
 	ca       *pki.CA
 	rdb      *redis.Client
 	hubID    string
+	hub      *hub.Server
 	blob     *blob.Store
 	orch     *orchestrator.Orchestrator
 	chLogs   *chlogs.Client
@@ -329,6 +330,7 @@ func (a *App) routes() http.Handler {
 		AuthMode: a.cfg.AuthMode, SessionTTL: a.cfg.SessionTTL.D(),
 		Blob:     a.blob,
 		Orch:     a.orch,
+		Hub:      a.hub,
 		CHLogs:   a.chLogs,
 		FeedSync: a.feedSync,
 		OIDC:     oidc.NewService(a.db),
