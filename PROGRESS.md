@@ -5,6 +5,21 @@
 
 ## Текущая фаза
 
+**Деплой 2026-10-08 ~21:45 (Kimi Code)**: push GitHub 362a8a3..41eec7a
+(чанки 54–57 — план 1B, срезы 1–4: конфигурации) → сборка сервер+агент
+(linux/amd64) + фронт → перекат .28 (миграции → version 11:
+config_versions + instance_config_history; health ok) и .67 (online,
+Suricata active). Proto BREAKING чанков 55/57 — обе стороны перекатаны
+совместно. Capability «config» включена на хосте test1 прямым INSERT в
+capabilities (REST для capability — эпик ⬜, чанк будущий); агент
+переподключён. **Живой e2E плана 1B пройден**: GET
+/instances/468c9c71…/config/current → 200 + X-Config-Sha256 (93 КБ
+фактического yaml) → версия cfg-v1 (id 2888f54a, content-addressed) →
+deploy validate_only (task 940bc7fa, suricata -T без записи) → история:
+status=validated с реальным выводом «Configuration provided was
+successfully loaded». Compliance in_sync 1/1. Стенд оставлен: capability
+config включена (необходима для будущих e2e отката), версия cfg-v1 в БД.
+
 **Фаза 2 — MVP** (п. 11 ТЗ, шаг 4): сервер (Go) + агент (Go) + UI.
 Фаза 1 (архитектура, модель данных, proto, OpenAPI) завершена.
 
