@@ -164,6 +164,22 @@ application/yaml + заголовок X-Config-Sha256; 409 «агент offline/
 в UI (загрузка fetch → правка → POST /config_versions) и история
 применённых конфигов по инстансу + откат.
 
+Чанк 56 ГОТОВ (2026-10-08, 0877e38): план 1B, срез 3 — редактор «как
+на хосте» во вкладке «Конфигурации» (только фронт, бэкенд чанка 55).
+Выбор инстанса-источника + «Загрузить с сенсора»: GET
+/instances/{id}/config/current → textarea формы создания версии
+(note «с сенсора <host>»); 409 — понятный текст «агент offline».
+Кнопка «в редактор» у каждой версии: контент версии в форму
+(note «на основе <version>») — цикл «правка → новая версия» целиком
+в UI. fetchYaml-хелпер — сырой GET с Authorization (контент не JSON).
+Проверки: npm build чисто (tsc+vite), go build ok (embed dist).
+
+**Следующий шаг после 56** (план 1B продолжение): история применённых
+версий по инстансу + откат прошлой версии (таблица
+instance_config_deploys или расширение deploy-истории; запись результата
+DeployConfigResult по стриму), волновой деплой конфигов через
+оркестратор, профили с переменными по кластеру.
+
 **Следующий шаг после 55** (план 1B продолжение): редактор «как на хосте»
 во вкладке «Конфигурации» (GET /instances/{id}/config/current → правка →
 сохранить версию), история применённых версий по инстансу + откат
@@ -1277,6 +1293,7 @@ managed-файле (245 правил).
 
 | Чанк | Содержание | Коммит |
 |---|---|---|
+| 56 | План 1B, срез 3: редактор «как на хосте» в UI «Конфигурации» — «Загрузить с сенсора» (fetch → textarea), «в редактор» из версии, цикл правка→версия. Только фронт | 0877e38 |
 | 55 | План 1B, срез 2: чтение фактического suricata.yaml с сенсора — proto FetchConfigTask/Result, hub.SendTaskAndWait (taskWaiters), агент executeFetch (config_path из bindings, sha256, 4 МБ), GET /instances/{id}/config/current (config.read, scoping, X-Config-Sha256). Стенд выключен — e2e отложен | 5b76511 |
 | 54 | План 1B, срез 1: конфигурации — миграция 000010 config_versions (S3 content-addressed, cfg-vN авто), ConfigsRepo, API /config_versions (+content, +deploy через hub-задачу DeployConfigTask, validate_only, аудит configs.deploy), агент executeConfig (бэкап → suricata -T → откат → restart юнита), права config.read/write, React-вкладка «Конфигурации». Стенд выключен — e2e отложен | 329b1d1 |
 | 47 | Scoping в матрице «правила × инстансы»: MatrixInstancesPage +scope []uuid.UUID (SQL ANY), restricted: чужой cluster_id → 404, без фильтра — ось сужается до ScopeClusters. Живой e2e: scoped analyst видит только свой кластер, чужой → 404 | c1d25d2 |
