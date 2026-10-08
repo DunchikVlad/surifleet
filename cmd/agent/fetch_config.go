@@ -23,7 +23,7 @@ func (e *taskExecutor) executeFetch(task *agentv1.Task, fc *agentv1.FetchConfigT
 	taskID := task.GetTaskId()
 	log := e.log.With("task_id", taskID, "instance_id", fc.GetInstanceId())
 
-	if !e.caps["config"] {
+	if !e.hasCap("config") {
 		e.reply(&agentv1.TaskResult{
 			TaskId: taskID,
 			Status: agentv1.TaskStatus_TASK_STATUS_FAILED,

@@ -111,6 +111,10 @@ func (e *taskExecutor) handle(task *agentv1.Task) {
 		go e.executeFetch(task, fc)
 		return
 	}
+	if sc := task.GetSetCapabilities(); sc != nil {
+		e.applyCapabilities(task, sc)
+		return
+	}
 	e.reply(&agentv1.TaskResult{
 		TaskId: task.GetTaskId(),
 		Status: agentv1.TaskStatus_TASK_STATUS_FAILED,
@@ -148,7 +152,7 @@ func (e *taskExecutor) executeDeploy(task *agentv1.Task, dr *agentv1.DeployRules
 	log := e.log.With("task_id", taskID, "instance_id", dr.GetInstanceId(), "ruleset", dr.GetRulesetVersion())
 
 	// Capability-гейт: без rules хост не отдаёт управление правилами (ТЗ п.5).
-	if !e.caps["rules"] {
+	if !e.hasCap("rules") {
 		e.failTask(taskID, nil, "capability rules не включена для хоста")
 		return
 	}
@@ -793,4 +797,30 @@ func tail(s string, n int) string {
 		lines = lines[len(lines)-n:]
 	}
 	return strings.Join(lines, "\n")
+}
+
+// hasCap — потокобезопасная проверка capability (чанк 62: живое
+// обновление через SetCapabilitiesTask).
+func (e *taskExecutor) hasCap(c string) bool {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.caps[c]
+}
+
+// applyCapabilities — SetCapabilitiesTask: мгновенно заменить набор
+// capability без рестарта стрима (п. 4 ТЗ). Сервер шлёт эффективный
+// набор (host → cluster → default) после изменений через API.
+func (e *taskExecutor) applyCapabilities(task *agentv1.Task, sc *agentv1.SetCapabilitiesTask) {
+	m := map[string]bool{}
+	for _, c := range sc.GetCapabilities() {
+		m[c] = true
+	}
+	e.mu.Lock()
+	e.caps = m
+	e.mu.Unlock()
+	e.log.Info("capability обновлены без рестарта", "capabilities", sc.GetCapabilities())
+	e.reply(&agentv1.TaskResult{
+		TaskId: task.GetTaskId(),
+		Status: agentv1.TaskStatus_TASK_STATUS_SUCCESS,
+	})
 }

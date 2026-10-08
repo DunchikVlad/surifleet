@@ -23,7 +23,7 @@ func (e *taskExecutor) executeConfig(task *agentv1.Task, dc *agentv1.DeployConfi
 	log := e.log.With("task_id", taskID, "instance_id", dc.GetInstanceId(), "config_version", dc.GetConfigVersion())
 
 	// Capability-гейт: без config хост не отдаёт управление конфигурацией.
-	if !e.caps["config"] {
+	if !e.hasCap("config") {
 		e.failCfgTask(taskID, nil, "capability config не включена для хоста")
 		return
 	}

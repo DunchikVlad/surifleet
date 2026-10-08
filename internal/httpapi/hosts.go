@@ -1,12 +1,14 @@
 package httpapi
 
 import (
+	"context"
 	"net/http"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 
+	agentv1 "github.com/surifleet/surifleet/internal/gen/agent/v1"
 	"github.com/surifleet/surifleet/internal/store"
 )
 
@@ -234,6 +236,7 @@ func (h *handlers) setHostCapabilities(w http.ResponseWriter, r *http.Request) {
 	objType := "host"
 	reason := "capabilities = [" + strings.Join(in.Capabilities, ", ") + "]"
 	h.audit(r, identityFrom(r.Context()), "hosts.capabilities", &objType, &host.ID, "success", reason)
+	h.pushCapabilities(r.Context(), host.ID, host.ClusterID)
 	writeJSON(w, http.StatusOK, map[string]any{"capabilities": in.Capabilities})
 }
 
@@ -290,5 +293,42 @@ func (h *handlers) setClusterCapabilities(w http.ResponseWriter, r *http.Request
 	objType := "cluster"
 	reason := "capabilities = [" + strings.Join(in.Capabilities, ", ") + "]"
 	h.audit(r, identityFrom(r.Context()), "clusters.capabilities", &objType, &id, "success", reason)
+	h.pushClusterCapabilities(r.Context(), id)
 	writeJSON(w, http.StatusOK, map[string]any{"capabilities": in.Capabilities})
+}
+
+// pushCapabilities — мгновенная выдача эффективного набора capability
+// подключённым агентам (SetCapabilitiesTask, чанк 62); офлайн-агенты
+// получат набор при следующем Hello (HelloAck.Config.Capabilities).
+func (h *handlers) pushCapabilities(ctx context.Context, hostID, clusterID uuid.UUID) {
+	if h.d.Hub == nil {
+		return
+	}
+	caps, err := h.d.Store.Capabilities.ForHost(ctx, hostID, clusterID)
+	if err != nil {
+		return
+	}
+	agent, err := h.d.Store.Agents.GetByHostID(ctx, nil, hostID)
+	if err != nil {
+		return
+	}
+	task := &agentv1.Task{
+		TaskId: uuid.New().String(),
+		Type:   &agentv1.Task_SetCapabilities{SetCapabilities: &agentv1.SetCapabilitiesTask{Capabilities: caps}},
+	}
+	h.d.Hub.SendTask(agent.ID, task)
+}
+
+// pushClusterCapabilities — то же для всех хостов кластера.
+func (h *handlers) pushClusterCapabilities(ctx context.Context, clusterID uuid.UUID) {
+	if h.d.Hub == nil {
+		return
+	}
+	hosts, _, err := h.d.Store.Hosts.List(ctx, clusterID, uuid.Nil, "", 1000)
+	if err != nil {
+		return
+	}
+	for _, host := range hosts {
+		h.pushCapabilities(ctx, host.ID, clusterID)
+	}
 }
