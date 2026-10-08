@@ -7,6 +7,28 @@
 
 ### Added
 
+- Чанк 54 (2026-10-08): конфигурации — версии suricata.yaml и деплой
+  конфигурации (план 1B, срез 1; стенд выключен — e2e отложен).
+  Миграция 000010: таблица config_versions (контент — content-addressed
+  блоб S3 по sha256, версия cfg-v<N> автоинкремент per-org или тег,
+  UNIQUE (org,version) и (org,sha256)); operator получает
+  config.read/config.write. Store: ConfigsRepo (Create идемпотентен
+  по sha256, List keyset, NextAutoVersion). API /config_versions:
+  GET/POST (list/create), GET /{id}, GET /{id}/content (блоб из S3),
+  POST /{id}/deploy — прямая hub-задача DeployConfigTask агенту
+  (409 при offline-агенте; validate_only — только suricata -T;
+  аудит configs.deploy). Агент: executeConfig — скачивание по signed
+  URL, бэкап текущего yaml, запись, `suricata -T` с откатом при провале,
+  restart/reload systemd-юнита (capability config). UI: вкладка
+  «Конфигурации» (список, создание, просмотр контента, деплой на
+  инстанс). (server, agent, ui, db, api)
+
+### BREAKING
+
+- Миграция 000010 (db): новая таблица config_versions + UPDATE
+  встроенной роли operator (config.read/config.write). Применится
+  автоматически при старте сервера; откат — 000010 down.
+
 - Чанк 53 (2026-10-08): таргетинг на уровне ruleset + сортировка в вебе
   (план 1A, срез 4 — закрытие 1A; стенд выключен — e2e отложен). POST
   /rulesets принимает targeting {cluster_ids, host_ids} (в manifest);

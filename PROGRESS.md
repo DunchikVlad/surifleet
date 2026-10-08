@@ -120,6 +120,38 @@ sortBy, SortTh — кликабельные заголовки ▲/▼; стро
 RulesetBuildInput + targeting. Проверки: go build/vet/test зелёные
 (кроме известного samlauth-NTFS), npm build чисто. План 1A ЗАКРЫТ.
 
+Чанк 54 ГОТОВ (2026-10-08, 329b1d1; стенд выключен — e2e отложен):
+план 1B, срез 1 — версии suricata.yaml + деплой конфигурации агентом.
+Миграция 000010: таблица config_versions (контент — content-addressed
+блоб в S3 по sha256/s3_key; version — cfg-v<N> автоинкремент per-org
+или произвольный тег; UNIQUE (org,version) и (org,sha256) — идемпотентность);
+роль operator дополнена config.read/config.write. `internal/store/configs.go`
+— ConfigsRepo: Create идемпотентен по sha256 (дубль → существующая запись,
+created=false), Get, List keyset, NextAutoVersion (как у ruleset'ов).
+API /config_versions (config.read/write): GET/POST список/создание
+(загрузка YAML, sha256, вариант авто-версии), GET /{id}, GET /{id}/content
+(блоб из S3, application/yaml), POST /{id}/deploy — прямая отправка задачи
+DeployConfigTask агенту инстанса через hub (Deps.Hub; волновой оркестратор
+для конфигов — следующие чанки); 409 при offline-агенте; validate_only —
+только suricata -T; аудит configs.deploy. Агент `cmd/agent/deploy_config.go`:
+executeConfig — скачивание по signed URL, бэкап текущего suricata.yaml,
+запись, `suricata -T` с откатом при провале, restart/reload systemd-юнита
+(юнит из discovery по config_path инстанса), результат DeployConfigResult
+в журнале идемпотентности (как у правил). taskExecutor расширен: привязки
+инстансов (bindings) + discovery-отчёт (atomic.Pointer, чанк 54).
+blob.Store.Get — чтение блоба целиком. Каталог разрешений +
+config.read/config.write. React: вкладка «Конфигурации» (perm config.read):
+список версий, создание (файл/текст, авто-версия), просмотр контента,
+деплой на инстанс (validate_only-чекбокс). Проверки: go build/vet/test
+зелёные (кроме известного samlauth-NTFS), npm build чисто (фикс: «configs»
+добавлен в union TabName — WIP прервался на этой ошибке).
+
+**Следующий шаг после 54** (план 1B продолжение): чтение фактического
+suricata.yaml с сенсора (задача fetch → редактор «как на хосте»),
+история применённых версий по инстансу + откат прошлой версии,
+волновой деплой конфигов через оркестратор, профили с переменными
+по кластеру, capability-config на кластер/хост.
+
 **Следующий шаг после 53** (план 1A закрыт): 1B — конфигурации (весь suricata.yaml под управлением: чтение с сенсора, редактор в UI, версии, deploy_config с suricata -T + откат, профили):
 1. Мониторинг (п. 5.4): SIEM-конфиг с сервера (ConfigPush на кластер/хост),
    полноценные дашборды флот/кластер/хост.
@@ -1222,6 +1254,7 @@ managed-файле (245 правил).
 
 | Чанк | Содержание | Коммит |
 |---|---|---|
+| 54 | План 1B, срез 1: конфигурации — миграция 000010 config_versions (S3 content-addressed, cfg-vN авто), ConfigsRepo, API /config_versions (+content, +deploy через hub-задачу DeployConfigTask, validate_only, аудит configs.deploy), агент executeConfig (бэкап → suricata -T → откат → restart юнита), права config.read/write, React-вкладка «Конфигурации». Стенд выключен — e2e отложен | 329b1d1 |
 | 47 | Scoping в матрице «правила × инстансы»: MatrixInstancesPage +scope []uuid.UUID (SQL ANY), restricted: чужой cluster_id → 404, без фильтра — ось сужается до ScopeClusters. Живой e2e: scoped analyst видит только свой кластер, чужой → 404 | c1d25d2 |
 | 53 | План 1A закрыт: таргетинг на уровне ruleset (targeting {cluster_ids,host_ids} в manifest; createDeployment сужает цели через Instances.FilterByClustersHosts; виден в GET /rulesets/{id}/rules) + сортировка колонок в вебе (components SortTh/sortBy; Правила/Ruleset'ы/Аудит). Стенд выключен — e2e отложен | (этот коммит) |
 | 52 | План 1A, срез 3: POST /rules/export?format=text|stix|dataset (text — .rules по фильтру; stix — bundle indicator pattern_type=suricata, id детерминирован; dataset — активные IOC type,value; attachment + ETag); UI кнопки экспорта. Стенд выключен — e2e отложен | (этот коммит) |
