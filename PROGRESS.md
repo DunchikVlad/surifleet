@@ -233,6 +233,16 @@ monitoring неизменно). Проверки: build/vet/test httpapi ok.
 таймаутится — та же квазианомалия, что 07.10; systemd-юниты на старом
 бинаре работают). Перекатать повторно: scp + restart по §5 handover.
 
+Чанк 61 ГОТОВ (2026-10-09, этот коммит): UI capability хоста — панель
+«Capability хоста» на вкладке «Конфигурации» (HostCapsPanel): выбор
+хоста → GET /hosts/{id}/capabilities, чекбоксы каталога из 6 capability,
+сохранение PUT по праву hosts.write (apiPut в api.ts); подсказка про
+применение при следующем Hello. Проверки: npm build чисто, go build ok.
+
+**Следующий шаг после 60/61**: перекат .28 (бинарь пересобрать — чанк
+61 изменил embed dist), живой e2e эндпоинтов capability; далее
+волновой деплой конфигов через оркестратор, профили с переменными.
+
 **Следующий шаг после 60**: перекат .28 (бинарь готов в
 .tools/tmp/surifleet-server — пересобрать при необходимости), живой e2e
 новых эндпоинтов capability, затем UI capability (чекбоксы на карточке
@@ -1367,6 +1377,7 @@ managed-файле (245 правил).
 
 | Чанк | Содержание | Коммит |
 |---|---|---|
+| 61 | UI capability хоста: HostCapsPanel в «Конфигурациях» (GET/PUT /hosts/{id}/capabilities, чекбоксы каталога, apiPut). Перекат .28 прерван зависанием ВМ | (этот коммит) |
 | 60 | Cluster-level capability: GET/PUT /clusters/{id}/capabilities (аудит, scoping, валидация каталогом), ClusterCaps/SetClusterCaps. Перекат .28 прерван зависанием ВМ | 5c617b1 |
 | 59 | REST capability хоста (п. 4 ТЗ): GET/PUT /hosts/{id}/capabilities (валидация каталогом, аудит, scoping), CapabilitiesRepo.HostCaps/SetHostCaps. Код без e2e | 3af0f61 |
 | 58 | План 1B, срез 5: UI истории применений конфигов (панель по инстансу, бейджи статусов) + откат к последней applied (deploy с target-переопределением). Код без переката | bd491a4 |

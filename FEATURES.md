@@ -54,7 +54,7 @@
 |---|---|---|---|
 | Организация → Кластеры → Хосты → Инстансы | 🚧 | CRUD organizations/clusters/hosts: `internal/store`, `internal/httpapi`; instances — после discovery (чанк 9) | чанки 7–8 |
 | Онбординг без переустановки (детект существующей Suricata) | ✅ | `cmd/agent/discovery.go` (бинарь/yaml/юнит/интерфейсы), GET /hosts/{id}/discovery, POST confirm_discovery → instances; проверено на Suricata 8.0.3 | чанк 9 |
-| 6 capability поэтапной передачи контроля | 🚧 | Таблица capabilities (000001), наследование host→cluster→default monitoring в `CapabilitiesRepo.ForHost`, выдача в HelloAck; **(чанк 59)**: REST GET/PUT `/hosts/{id}/capabilities` (валидация каталогом из 6 capability, аудит); **(чанк 60)**: GET/PUT `/clusters/{id}/capabilities`. Не сделано: UI, выдача SetCapabilitiesTask без рестарта стрима (применение — при следующем Hello) | чанки 59–60 |
+| 6 capability поэтапной передачи контроля | 🚧 | Таблица capabilities (000001), наследование host→cluster→default monitoring в `CapabilitiesRepo.ForHost`, выдача в HelloAck; **(чанк 59)**: REST GET/PUT `/hosts/{id}/capabilities` (валидация каталогом из 6 capability, аудит); **(чанк 60)**: GET/PUT `/clusters/{id}/capabilities`; **(чанк 61)**: UI-панель capability хоста (чекбоксы каталога, PUT по hosts.write). Не сделано: выдача SetCapabilitiesTask без рестарта стрима (применение — при следующем Hello) | чанки 59–61 |
 
 ## 10. Нефункциональные
 

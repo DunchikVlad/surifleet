@@ -7,6 +7,11 @@
 
 ### Added
 
+- Чанк 61 (2026-10-09): UI capability хоста — панель «Capability хоста»
+  на вкладке «Конфигурации» (HostCapsPanel): выбор хоста → GET
+  /hosts/{id}/capabilities, чекбоксы каталога из 6 capability, сохранение
+  PUT по праву hosts.write; apiPut в api.ts. (ui)
+
 - Чанк 60 (2026-10-09): cluster-level capability — GET/PUT
   /clusters/{id}/capabilities (hosts.read/write, scoping, валидация
   каталогом, аудит clusters.capabilities). Store: ClusterCaps/
