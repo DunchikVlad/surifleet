@@ -207,6 +207,16 @@ func NewRouter(d Deps) http.Handler {
 			})
 		})
 
+		r.Route("/config_profiles", func(r chi.Router) {
+			r.With(h.requirePerm(PermConfigRead)).Get("/", h.listConfigProfiles)
+			r.With(h.requirePerm(PermConfigWrite)).Post("/", h.createConfigProfile)
+			r.Route("/{id}", func(r chi.Router) {
+				r.With(h.requirePerm(PermConfigRead)).Get("/", h.getConfigProfile)
+				r.With(h.requirePerm(PermConfigWrite)).Patch("/", h.updateConfigProfile)
+				r.With(h.requirePerm(PermConfigWrite)).Delete("/", h.deleteConfigProfile)
+			})
+		})
+
 		r.Route("/rules", func(r chi.Router) {
 			r.With(h.requirePerm(PermRulesRead)).Get("/", h.listRules)
 			r.With(h.requirePerm(PermRulesWrite)).Post("/", h.createRule)
