@@ -1,5 +1,5 @@
 import React from "react";
-import { apiGet, apiPost, Page } from "../api";
+import { apiGet, apiPost, apiPut, Page } from "../api";
 import { ErrorBox, fmtTime, short, SortState, SortTh, sortBy } from "../components";
 import { useCan } from "../perms";
 
@@ -40,6 +40,83 @@ const badgeClass = (s: string) =>
   s === "applied" ? "badge-ok"
   : s === "validated" ? "badge-info"
   : "badge-err";
+
+// CAPS_KNOWN — каталог capability поэтапной передачи контроля (п. 4 ТЗ).
+const CAPS_KNOWN = ["monitoring", "rules", "log_rotation", "service_mgmt", "packages", "config"];
+
+interface Host {
+  id: string;
+  hostname?: string;
+  name?: string;
+}
+
+// HostCapsPanel — capability хоста: GET/PUT /hosts/{id}/capabilities
+// (чанк 61). Агент применит набор при следующем подключении (HelloAck).
+function HostCapsPanel() {
+  const can = useCan();
+  const [hosts, setHosts] = React.useState<Host[]>([]);
+  const [hostID, setHostID] = React.useState("");
+  const [caps, setCaps] = React.useState<string[]>([]);
+  const [msg, setMsg] = React.useState("");
+  const [busy, setBusy] = React.useState(false);
+
+  React.useEffect(() => {
+    apiGet<Page<Host>>("/hosts?limit=100")
+      .then(d => setHosts(d.items || []))
+      .catch(() => {});
+  }, []);
+
+  const load = async (id?: string) => {
+    const hid = id ?? hostID;
+    if (!hid) return;
+    setBusy(true);
+    try {
+      const d = await apiGet<{ capabilities: string[] }>(`/hosts/${hid}/capabilities`);
+      setCaps(d.capabilities || []);
+    } catch { /* показываем пустой набор */ } finally { setBusy(false); }
+  };
+
+  const save = async () => {
+    if (!hostID) return;
+    setBusy(true);
+    try {
+      await apiPut(`/hosts/${hostID}/capabilities`, { capabilities: caps });
+      setMsg("сохранено — агент применит при следующем подключении (переподключении)");
+    } catch { setMsg("ошибка сохранения (нужно право hosts.write)"); } finally { setBusy(false); }
+  };
+
+  const toggle = (c: string) =>
+    setCaps(prev => prev.includes(c) ? prev.filter(x => x !== c) : [...prev, c]);
+
+  return (
+    <div className="panel">
+      <p className="muted">
+        Capability хоста (поэтапная передача контроля):{" "}
+        <select value={hostID} onChange={e => { setHostID(e.target.value); setCaps([]); setMsg(""); if (e.target.value) load(e.target.value); }}>
+          <option value="">— выбрать хост —</option>
+          {hosts.map(h => (
+            <option key={h.id} value={h.id}>{h.hostname || h.name || h.id}</option>
+          ))}
+        </select>{" "}
+        {hostID && can("hosts.write") && (
+          <button className="btn primary" disabled={busy} onClick={save}>Сохранить набор</button>
+        )}
+      </p>
+      {hostID && (
+        <p>
+          {CAPS_KNOWN.map(c => (
+            <label key={c} className="muted" style={{ marginRight: "1em" }}>
+              <input type="checkbox" disabled={!can("hosts.write")} checked={caps.includes(c)}
+                onChange={() => toggle(c)} />{" "}
+              <span className={caps.includes(c) ? "" : "muted"}>{c}</span>
+            </label>
+          ))}
+        </p>
+      )}
+      {msg && <p className="muted">{msg}</p>}
+    </div>
+  );
+}
 
 export default function Configs({ active }: { active: boolean }) {
   const can = useCan();
@@ -166,6 +243,7 @@ export default function Configs({ active }: { active: boolean }) {
       <h2>Конфигурации Suricata</h2>
       <ErrorBox error={err} />
       {result && <p className="muted">{result}</p>}
+      <HostCapsPanel />
 
       {can("config.write") && (
         <div className="panel">

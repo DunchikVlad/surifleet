@@ -60,6 +60,14 @@ export const apiPatch = <T,>(path: string, body: unknown) =>
     body: JSON.stringify(body),
   });
 
+// apiPut — PUT с JSON-телом (замена ресурса, чанк 61: capabilities).
+export const apiPut = <T,>(path: string, body: unknown) =>
+  request<T>(path, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+
 // apiDelete — DELETE без тела; 204 (без контента) → undefined.
 export const apiDelete = async (path: string) => {
   const r = await fetch(API + path, { method: "DELETE", headers: authHeaders() });
