@@ -3,11 +3,12 @@ import { apiGet, apiPost, Page } from "../api";
 import { ErrorBox, fmtTime, short, SortState, SortTh, sortBy } from "../components";
 import { useCan } from "../perms";
 
-// Configs — вкладка «Конфигурации» (чанки 54/56, план 1B): версии
+// Configs — вкладка «Конфигурации» (чанки 54/56/58, план 1B): версии
 // suricata.yaml — создание из текста или загрузка фактического yaml с
 // сенсора («как на хосте», GET /instances/{id}/config/current), просмотр,
 // редактирование версии, деплой на инстанс (deploy_config: бэкап →
-// suricata -T → рестарт; validate_only — только проверка).
+// suricata -T → рестарт; validate_only — только проверка), история
+// применений по инстансу (chanк 57) с откатом к последней applied (чанк 58).
 // Весь файл под управлением (решение заказчика).
 
 interface ConfigVersion {
@@ -23,6 +24,22 @@ interface Instance {
   name: string;
   hostname?: string;
 }
+
+// ConfigDeploy — запись истории применения конфигурации (chanк 57/58).
+interface ConfigDeploy {
+  id: string;
+  instance_id: string;
+  config_version: string;
+  status: string; // validated | applied | validation_failed | deploy_failed
+  validation_output?: string | null;
+  reported_at: string;
+}
+
+// badgeClass — CSS-класс бейджа по статусу применения.
+const badgeClass = (s: string) =>
+  s === "applied" ? "badge-ok"
+  : s === "validated" ? "badge-info"
+  : "badge-err";
 
 export default function Configs({ active }: { active: boolean }) {
   const can = useCan();
@@ -42,7 +59,32 @@ export default function Configs({ active }: { active: boolean }) {
   // редактор «как на хосте» (чанк 56): загрузка фактического yaml с сенсора
   const [srcInstID, setSrcInstID] = React.useState("");
   const [fetching, setFetching] = React.useState(false);
+  // история применений по инстансу (чанк 58)
+  const [histInstID, setHistInstID] = React.useState("");
+  const [history, setHistory] = React.useState<ConfigDeploy[] | null>(null);
   const [busy, setBusy] = React.useState(false);
+
+  const loadHistory = async (inst?: string) => {
+    const iid = inst ?? histInstID;
+    if (!iid) { setResult("выберите инстанс для истории"); return; }
+    setFetching(true);
+    try {
+      const d = await apiGet<{ items: ConfigDeploy[] }>(`/instances/${iid}/config/history`);
+      setHistory(d.items || []);
+      setResult("");
+    } catch (e) { setErr(e); } finally { setFetching(false); }
+  };
+
+  // rollback — деплой последней applied-версии на выбранный инстанс
+  // истории (контент версии — из репозитория config_versions).
+  const rollback = async () => {
+    if (!histInstID) { setResult("выберите инстанс для отката"); return; }
+    const lastApplied = (history || []).find(x => x.status === "applied");
+    if (!lastApplied) { setResult("нет применённой (applied) версии в истории"); return; }
+    const ver = items.find(v => v.version === lastApplied.config_version);
+    if (!ver) { setResult(`версия ${lastApplied.config_version} не найдена в репозитории (возможно, создана внешне)`); return; }
+    await deploy(ver.id, histInstID);
+  };
 
   // fetchYaml — сырой GET с токеном (content не JSON, читаем текстом).
   const fetchYaml = React.useCallback(async (path: string): Promise<string> => {
@@ -106,12 +148,13 @@ export default function Configs({ active }: { active: boolean }) {
     } catch (e) { setErr(e); } finally { setBusy(false); }
   };
 
-  const deploy = async (id: string) => {
-    if (!instID) { setResult("выберите инстанс"); return; }
+  const deploy = async (id: string, target?: string) => {
+    const tgt = target ?? instID;
+    if (!tgt) { setResult("выберите инстанс"); return; }
     setBusy(true);
     try {
       const r = await apiPost<{ task_id: string; version: string }>(`/config_versions/${id}/deploy`, {
-        instance_id: instID, validate_only: validateOnly,
+        instance_id: tgt, validate_only: validateOnly,
       });
       setResult(`задача ${short(r.task_id)} отправлена (версия ${r.version}` +
         (validateOnly ? ", только валидация" : "") + ") — результат в логах агента");
@@ -214,10 +257,52 @@ export default function Configs({ active }: { active: boolean }) {
           </p>
         </div>
       )}
+      {can("config.read") && instances.length > 0 && (
+        <div className="panel">
+          <p className="muted">
+            История применений по инстансу:{" "}
+            <select value={histInstID} onChange={e => { setHistInstID(e.target.value); setHistory(null); }}>
+              <option value="">— выбрать инстанс —</option>
+              {instances.map(i => (
+                <option key={i.id} value={i.id}>{i.hostname ? i.hostname + " · " : ""}{i.name}</option>
+              ))}
+            </select>{" "}
+            <button className="btn" disabled={fetching || !histInstID} onClick={() => loadHistory()}>
+              {fetching ? "загрузка…" : "Показать"}
+            </button>
+            {can("config.write") && history !== null && (
+              <>{" "}<button className="btn" disabled={busy} onClick={rollback}>Откат к последней applied</button></>
+            )}
+          </p>
+          {history !== null && history.length === 0 && (
+            <p className="muted">записей нет — деплоев конфигурации на инстанс не было</p>
+          )}
+          {history !== null && history.length > 0 && (
+            <table>
+              <thead>
+                <tr><th>Время</th><th>Версия</th><th>Статус</th><th>Вывод валидатора</th></tr>
+              </thead>
+              <tbody>
+                {history.map(x => (
+                  <tr key={x.id}>
+                    <td className="muted">{fmtTime(x.reported_at)}</td>
+                    <td><b>{x.config_version}</b></td>
+                    <td><span className={`badge ${badgeClass(x.status)}`}>{x.status}</span></td>
+                    <td className="muted" style={{ maxWidth: "34em", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                        title={x.validation_output || ""}>
+                      {(x.validation_output || "—").split("\n").slice(-1)[0]}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
       <p className="muted">
         Деплой: бэкап текущего файла → запись → suricata -T (откат при ошибке) →
         restart сервиса. Требует capability «config» на хосте. Результат задачи —
-        в логах агента (вкладка «Логи») и аудите.
+        в логах агента (вкладка «Логи»), истории применений и аудите.
       </p>
     </>
   );
