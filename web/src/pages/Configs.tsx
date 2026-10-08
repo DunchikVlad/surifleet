@@ -3,10 +3,12 @@ import { apiGet, apiPost, Page } from "../api";
 import { ErrorBox, fmtTime, short, SortState, SortTh, sortBy } from "../components";
 import { useCan } from "../perms";
 
-// Configs — вкладка «Конфигурации» (чанк 54, план 1B): версии
-// suricata.yaml — создание из текста, просмотр, деплой на инстанс
-// (deploy_config: бэкап → suricata -T → рестарт; validate_only — только
-// проверка). Весь файл под управлением (решение заказчика).
+// Configs — вкладка «Конфигурации» (чанки 54/56, план 1B): версии
+// suricata.yaml — создание из текста или загрузка фактического yaml с
+// сенсора («как на хосте», GET /instances/{id}/config/current), просмотр,
+// редактирование версии, деплой на инстанс (deploy_config: бэкап →
+// suricata -T → рестарт; validate_only — только проверка).
+// Весь файл под управлением (решение заказчика).
 
 interface ConfigVersion {
   id: string;
@@ -37,7 +39,44 @@ export default function Configs({ active }: { active: boolean }) {
   // деплой
   const [instID, setInstID] = React.useState("");
   const [validateOnly, setValidateOnly] = React.useState(false);
+  // редактор «как на хосте» (чанк 56): загрузка фактического yaml с сенсора
+  const [srcInstID, setSrcInstID] = React.useState("");
+  const [fetching, setFetching] = React.useState(false);
   const [busy, setBusy] = React.useState(false);
+
+  // fetchYaml — сырой GET с токеном (content не JSON, читаем текстом).
+  const fetchYaml = React.useCallback(async (path: string): Promise<string> => {
+    const base = import.meta.env.VITE_API_BASE ?? "/api/v1";
+    const r = await fetch(`${base}${path}`, {
+      headers: { Authorization: "Bearer " + (localStorage.getItem("surifleet_token") || "") },
+    });
+    if (!r.ok) throw new Error("HTTP " + r.status + (r.status === 409 ? " (агент offline)" : ""));
+    return r.text();
+  }, []);
+
+  // fetchFromSensor — фактический suricata.yaml инстанса в редактор.
+  const fetchFromSensor = async () => {
+    if (!srcInstID) { setResult("выберите инстанс-источник"); return; }
+    const inst = instances.find(i => i.id === srcInstID);
+    setFetching(true);
+    try {
+      const text = await fetchYaml(`/instances/${srcInstID}/config/current`);
+      setYaml(text);
+      setNote(`с сенсора ${inst?.hostname || inst?.name || srcInstID}`);
+      setResult(`загружен suricata.yaml с ${inst?.hostname || inst?.name} (${text.length} байт) — отредактируйте и сохраните версией`);
+    } catch (e) { setErr(e); } finally { setFetching(false); }
+  };
+
+  // toEditor — содержимое версии в форму редактирования.
+  const toEditor = async (v: ConfigVersion) => {
+    setFetching(true);
+    try {
+      const text = await fetchYaml(`/config_versions/${v.id}/content`);
+      setYaml(text);
+      setNote(`на основе ${v.version}`);
+      setResult(`версия ${v.version} загружена в редактор`);
+    } catch (e) { setErr(e); } finally { setFetching(false); }
+  };
 
   const load = React.useCallback(async () => {
     try {
@@ -88,6 +127,18 @@ export default function Configs({ active }: { active: boolean }) {
       {can("config.write") && (
         <div className="panel">
           <p>
+            Редактор «как на хосте»:{" "}
+            <select value={srcInstID} onChange={e => setSrcInstID(e.target.value)}>
+              <option value="">— инстанс-источник —</option>
+              {instances.map(i => (
+                <option key={i.id} value={i.id}>{i.hostname ? i.hostname + " · " : ""}{i.name}</option>
+              ))}
+            </select>{" "}
+            <button className="btn" disabled={fetching || !srcInstID} onClick={fetchFromSensor}>
+              {fetching ? "загрузка…" : "Загрузить с сенсора"}
+            </button>
+          </p>
+          <p>
             <input placeholder="версия/тег (пусто → авто cfg-vN)" value={version}
               onChange={e => setVersion(e.target.value)} />{" "}
             <input placeholder="комментарий" value={note}
@@ -134,6 +185,7 @@ export default function Configs({ active }: { active: boolean }) {
                     <button className="btn" onClick={() => setExpanded(expanded === v.id ? null : v.id)}>
                       {expanded === v.id ? "скрыть" : "yaml"}
                     </button>
+                    {can("config.write") && <>{" "}<button className="btn" disabled={fetching} onClick={() => toEditor(v)}>в редактор</button></>}
                     {can("config.write") && <>{" "}<button className="btn primary" onClick={() => deploy(v.id)}>деплой</button></>}
                   </td>
                 </tr>
