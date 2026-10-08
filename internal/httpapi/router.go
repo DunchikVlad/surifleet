@@ -174,6 +174,8 @@ func NewRouter(d Deps) http.Handler {
 				r.With(h.requirePerm(PermHostsWrite)).Delete("/", h.deleteCluster)
 				r.With(h.requirePerm(PermHostsWrite)).Get("/join_tokens", h.listJoinTokens)
 				r.With(h.requirePerm(PermHostsWrite)).Post("/join_tokens", h.createJoinToken)
+				r.With(h.requirePerm(PermHostsRead)).Get("/capabilities", h.getClusterCapabilities)
+				r.With(h.requirePerm(PermHostsWrite)).Put("/capabilities", h.setClusterCapabilities)
 			})
 		})
 

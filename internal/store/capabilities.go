@@ -77,3 +77,29 @@ func (r *CapabilitiesRepo) SetHostCaps(ctx context.Context, hostID uuid.UUID, ca
 	}
 	return tx.Commit(ctx)
 }
+
+// ClusterCaps — включённые capability кластера (только cluster-level записи).
+func (r *CapabilitiesRepo) ClusterCaps(ctx context.Context, clusterID uuid.UUID) ([]string, error) {
+	return r.list(ctx, `SELECT capability FROM capabilities WHERE cluster_id = $1 AND enabled ORDER BY capability`, clusterID)
+}
+
+// SetClusterCaps — заменить набор capability кластера (tx; пустой — удалить
+// cluster-level записи → хосты без своих записей вернутся к дефолту monitoring).
+func (r *CapabilitiesRepo) SetClusterCaps(ctx context.Context, clusterID uuid.UUID, caps []string, updatedBy *uuid.UUID) error {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	if _, err := tx.Exec(ctx, `DELETE FROM capabilities WHERE cluster_id = $1`, clusterID); err != nil {
+		return err
+	}
+	for _, c := range caps {
+		if _, err := tx.Exec(ctx,
+			`INSERT INTO capabilities (cluster_id, host_id, capability, enabled, updated_by) VALUES ($1, NULL, $2, true, $3)`,
+			clusterID, c, updatedBy); err != nil {
+			return err
+		}
+	}
+	return tx.Commit(ctx)
+}

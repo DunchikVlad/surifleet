@@ -236,3 +236,59 @@ func (h *handlers) setHostCapabilities(w http.ResponseWriter, r *http.Request) {
 	h.audit(r, identityFrom(r.Context()), "hosts.capabilities", &objType, &host.ID, "success", reason)
 	writeJSON(w, http.StatusOK, map[string]any{"capabilities": in.Capabilities})
 }
+
+// getClusterCapabilities — GET /clusters/{id}/capabilities (hosts.read):
+// cluster-level записи (хосты без своих записей наследуют этот набор).
+func (h *handlers) getClusterCapabilities(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathUUID(w, chi.URLParam(r, "id"), "id")
+	if !ok {
+		return
+	}
+	if !h.clusterAllowed(w, r, id) { // scoping (чанк 43)
+		return
+	}
+	if _, err := h.d.Store.Clusters.Get(r.Context(), id); err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	caps, err := h.d.Store.Capabilities.ClusterCaps(r.Context(), id)
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"capabilities": caps, "known": []string{"monitoring", "rules", "log_rotation", "service_mgmt", "packages", "config"}})
+}
+
+// setClusterCapabilities — PUT /clusters/{id}/capabilities (hosts.write).
+func (h *handlers) setClusterCapabilities(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathUUID(w, chi.URLParam(r, "id"), "id")
+	if !ok {
+		return
+	}
+	if !h.clusterAllowed(w, r, id) { // scoping (чанк 43)
+		return
+	}
+	if _, err := h.d.Store.Clusters.Get(r.Context(), id); err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	var in struct {
+		Capabilities []string `json:"capabilities"`
+	}
+	if !decodeJSON(w, r, &in) {
+		return
+	}
+	if bad := validateCapabilities(in.Capabilities); len(bad) > 0 {
+		writeValidation(w, fieldErrors{"capabilities": "неизвестные или повторяющиеся: " + strings.Join(bad, ", ")})
+		return
+	}
+	uid := identityFrom(r.Context()).UserID
+	if err := h.d.Store.Capabilities.SetClusterCaps(r.Context(), id, in.Capabilities, &uid); err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	objType := "cluster"
+	reason := "capabilities = [" + strings.Join(in.Capabilities, ", ") + "]"
+	h.audit(r, identityFrom(r.Context()), "clusters.capabilities", &objType, &id, "success", reason)
+	writeJSON(w, http.StatusOK, map[string]any{"capabilities": in.Capabilities})
+}
