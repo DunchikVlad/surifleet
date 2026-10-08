@@ -174,6 +174,27 @@ application/yaml + заголовок X-Config-Sha256; 409 «агент offline/
 в UI. fetchYaml-хелпер — сырой GET с Authorization (контент не JSON).
 Проверки: npm build чисто (tsc+vite), go build ok (embed dist).
 
+Чанк 57 ГОТОВ (2026-10-08, 68a39cb; стенд выключен — e2e отложен):
+план 1B, срез 4 — история применения конфигураций по инстансу. Proto:
+DeployConfigResult дополнен instance_id и validate_only (эхо задачи —
+иначе сервер не сможет корректно вести историю), реген. Миграция 000011:
+instance_config_history (instance_id→instances CASCADE, config_version,
+status, validation_output, reported_at; индекс (instance_id, reported_at
+DESC)) + зеркало. Store: ConfigsRepo.RecordDeploy (мусорный instance_id
+из proto пропускается молча) и DeployHistory (новые первыми, ≤100).
+hub.handleTaskResult: по DeployConfigResult пишет историю (статус —
+чистая функция configDeployStatus: validated/applied/
+validation_failed/deploy_failed; юнит-тест TestConfigDeployStatus).
+API: GET /instances/{id}/config/history (config.read, scoping 43,
+{items,count}). UI пока не показывает (следующий срез). Проверки:
+go build/vet зелёные, hub/agent/httpapi тесты ok.
+
+**Следующий шаг после 57** (план 1B продолжение): UI истории на
+вкладке «Конфигурации» (панель по инстансу: статус/версия/вывод
+валидатора) + кнопка «откат» на последнюю applied-версию (деплой той же
+задачей deploy_config из контента версии; полноценный RollbackTask —
+опционально), волновой деплой конфигов через оркестратор, профили.
+
 **Следующий шаг после 56** (план 1B продолжение): история применённых
 версий по инстансу + откат прошлой версии (таблица
 instance_config_deploys или расширение deploy-истории; запись результата
@@ -1293,6 +1314,7 @@ managed-файле (245 правил).
 
 | Чанк | Содержание | Коммит |
 |---|---|---|
+| 57 | План 1B, срез 4: история применения конфигов по инстансу — proto DeployConfigResult +instance_id/validate_only, миграция 000011 instance_config_history, RecordDeploy/DeployHistory, hub configDeployStatus + тест, GET /instances/{id}/config/history. Стенд выключен — e2e отложен | 68a39cb |
 | 56 | План 1B, срез 3: редактор «как на хосте» в UI «Конфигурации» — «Загрузить с сенсора» (fetch → textarea), «в редактор» из версии, цикл правка→версия. Только фронт | 0877e38 |
 | 55 | План 1B, срез 2: чтение фактического suricata.yaml с сенсора — proto FetchConfigTask/Result, hub.SendTaskAndWait (taskWaiters), агент executeFetch (config_path из bindings, sha256, 4 МБ), GET /instances/{id}/config/current (config.read, scoping, X-Config-Sha256). Стенд выключен — e2e отложен | 5b76511 |
 | 54 | План 1B, срез 1: конфигурации — миграция 000010 config_versions (S3 content-addressed, cfg-vN авто), ConfigsRepo, API /config_versions (+content, +deploy через hub-задачу DeployConfigTask, validate_only, аудит configs.deploy), агент executeConfig (бэкап → suricata -T → откат → restart юнита), права config.read/write, React-вкладка «Конфигурации». Стенд выключен — e2e отложен | 329b1d1 |

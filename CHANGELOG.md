@@ -7,6 +7,15 @@
 
 ### Added
 
+- Чанк 57 (2026-10-08): история применения конфигураций по инстансу
+  (план 1B, срез 4; стенд выключен — e2e отложен). Proto: DeployConfigResult
+  + instance_id, validate_only (BREAKING — обновлять совместно).
+  Миграция 000011: instance_config_history. hub: запись истории из
+  TaskResult (configDeployStatus validated/applied/validation_failed/
+  deploy_failed + тест). Store: RecordDeploy/DeployHistory. API: GET
+  /instances/{id}/config/history (config.read, scoping). (proto, server,
+  agent, db, api)
+
 - Чанк 56 (2026-10-08): редактор «как на хосте» во вкладке
   «Конфигурации» (план 1B, срез 3; только UI). «Загрузить с сенсора»:
   выбор инстанса-источника → GET /instances/{id}/config/current →
@@ -342,6 +351,9 @@
   (admin@surifleet.local / admin12345). (server, ui, db, docs)
 
 ### BREAKING
+
+- Миграция 000011 (db): таблица instance_config_history (история
+  deploy_config по инстансам).
 
 - Чанк 55 (2026-10-08): proto — FetchConfigTask (Task oneof =17) и
   FetchConfigResult (TaskResult oneof =16). Обновлять агент и сервер
