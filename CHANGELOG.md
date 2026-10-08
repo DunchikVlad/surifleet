@@ -7,6 +7,12 @@
 
 ### Added
 
+- Чанк 60 (2026-10-09): cluster-level capability — GET/PUT
+  /clusters/{id}/capabilities (hosts.read/write, scoping, валидация
+  каталогом, аудит clusters.capabilities). Store: ClusterCaps/
+  SetClusterCaps (tx-замена cluster-level набора; наследование
+  host→cluster→default monitoring неизменно). (server, api)
+
 - Чанк 59 (2026-10-08): REST для capability хоста (п. 4 ТЗ, первый
   срез эпика поэтапной передачи контроля). GET/PUT
   /hosts/{id}/capabilities (hosts.read/write, scoping clusterAllowed):

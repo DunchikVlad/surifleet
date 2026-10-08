@@ -222,6 +222,22 @@ monitoring); применение агентом — при следующем H
 ручной INSERT capabilities на стенде (деплой 08.10). Проверки:
 go build/vet зелёные, httpapi/store тесты ok, npm build чисто.
 
+Чанк 60 ГОТОВ (2026-10-09, 5c617b1): cluster-level capability —
+GET/PUT /clusters/{id}/capabilities (hosts.read/write, scoping
+clusterAllowed, валидация каталогом, аудит clusters.capabilities);
+store ClusterCaps/SetClusterCaps (tx-замена cluster-level набора,
+host-level записи не тронуты; наследование host→cluster→default
+monitoring неизменно). Проверки: build/vet/test httpapi ok.
+**Перекат .28 с чанками 58–60 НЕ ЗАВЕРШИЛСЯ**: бинарь собран и
+закоммичен, но при scp .28 ушла в зависание (пинг есть, SSH :22
+таймаутится — та же квазианомалия, что 07.10; systemd-юниты на старом
+бинаре работают). Перекатать повторно: scp + restart по §5 handover.
+
+**Следующий шаг после 60**: перекат .28 (бинарь готов в
+.tools/tmp/surifleet-server — пересобрать при необходимости), живой e2e
+новых эндпоинтов capability, затем UI capability (чекбоксы на карточке
+хоста/кластера), волновой деплой конфигов через оркестратор, профили.
+
 **Следующий шаг после 58/59**: перекат .28 с чанком 58 (UI) при
 следующем деплое; capability — cluster-level API + UI (эпик п.4),
 волновой деплой конфигов через оркестратор, профили с переменными.
@@ -1351,6 +1367,7 @@ managed-файле (245 правил).
 
 | Чанк | Содержание | Коммит |
 |---|---|---|
+| 60 | Cluster-level capability: GET/PUT /clusters/{id}/capabilities (аудит, scoping, валидация каталогом), ClusterCaps/SetClusterCaps. Перекат .28 прерван зависанием ВМ | 5c617b1 |
 | 59 | REST capability хоста (п. 4 ТЗ): GET/PUT /hosts/{id}/capabilities (валидация каталогом, аудит, scoping), CapabilitiesRepo.HostCaps/SetHostCaps. Код без e2e | 3af0f61 |
 | 58 | План 1B, срез 5: UI истории применений конфигов (панель по инстансу, бейджи статусов) + откат к последней applied (deploy с target-переопределением). Код без переката | bd491a4 |
 | 57 | План 1B, срез 4: история применения конфигов по инстансу — proto DeployConfigResult +instance_id/validate_only, миграция 000011 instance_config_history, RecordDeploy/DeployHistory, hub configDeployStatus + тест, GET /instances/{id}/config/history. Стенд выключен — e2e отложен | 68a39cb |
