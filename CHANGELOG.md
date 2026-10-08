@@ -7,6 +7,13 @@
 
 ### Added
 
+- Чанк 63 (2026-10-09): OpenAPI приведён под факт чанков 54–62 —
+  /config_versions (list/create/get/content/deploy 202+validate_only),
+  /instances/{id}/config/current (X-Config-Sha256), /instances/{id}/
+  config/history, /clusters/{id}/capabilities; схемы ConfigVersion,
+  ConfigDeploy, CapabilitiesSet (GET /hosts/{id}/capabilities с фаза-1
+  CapabilitiesView → CapabilitiesSet). (api)
+
 - Чанк 62 (2026-10-09): SetCapabilitiesTask — живое применение
   capability без рестарта стрима. Агент: applyCapabilities (набор под
   mu, чтения hasCap). Сервер: после PUT capabilities эффективный набор

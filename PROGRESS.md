@@ -260,6 +260,20 @@ hasCap — deploy_rules/deploy_config/fetch_config). Сервер: после PU
 офлайн-агенты — при следующем Hello (неизменно). Проверки: build/vet
 зелёные, cmd/agent + httpapi тесты ok.
 
+Чанк 63 ГОТОВ (2026-10-09, этот коммит): OpenAPI приведён под факт для
+чанков 54–62 — пути /config_versions (list/create), /config_versions/
+{id}, /{id}/content, /{id}/deploy (202 + validate_only), /instances/{id}/
+config/current (X-Config-Sha256), /instances/{id}/config/history,
+/clusters/{id}/capabilities; схемы ConfigVersion, ConfigDeploy,
+CapabilitiesSet (фактический контракт capability — плоские списки
+строк; GET /hosts/{id}/capabilities переведён с фаза-1 CapabilitiesView
+на CapabilitiesSet). YAML валиден (safe_load). Перекат .28 с чанком 63:
+health ok, compliance in_sync 1/1.
+
+**Следующий шаг после 63**: волновой деплой конфигов через оркестратор,
+профили с переменными по кластеру (спека /config_profiles уже в OpenAPI
+— реализация с нуля).
+
 **Следующий шаг после 62**: перекат .28+.67 (оба бинаря — proto-совместимы,
 но capability-push требует новых обеих сторон), живой e2e: UI-чекбокс →
 агент применил без рестарта (в логе «capability обновлены без
@@ -1403,6 +1417,7 @@ managed-файле (245 правил).
 
 | Чанк | Содержание | Коммит |
 |---|---|---|
+| 63 | OpenAPI под факт чанков 54–62: /config_versions*, /instances/{id}/config/current+history, /clusters/{id}/capabilities, схемы ConfigVersion/ConfigDeploy/CapabilitiesSet. Перекатан .28, health ok | (этот коммит) |
 | 62 | SetCapabilitiesTask: живое применение capability без рестарта (агент applyCapabilities под mu; сервер push после PUT). Код, e2e после переката | (этот коммит) |
 | 61 | UI capability хоста: HostCapsPanel в «Конфигурациях» (GET/PUT /hosts/{id}/capabilities, чекбоксы каталога, apiPut). Перекат .28 прерван зависанием ВМ | (этот коммит) |
 | 60 | Cluster-level capability: GET/PUT /clusters/{id}/capabilities (аудит, scoping, валидация каталогом), ClusterCaps/SetClusterCaps. Перекат .28 прерван зависанием ВМ | 5c617b1 |
