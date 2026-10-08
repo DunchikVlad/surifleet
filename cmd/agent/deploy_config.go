@@ -76,9 +76,11 @@ func (e *taskExecutor) executeConfig(task *agentv1.Task, dc *agentv1.DeployConfi
 		defer os.Remove(tmp)
 		out, verr := validateConfig(tmp)
 		res := &agentv1.DeployConfigResult{
-			ConfigVersion:     dc.GetConfigVersion(),
-			ValidationPassed:  verr == nil,
-			ValidationOutput:  tail(out, 40),
+			ConfigVersion:    dc.GetConfigVersion(),
+			InstanceId:       dc.GetInstanceId(),
+			ValidateOnly:     dc.GetValidateOnly(),
+			ValidationPassed: verr == nil,
+			ValidationOutput: tail(out, 40),
 		}
 		if verr != nil {
 			e.failCfgTask(taskID, res, "suricata -T: "+verr.Error())
@@ -104,6 +106,8 @@ func (e *taskExecutor) executeConfig(task *agentv1.Task, dc *agentv1.DeployConfi
 		rollback(configPath, backup, hadBackup, log)
 		e.failCfgTask(taskID, &agentv1.DeployConfigResult{
 			ConfigVersion:    dc.GetConfigVersion(),
+			InstanceId:       dc.GetInstanceId(),
+			ValidateOnly:     dc.GetValidateOnly(),
 			ValidationPassed: false,
 			ValidationOutput: tail(out, 40),
 		}, "suricata -T: "+verr.Error())
@@ -127,6 +131,8 @@ func (e *taskExecutor) executeConfig(task *agentv1.Task, dc *agentv1.DeployConfi
 
 	res := &agentv1.DeployConfigResult{
 		ConfigVersion:    dc.GetConfigVersion(),
+		InstanceId:       dc.GetInstanceId(),
+		ValidateOnly:     dc.GetValidateOnly(),
 		ValidationPassed: true,
 		ValidationOutput: tail(out, 40),
 	}

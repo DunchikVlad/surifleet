@@ -2281,9 +2281,11 @@ func (x *DeployRulesResult) GetFailedCount() int32 {
 // DeployConfigResult — итог деплоя конфигурации.
 type DeployConfigResult struct {
 	state            protoimpl.MessageState `protogen:"open.v1"`
+	InstanceId       string                 `protobuf:"bytes,4,opt,name=instance_id,json=instanceId,proto3" json:"instance_id,omitempty"` // эхо задачи — для истории применений (чанк 57)
 	ConfigVersion    string                 `protobuf:"bytes,1,opt,name=config_version,json=configVersion,proto3" json:"config_version,omitempty"`
 	ValidationPassed bool                   `protobuf:"varint,2,opt,name=validation_passed,json=validationPassed,proto3" json:"validation_passed,omitempty"` // результат `suricata -T` на агенте
 	ValidationOutput string                 `protobuf:"bytes,3,opt,name=validation_output,json=validationOutput,proto3" json:"validation_output,omitempty"`  // вывод валидатора (для диагностики)
+	ValidateOnly     bool                   `protobuf:"varint,5,opt,name=validate_only,json=validateOnly,proto3" json:"validate_only,omitempty"`             // эхо задачи: true — валидация, файл не менялся
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
 }
@@ -2318,6 +2320,13 @@ func (*DeployConfigResult) Descriptor() ([]byte, []int) {
 	return file_agent_v1_agent_proto_rawDescGZIP(), []int{24}
 }
 
+func (x *DeployConfigResult) GetInstanceId() string {
+	if x != nil {
+		return x.InstanceId
+	}
+	return ""
+}
+
 func (x *DeployConfigResult) GetConfigVersion() string {
 	if x != nil {
 		return x.ConfigVersion
@@ -2337,6 +2346,13 @@ func (x *DeployConfigResult) GetValidationOutput() string {
 		return x.ValidationOutput
 	}
 	return ""
+}
+
+func (x *DeployConfigResult) GetValidateOnly() bool {
+	if x != nil {
+		return x.ValidateOnly
+	}
+	return false
 }
 
 // ServiceActionResult — итог действия над сервисом.
@@ -3715,11 +3731,14 @@ const file_agent_v1_agent_proto_rawDesc = "" +
 	"\x11DeployRulesResult\x12!\n" +
 	"\fruleset_hash\x18\x01 \x01(\tR\vrulesetHash\x12!\n" +
 	"\floaded_count\x18\x02 \x01(\x05R\vloadedCount\x12!\n" +
-	"\ffailed_count\x18\x03 \x01(\x05R\vfailedCount\"\x95\x01\n" +
-	"\x12DeployConfigResult\x12%\n" +
+	"\ffailed_count\x18\x03 \x01(\x05R\vfailedCount\"\xdb\x01\n" +
+	"\x12DeployConfigResult\x12\x1f\n" +
+	"\vinstance_id\x18\x04 \x01(\tR\n" +
+	"instanceId\x12%\n" +
 	"\x0econfig_version\x18\x01 \x01(\tR\rconfigVersion\x12+\n" +
 	"\x11validation_passed\x18\x02 \x01(\bR\x10validationPassed\x12+\n" +
-	"\x11validation_output\x18\x03 \x01(\tR\x10validationOutput\"[\n" +
+	"\x11validation_output\x18\x03 \x01(\tR\x10validationOutput\x12#\n" +
+	"\rvalidate_only\x18\x05 \x01(\bR\fvalidateOnly\"[\n" +
 	"\x13ServiceActionResult\x12\x1f\n" +
 	"\vinstance_id\x18\x01 \x01(\tR\n" +
 	"instanceId\x12#\n" +

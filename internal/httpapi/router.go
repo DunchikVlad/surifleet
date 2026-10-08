@@ -199,6 +199,7 @@ func NewRouter(d Deps) http.Handler {
 				r.With(h.requirePerm(PermFleetRead)).Get("/state", h.getInstanceState)
 				r.With(h.requirePerm(PermFleetRead)).Get("/deploy_history", h.getDeployHistory)
 				r.With(h.requirePerm(PermConfigRead)).Get("/config/current", h.fetchInstanceConfig)
+				r.With(h.requirePerm(PermConfigRead)).Get("/config/history", h.getInstanceConfigHistory)
 			})
 		})
 

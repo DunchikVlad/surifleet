@@ -260,3 +260,27 @@ func (h *handlers) fetchInstanceConfig(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte(fc.GetContent()))
 }
+
+// getInstanceConfigHistory — GET /instances/{id}/config/history (config.read):
+// последние применения конфигураций на инстансе (instance_config_history,
+// чанк 57, план 1B; записи появляются по результатам задач deploy_config).
+func (h *handlers) getInstanceConfigHistory(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathUUID(w, chi.URLParam(r, "id"), "id")
+	if !ok {
+		return
+	}
+	inst, err := h.d.Store.Instances.Get(r.Context(), id)
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	if !h.instanceAllowed(w, r, inst.HostID) { // scoping (чанк 43)
+		return
+	}
+	items, err := h.d.Store.Configs.DeployHistory(r.Context(), inst.ID, 100)
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": items, "count": len(items)})
+}

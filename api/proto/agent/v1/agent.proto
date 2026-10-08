@@ -303,9 +303,11 @@ message DeployRulesResult {
 
 // DeployConfigResult — итог деплоя конфигурации.
 message DeployConfigResult {
+  string instance_id = 4;        // эхо задачи — для истории применений (чанк 57)
   string config_version = 1;
   bool validation_passed = 2;    // результат `suricata -T` на агенте
   string validation_output = 3;  // вывод валидатора (для диагностики)
+  bool validate_only = 5;        // эхо задачи: true — валидация, файл не менялся
 }
 
 // ServiceActionResult — итог действия над сервисом.

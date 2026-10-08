@@ -170,6 +170,13 @@ func (s *Server) handleTaskResult(ctx context.Context, log *slog.Logger, agentID
 	if sa := res.GetStateAfter(); sa != nil {
 		s.handleStateReport(ctx, log, sa)
 	}
+	if dc := res.GetDeployConfig(); dc != nil {
+		// История применения конфигураций (чанк 57, план 1B).
+		st := configDeployStatus(res.GetStatus() == agentv1.TaskStatus_TASK_STATUS_SUCCESS, dc.GetValidateOnly(), dc.GetValidationPassed())
+		if err := s.db.Configs.RecordDeploy(ctx, dc.GetInstanceId(), dc.GetConfigVersion(), st, dc.GetValidationOutput()); err != nil {
+			log.Error("config history: запись", "task_id", res.GetTaskId(), "err", err)
+		}
+	}
 	if w, ok := s.taskWaiters.LoadAndDelete(res.GetTaskId()); ok {
 		select {
 		case w.(chan *agentv1.TaskResult) <- res:
@@ -345,3 +352,20 @@ func derefStr(s *string) string {
 }
 
 func strp(s string) *string { return &s }
+
+// configDeployStatus — статус записи истории применения конфигурации
+// (instance_config_history): validate_only ok → validated; ok → applied;
+// не пройден suricata -T (ValidationPassed=false) → validation_failed;
+// иной провал (запись/restart) → deploy_failed.
+func configDeployStatus(succeeded, validateOnly, validationPassed bool) string {
+	switch {
+	case succeeded && validateOnly:
+		return "validated"
+	case succeeded:
+		return "applied"
+	case !validationPassed:
+		return "validation_failed"
+	default:
+		return "deploy_failed"
+	}
+}
