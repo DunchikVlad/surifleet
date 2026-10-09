@@ -451,12 +451,23 @@ store/httpapi тесты ok, npm build чисто, yaml ok.
 у deploy + profile_id; аудит config_profiles.validate. Проверки:
 build/vet, yaml ok, httpapi/store тесты ok.
 
-**Следующий шаг после 77**: перекат .28+.67 при включении стенда
+Чанк 78 ГОТОВ (2026-10-09, этот коммит; стенд выключен — живой чек
+отложен): IP агента во вкладке «Инстансы». Хаб снимает remote-addr
+стрима при установке (peer.FromContext, remoteHost — без порта) и хранит
+в памяти (Server.agentIPs, sync.Map): SetAgentIP при online, DeleteAgentIP
+при offline-переходе (defer стрима) и при «тихой» смерти свипером.
+API: GET /instances отдаёт agent_ip (instanceView = store.Instance +
+agent_ip; агент хоста — GetByHostID). UI: колонка «IP агента»
+(offline — если нет IP). Проверки: build/vet, hub/httpapi тесты ok,
+npm build чисто.
+
+**Следующий шаг после 78**: перекат .28+.67 при включении стенда
 (миграции 000012+000013, proto чанка 75 — обе стороны, сборка
 сервер+агент+фронт) + живой e2E плана 1B (рендер → validate_only →
 волновой deploy_config) и «Проверить на агенте»; хвосты по спеке:
 история версий профилей (/versions, diff, rollback — нужна миграция
-000014 config_profile_versions).
+000014 config_profile_versions); UI: кнопка «validate» в ProfilesPanel
+(эндпоинт готов, чанк 77).
 
 **Следующий шаг после 64**: рендер профиля (resolve parent-цепочки +
 подстановка переменных {{var}} — решить синтаксис) и интеграция с
@@ -1642,7 +1653,8 @@ managed-файле (245 правил).
 | 74 | UI редактора правила (1E п.1): RuleEditor в «Правилах» вместо prompt'а — raw последней ревизии, «Проверить» (логика+ошибки), «Сохранить ревизию». npm build чисто. Стенд выключен — живой чек отложен | 379ba45 |
 | 75 | Проверка правила suricata -T через агента (1E п.1): proto DeployRulesTask.validate_only, агент validateRulesOnly (temp-окружение, без записи), POST /rules/validate_agent, UI «Проверить на агенте», OpenAPI + protocol.md. Стенд выключен — e2e отложен | 6ebae2a |
 | 76 | Матрица «правила × инстансы» с карточкой логики (1E п.3): MatrixRule.ID в store+openapi, UI — клик по строке раскрывает raw+логику (revisions + /rules/validate). npm build чисто. Стенд выключен — живой чек отложен | d0377c1 |
-| 77 | Валидация профиля по спеке: POST /config_profiles/{id}/validate — рендер → версия → deploy_config validate_only, canary по умолчанию (первый инстанс org), аудит config_profiles.validate. Стенд выключен — живой чек отложен | (этот коммит) |
+| 77 | Валидация профиля по спеке: POST /config_profiles/{id}/validate — рендер → версия → deploy_config validate_only, canary по умолчанию (первый инстанс org), аудит config_profiles.validate. Стенд выключен — живой чек отложен | a7a0e0d |
+| 78 | IP агента в «Инстансах»: хаб хранит remote-addr стрима (agentIPs, снятие при offline/свипере), GET /instances → agent_ip, колонка в UI. Стенд выключен — живой чек отложен | (этот коммит) |
 | 63 | OpenAPI под факт чанков 54–62: /config_versions*, /instances/{id}/config/current+history, /clusters/{id}/capabilities, схемы ConfigVersion/ConfigDeploy/CapabilitiesSet. Перекатан .28, health ok | (этот коммит) |
 | 62 | SetCapabilitiesTask: живое применение capability без рестарта (агент applyCapabilities под mu; сервер push после PUT). Код, e2e после переката | (этот коммит) |
 | 61 | UI capability хоста: HostCapsPanel в «Конфигурациях» (GET/PUT /hosts/{id}/capabilities, чекбоксы каталога, apiPut). Перекат .28 прерван зависанием ВМ | (этот коммит) |

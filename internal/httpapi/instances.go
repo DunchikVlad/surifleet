@@ -40,7 +40,24 @@ func (h *handlers) listInstances(w http.ResponseWriter, r *http.Request) {
 		writeStoreError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, page[store.Instance]{Items: items, NextCursor: next})
+	// agent_ip — IP текущего подключения агента хоста (чанк 78, хаб).
+	views := make([]instanceView, 0, len(items))
+	for _, it := range items {
+		v := instanceView{Instance: it}
+		if agent, aerr := h.d.Store.Agents.GetByHostID(r.Context(), nil, it.HostID); aerr == nil {
+			if ip, ok := h.d.Hub.AgentIP(agent.ID); ok {
+				v.AgentIP = ip
+			}
+		}
+		views = append(views, v)
+	}
+	writeJSON(w, http.StatusOK, page[instanceView]{Items: views, NextCursor: next})
+}
+
+// instanceView — инстанс + IP агента его хоста (чанк 78).
+type instanceView struct {
+	store.Instance
+	AgentIP string `json:"agent_ip,omitempty"`
 }
 
 // createInstance — POST /api/v1/instances (ручное добавление; обычно инстансы

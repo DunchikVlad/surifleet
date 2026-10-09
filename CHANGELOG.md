@@ -7,6 +7,11 @@
 
 ### Added
 
+- Чанк 78 (2026-10-09): IP агента во вкладке «Инстансы» — хаб снимает
+  remote-addr стрима (peer.FromContext) в память (agentIPs; снятие при
+  offline и свипером), GET /instances отдаёт agent_ip, колонка в UI.
+  (server, ui)
+
 - Чанк 77 (2026-10-09): валидация профиля конфигурации по спеке —
   POST /config_profiles/{id}/validate (config.write): рендер → версия →
   задача deploy_config validate_only; цель по умолчанию — canary

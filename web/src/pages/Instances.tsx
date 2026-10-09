@@ -33,7 +33,7 @@ export default function Instances({ active }: { active: boolean }) {
       {items && items.length > 0 && (
         <table>
           <thead>
-            <tr><th>Имя</th><th>ID</th><th>Версия</th><th>Конфиг</th><th>Обновлён</th></tr>
+            <tr><th>Имя</th><th>ID</th><th>Версия</th><th>IP агента</th><th>Конфиг</th><th>Обновлён</th></tr>
           </thead>
           <tbody>
             {items.map(i => (
@@ -41,6 +41,7 @@ export default function Instances({ active }: { active: boolean }) {
                 <td>{i.name}</td>
                 <td className="muted">{short(i.id)}</td>
                 <td>{i.suricata_version || "—"}</td>
+                <td className="muted">{i.agent_ip || "offline"}</td>
                 <td className="muted">{i.config_path}</td>
                 <td className="muted">{fmtTime(i.updated_at)}</td>
               </tr>

@@ -177,6 +177,7 @@ export interface Instance {
   log_dir?: string;
   capture_interfaces?: string[];
   systemd_unit?: string;
+  agent_ip?: string; // IP текущего подключения агента хоста (чанк 78)
   updated_at?: string;
 }
 

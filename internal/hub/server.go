@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"strings"
 	"sync"
 	"time"
@@ -75,6 +76,11 @@ type Server struct {
 	// (троттлинг heartbeat-пульса, chunk 23).
 	lastTouch sync.Map
 
+	// agentIPs — agentID → IP-адрес подключения (remote-addr стрима без
+	// порта; чанк 78). Живёт в памяти хаба, снимается при отключении —
+	// вкладка «Инстансы» показывает, откуда сейчас агент.
+	agentIPs sync.Map
+
 	// taskWaiters — ожидающие результаты синхронных задач (task_id → chan
 	// с буфером 1; chunk 55 — fetch-конфиг). Уведомление в handleTaskResult.
 	taskWaiters sync.Map
@@ -92,6 +98,21 @@ func NewServer(db *store.Store, rdb *redis.Client, hubID, version string, log *s
 
 // SetLogWriter подключает приёмник логов агентов (ClickHouse); nil — выкл.
 func (s *Server) SetLogWriter(c *chlogs.Client) { s.chLogs = c }
+
+// SetAgentIP / DeleteAgentIP / AgentIP — реестр IP подключений агентов
+// (чанк 78). Хаб снимает remote-addr при установке стрима и сбрасывает
+// при переходе в offline; API (инстансы) читает текущее значение.
+func (s *Server) SetAgentIP(agentID uuid.UUID, ip string) { s.agentIPs.Store(agentID, ip) }
+
+func (s *Server) DeleteAgentIP(agentID uuid.UUID) { s.agentIPs.Delete(agentID) }
+
+func (s *Server) AgentIP(agentID uuid.UUID) (string, bool) {
+	v, ok := s.agentIPs.Load(agentID)
+	if !ok {
+		return "", false
+	}
+	return v.(string), true
+}
 
 // Channel — основной стрим агента (см. контракт agent.proto).
 func (s *Server) Channel(stream grpc.BidiStreamingServer[agentv1.AgentMessage, agentv1.ServerMessage]) error {
@@ -147,6 +168,11 @@ func (s *Server) Channel(stream grpc.BidiStreamingServer[agentv1.AgentMessage, a
 		log.Error("установка статуса online", "err", err)
 		return status.Errorf(codes.Internal, "смена статуса: %v", err)
 	}
+	// IP подключения — для вкладки «Инстансы» (чанк 78): remote-addr
+	// стрима без порта.
+	if p, ok := peer.FromContext(ctx); ok && p.Addr != nil {
+		s.SetAgentIP(agentID, remoteHost(p.Addr.String()))
+	}
 	if err := s.setPresence(ctx, agentID, sessionID); err != nil {
 		log.Error("регистрация presence в Redis", "err", err)
 	}
@@ -169,6 +195,7 @@ func (s *Server) Channel(stream grpc.BidiStreamingServer[agentv1.AgentMessage, a
 		if err := s.db.Agents.SetStatus(bgCtx, agentID, "offline", map[string]any{"hub_id": s.hubID, "session_id": sessionID}); err != nil {
 			log.Error("установка статуса offline", "err", err)
 		}
+		s.DeleteAgentIP(agentID)
 		if err := s.rdb.Del(bgCtx, presenceKey(agentID)).Err(); err != nil {
 			log.Error("удаление presence из Redis", "err", err)
 		}
@@ -479,6 +506,7 @@ func (s *Server) SweepOfflineAgents(ctx context.Context, offlineAfter time.Durat
 			s.log.Error("свипер offline: srem hub-set", "agent_id", id, "err", err)
 		}
 		s.lastTouch.Delete(id)
+		s.DeleteAgentIP(id) // чанк 78: «тихая» смерть — IP больше не актуален
 		s.log.Warn("агент помечен offline: heartbeat-timeout",
 			"agent_id", id, "offline_after", offlineAfter.String())
 		s.recomputeHostCompliance(ctx, s.log, id, false)
@@ -525,4 +553,13 @@ func recvWithTimeout(stream grpc.BidiStreamingServer[agentv1.AgentMessage, agent
 	case <-stream.Context().Done():
 		return nil, stream.Context().Err()
 	}
+}
+
+// remoteHost — IP-адрес без порта из "host:port" (чанк 78); при
+// невозможности разбора возвращает строку как есть (без скобок IPv6).
+func remoteHost(addr string) string {
+	if h, _, err := net.SplitHostPort(addr); err == nil {
+		return strings.Trim(h, "[]")
+	}
+	return strings.Trim(addr, "[]")
 }
