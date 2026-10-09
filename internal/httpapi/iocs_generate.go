@@ -105,7 +105,8 @@ func (h *handlers) generateIocRules(w http.ResponseWriter, r *http.Request) {
 		targetingRaw, _ := json.Marshal(in.Targeting)
 		d := store.Deployment{
 			OrganizationID:   orgID,
-			RulesetVersionID: v.ID,
+			Kind:             "rules",
+			RulesetVersionID: &v.ID,
 			Targeting:        targetingRaw,
 			BatchSize:        in.BatchSize,
 			Concurrency:      in.Concurrency,

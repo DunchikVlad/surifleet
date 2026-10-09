@@ -134,7 +134,8 @@ func (h *handlers) createDeployment(w http.ResponseWriter, r *http.Request) {
 	targetingRaw, _ := json.Marshal(in.Targeting)
 	d := store.Deployment{
 		OrganizationID:   orgID,
-		RulesetVersionID: rv.ID,
+		Kind:             "rules",
+		RulesetVersionID: &rv.ID,
 		DeployTemplateID: templateID,
 		Targeting:        targetingRaw,
 		BatchSize:        in.BatchSize,

@@ -327,11 +327,27 @@ OpenAPI: добавлен путь /config_profiles/{id}/deploy (safe_load ok).
 Проверки: build/vet зелёные, go test — только известный не-блокер
 samlauth (NTFS).
 
-**Следующий шаг после 66**: волновой деплой конфигов через оркестратор
-(internal/orchestrator заточен под rules — расширить типом
-deploy_config); UI профилей (список/редактор/render preview/кнопка
-деплоя); перекат .28 (миграция 000012 + живой e2E: рендер → deploy
-профиля validate_only → suricata -T).
+Чанк 67 ГОТОВ (2026-10-09, этот коммит; стенд выключен — миграция 000013
+применится при следующем деплое вместе с 000012): волновой деплой
+конфигураций через оркестратор — backend-фундамент. Миграция 000013
+deployments: kind text CHECK(rules|config) DEFAULT 'rules' +
+config_version_id FK → config_versions; ruleset_version_id снят NOT NULL
+(обязателен только для rules). Store: Deployment.Kind +
+ConfigVersionID (RulesetVersionID → *uuid), deploymentColumns/Create
+обновлены; точки создания rules-деплоев (deployments.go, iocs_generate.go)
+ставят Kind "rules". Оркестратор: sendDeployTask ветвится по d.Kind —
+config собирает DeployConfigTask из config_versions (presign S3,
+ConfigVersion, SignedUrl; без rules-путей — конфиг кладётся по config_path
+агентом из таски); HandleTaskResult фиксирует и DeployConfig-результат.
+API для создания config-деплоев и OpenAPI — следующий чанк; UI — после.
+Проверки: build/vet зелёные, store + orchestrator тесты ok (в т.ч.
+migrations_sync_test на зеркало 000013).
+
+**Следующий шаг после 67**: API создания config-волнового деплоя
+(POST /config_versions/{id}/deploy_wave или kind в POST /deployments —
+решить по openapi) + OpenAPI; UI профилей (список/редактор/preview
+рендера/кнопка деплоя); перекат .28 (миграции 000012+000013, живой e2E:
+рендер → волновой deploy_config).
 
 **Следующий шаг после 64**: рендер профиля (resolve parent-цепочки +
 подстановка переменных {{var}} — решить синтаксис) и интеграция с
@@ -1507,6 +1523,7 @@ managed-файле (245 правил).
 | 64 | Профили конфигураций, фундамент: миграция 000012 config_profiles (parent_id self-ref, version), ConfigProfilesRepo CRUD, API /config_profiles по спеке (scoping, аудит). Рендер переменных — следующие чанки | f39ac54 |
 | 65 | Рендер профилей: internal/cfgrender (deep-мерж цепочки + {{var}} — vars: профилей + встроенные instance./host./cluster., строгий режим), store Chain + ErrCycle, GET /config_profiles/{id}/render?target= (RenderResult по спеке), юнит-тесты рендера. Стенд выключен — e2e отложен | 5e04399 |
 | 66 | Деплой отрендеренного профиля: POST /config_profiles/{id}/deploy (render → версия cfg-v<N> → задача deploy_config, 202+profile_id, аудит); рефакторинг configs.go (storeConfigVersion, dispatchDeployConfigTask — поведение прежнее); OpenAPI /deploy. Стенд выключен — e2e отложен | (этот коммит) |
+| 67 | Волновой деплой конфигов, backend-фундамент: миграция 000013 deployments kind(rules|config)+config_version_id, store Deployment.Kind, оркестратор ветвится по kind (DeployConfigTask из config_versions, DeployConfig-результаты). API создания config-деплоев — следующий чанк | (этот коммит) |
 | 63 | OpenAPI под факт чанков 54–62: /config_versions*, /instances/{id}/config/current+history, /clusters/{id}/capabilities, схемы ConfigVersion/ConfigDeploy/CapabilitiesSet. Перекатан .28, health ok | (этот коммит) |
 | 62 | SetCapabilitiesTask: живое применение capability без рестарта (агент applyCapabilities под mu; сервер push после PUT). Код, e2e после переката | (этот коммит) |
 | 61 | UI capability хоста: HostCapsPanel в «Конфигурациях» (GET/PUT /hosts/{id}/capabilities, чекбоксы каталога, apiPut). Перекат .28 прерван зависанием ВМ | (этот коммит) |

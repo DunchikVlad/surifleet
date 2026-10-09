@@ -292,7 +292,9 @@ type RulesetVersion struct {
 type Deployment struct {
 	ID               uuid.UUID       `json:"id"`
 	OrganizationID   uuid.UUID       `json:"organization_id"`
-	RulesetVersionID uuid.UUID       `json:"ruleset_version_id"`
+	Kind             string          `json:"kind"` // rules | config (миграция 000013, чанк 67)
+	RulesetVersionID *uuid.UUID      `json:"ruleset_version_id"`
+	ConfigVersionID  *uuid.UUID      `json:"config_version_id,omitempty"`
 	DeployTemplateID *uuid.UUID      `json:"deploy_template_id"`
 	Targeting        json.RawMessage `json:"targeting"`
 	BatchSize        int             `json:"batch_size"`

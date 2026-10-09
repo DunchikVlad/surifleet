@@ -17,13 +17,13 @@ type DeploymentsRepo struct {
 	pool *pgxpool.Pool
 }
 
-const deploymentColumns = `id, organization_id, ruleset_version_id, deploy_template_id, targeting,
+const deploymentColumns = `id, organization_id, kind, ruleset_version_id, config_version_id, deploy_template_id, targeting,
 	batch_size, concurrency, canary_size, status, initiated_by,
 	started_at, paused_at, finished_at, created_at, updated_at`
 
 func scanDeployment(row pgx.Row) (Deployment, error) {
 	var d Deployment
-	err := row.Scan(&d.ID, &d.OrganizationID, &d.RulesetVersionID, &d.DeployTemplateID,
+	err := row.Scan(&d.ID, &d.OrganizationID, &d.Kind, &d.RulesetVersionID, &d.ConfigVersionID, &d.DeployTemplateID,
 		&d.Targeting, &d.BatchSize, &d.Concurrency, &d.CanarySize, &d.Status,
 		&d.InitiatedBy, &d.StartedAt, &d.PausedAt, &d.FinishedAt, &d.CreatedAt, &d.UpdatedAt)
 	return d, err
@@ -60,11 +60,11 @@ func (r *DeploymentsRepo) Create(ctx context.Context, d Deployment, waves []Task
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	created, err := scanDeployment(tx.QueryRow(ctx,
-		`INSERT INTO deployments (organization_id, ruleset_version_id, deploy_template_id,
+		`INSERT INTO deployments (organization_id, kind, ruleset_version_id, config_version_id, deploy_template_id,
 			targeting, batch_size, concurrency, canary_size, initiated_by)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 		 RETURNING `+deploymentColumns,
-		d.OrganizationID, d.RulesetVersionID, d.DeployTemplateID,
+		d.OrganizationID, d.Kind, d.RulesetVersionID, d.ConfigVersionID, d.DeployTemplateID,
 		d.Targeting, d.BatchSize, d.Concurrency, d.CanarySize, d.InitiatedBy))
 	if err != nil {
 		return d, translate(err)

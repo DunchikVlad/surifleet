@@ -1,7 +1,9 @@
-// Package orchestrator — волновой деплой ruleset (ТЗ п.6): раскладка
-// инстансов по волнам (canary + батчи), отправка DeployRulesTask агентам
-// через hub, ожидание подтверждения фактической загрузки (TaskResult),
-// auto-pause при ошибке волны, подхват pending-задач при подключении агента.
+// Package orchestrator — волновой деплой ruleset и конфигураций
+// (ТЗ п.6; kind=config — миграция 000013, чанк 67): раскладка
+// инстансов по волнам (canary + батчи), отправка DeployRulesTask /
+// DeployConfigTask агентам через hub, ожидание подтверждения фактической
+// загрузки (TaskResult), auto-pause при ошибке волны, подхват
+// pending-задач при подключении агента.
 //
 // Деплой успешен ТОЛЬКО по подтверждению агента (TaskResult + actual state),
 // не по факту отправки задачи.
@@ -246,8 +248,10 @@ func (o *Orchestrator) dispatchWave(ctx context.Context, d store.Deployment, wav
 	return nil
 }
 
-// sendDeployTask собирает DeployRulesTask (с подписанным URL блоба и путями
-// инстанса) и отправляет агенту через hub. Успешная отправка → sent.
+// sendDeployTask собирает задачу деплоя по виду деплоя (d.Kind,
+// миграция 000013): rules — DeployRulesTask из ruleset_versions (с
+// подписанным URL блоба и путями инстанса), config — DeployConfigTask из
+// config_versions. Отправляет агенту через hub. Успешная отправка → sent.
 func (o *Orchestrator) sendDeployTask(ctx context.Context, d store.Deployment, t store.DeploymentTask) {
 	log := o.log.With("deployment_id", d.ID, "task_id", t.ID, "instance_id", t.InstanceID)
 
@@ -261,22 +265,52 @@ func (o *Orchestrator) sendDeployTask(ctx context.Context, d store.Deployment, t
 		o.failTask(ctx, d.ID, t, "инстанс не найден: "+err.Error())
 		return
 	}
-	rv, err := o.db.Rulesets.Get(ctx, d.RulesetVersionID)
-	if err != nil {
-		o.failTask(ctx, d.ID, t, "ruleset не найден: "+err.Error())
-		return
-	}
-	url, err := o.blob.PresignGet(ctx, rv.S3Key, presignTTL)
-	if err != nil {
-		// Временная проблема S3 — задача останется pending, повтор на следующей итерации.
-		log.Error("presign URL блоба", "err", err)
-		return
-	}
 
 	task := &agentv1.Task{
 		TaskId:   t.ID.String(),
 		Deadline: timestamppb.New(time.Now().Add(taskTimeout)),
-		Type: &agentv1.Task_DeployRules{DeployRules: &agentv1.DeployRulesTask{
+	}
+	var what string
+	switch d.Kind {
+	case "config":
+		if d.ConfigVersionID == nil {
+			o.failTask(ctx, d.ID, t, "config-деплой без config_version_id")
+			return
+		}
+		cv, err := o.db.Configs.Get(ctx, *d.ConfigVersionID)
+		if err != nil {
+			o.failTask(ctx, d.ID, t, "версия конфигурации не найдена: "+err.Error())
+			return
+		}
+		url, err := o.blob.PresignGet(ctx, cv.S3Key, presignTTL)
+		if err != nil {
+			// Временная проблема S3 — задача останется pending, повтор на следующей итерации.
+			log.Error("presign URL конфиг-блоба", "err", err)
+			return
+		}
+		task.Type = &agentv1.Task_DeployConfig{DeployConfig: &agentv1.DeployConfigTask{
+			InstanceId:    t.InstanceID.String(),
+			ConfigVersion: cv.Version,
+			Source:        &agentv1.DeployConfigTask_SignedUrl{SignedUrl: url},
+		}}
+		what = "config " + cv.Version
+	default: // rules
+		if d.RulesetVersionID == nil {
+			o.failTask(ctx, d.ID, t, "rules-деплой без ruleset_version_id")
+			return
+		}
+		rv, err := o.db.Rulesets.Get(ctx, *d.RulesetVersionID)
+		if err != nil {
+			o.failTask(ctx, d.ID, t, "ruleset не найден: "+err.Error())
+			return
+		}
+		url, err := o.blob.PresignGet(ctx, rv.S3Key, presignTTL)
+		if err != nil {
+			// Временная проблема S3 — задача останется pending, повтор на следующей итерации.
+			log.Error("presign URL блоба", "err", err)
+			return
+		}
+		task.Type = &agentv1.Task_DeployRules{DeployRules: &agentv1.DeployRulesTask{
 			InstanceId:     t.InstanceID.String(),
 			RulesetVersion: rv.Version,
 			RulesetHash:    rv.SHA256,
@@ -284,7 +318,8 @@ func (o *Orchestrator) sendDeployTask(ctx context.Context, d store.Deployment, t
 			RulesDir:       inst.RulesDir,
 			ConfigPath:     inst.ConfigPath,
 			SystemdUnit:    derefStr(inst.SystemdUnit),
-		}},
+		}}
+		what = "ruleset " + rv.Version
 	}
 	if !o.router.SendTask(agentID, task) {
 		log.Debug("агент офлайн — задача остаётся pending", "agent_id", agentID)
@@ -293,7 +328,7 @@ func (o *Orchestrator) sendDeployTask(ctx context.Context, d store.Deployment, t
 	if err := o.db.Deployments.MarkTaskSent(ctx, t.ID); err != nil {
 		log.Error("mark sent", "err", err)
 	}
-	log.Info("задача отправлена агенту", "agent_id", agentID, "ruleset", rv.Version)
+	log.Info("задача отправлена агенту", "agent_id", agentID, "deploy", what)
 }
 
 // waitWave опрашивает задачи волны до терминальности. true — волна с ошибками.
@@ -380,6 +415,8 @@ func (o *Orchestrator) HandleTaskResult(ctx context.Context, agentID uuid.UUID, 
 	var resultJSON json.RawMessage
 	if dr := res.GetDeployRules(); dr != nil {
 		resultJSON, _ = json.Marshal(dr)
+	} else if dc := res.GetDeployConfig(); dc != nil {
+		resultJSON, _ = json.Marshal(dc)
 	}
 	var errMsg *string
 	if res.GetError() != "" {

@@ -7,6 +7,15 @@
 
 ### Added
 
+- Чанк 67 (2026-10-09): волновой деплой конфигураций — backend-
+  фундамент. Миграция 000013: deployments.kind (rules|config) +
+  config_version_id FK, ruleset_version_id перестал быть NOT NULL.
+  Store: Deployment.Kind/ConfigVersionID, Create обновлён.
+  Оркестратор: sendDeployTask ветвится по kind — config собирает
+  DeployConfigTask из config_versions; HandleTaskResult фиксирует и
+  DeployConfig-результаты. API создания config-деплоев — следующий
+  чанк. (server, db)
+
 - Чанк 66 (2026-10-09): деплой отрендеренного профиля —
   POST /config_profiles/{id}/deploy {instance_id, validate_only}
   (config.write): рендер → версия конфигурации (content-addressed,
