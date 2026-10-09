@@ -7,6 +7,13 @@
 
 ### Added
 
+- Чанк 73 (2026-10-09): ручная ревизия правила (1E п.1, server) —
+  POST /rules/{id}/revisions {raw} (rules.write): валидация парсером,
+  sid обязан совпадать; AddRevision — revision=max+1, msg/category по
+  разбору, тюнинг не тронут, идемпотентно по sha256 (created|
+  unchanged); аудит rules.revision. OpenAPI: POST /rules/{id}/
+  revisions. (server, api)
+
 - Чанк 72 (2026-10-09): валидация правил (1E п.1, server) — POST
   /rules/validate (rules.read): разбор парсером internal/rules без
   записи в репозиторий; ответ ok/total_lines/rules[] (структурная

@@ -941,6 +941,32 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/RuleRevisionPage'}
         default: {$ref: '#/components/responses/Error'}
+    post:
+      operationId: create_rule_revision
+      tags: [rules]
+      summary: Ручная правка содержимого — новая ревизия
+      description: "Требуется право: rules.write. Текст валидируется парсером, sid должен совпадать с sid правила; msg/category обновляются, тюнинг не трогается. Идемпотентно по sha256 (state: created|unchanged)."
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [raw]
+              properties:
+                raw: {type: string, description: Полный текст правила одной строкой}
+      responses:
+        '201':
+          description: Ревизия создана (или без изменений)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  rule: {$ref: '#/components/schemas/Rule'}
+                  revision: {type: integer}
+                  state: {type: string, enum: [created, unchanged]}
+        default: {$ref: '#/components/responses/Error'}
 
   /rules/{id}/history:
     parameters:

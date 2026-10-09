@@ -465,3 +465,49 @@ func (r *RulesRepo) BriefsBySids(ctx context.Context, orgID uuid.UUID, sids []in
 	}
 	return out, translate(rows.Err())
 }
+
+// AddRevision — ручная новая ревизия правила (POST /rules/{id}/revisions,
+// чанк 73, 1E п.1): новая строка rule_revisions (revision = max+1),
+// rules.msg/category обновляются, тюнинг аналитика (status/priority/
+// threshold) не трогается — та же семантика, что у фид-импорта. Тот же
+// sha256, что у последней ревизии, → без изменений (идемпотентно).
+// Возвращает правило, номер ревизии и состояние: created | unchanged.
+func (r *RulesRepo) AddRevision(ctx context.Context, ruleID uuid.UUID, it ImportItem) (Rule, int, string, error) {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return Rule{}, 0, "", translate(err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	rule, err := scanRule(tx.QueryRow(ctx,
+		`SELECT `+ruleColumns+` FROM rules WHERE id = $1`, ruleID))
+	if err != nil {
+		return Rule{}, 0, "", translate(err)
+	}
+
+	var lastHash *string
+	lastRev := 0
+	if err := tx.QueryRow(ctx,
+		`SELECT hash, revision FROM rule_revisions WHERE rule_id = $1
+		 ORDER BY revision DESC LIMIT 1`, ruleID).Scan(&lastHash, &lastRev); err != nil {
+		if !errors.Is(translate(err), ErrNotFound) {
+			return Rule{}, 0, "", translate(err)
+		}
+		// ревизий нет — lastHash == nil, lastRev == 0.
+	}
+	if lastHash != nil && *lastHash == it.Hash() {
+		return rule, lastRev, "unchanged", translate(tx.Commit(ctx))
+	}
+
+	rule, err = scanRule(tx.QueryRow(ctx,
+		`UPDATE rules SET msg = $2, category = $3, updated_at = now()
+		 WHERE id = $1 RETURNING `+ruleColumns,
+		ruleID, it.Msg, it.category("")))
+	if err != nil {
+		return Rule{}, 0, "", translate(err)
+	}
+	if err := insertRevision(ctx, tx, ruleID, it); err != nil {
+		return Rule{}, 0, "", err
+	}
+	return rule, lastRev + 1, "created", translate(tx.Commit(ctx))
+}

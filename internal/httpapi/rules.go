@@ -501,3 +501,69 @@ func (h *handlers) validateRules(w http.ResponseWriter, r *http.Request) {
 		"errors":      res.Errors,
 	})
 }
+
+// createRuleRevision — POST /rules/{id}/revisions (rules.write): ручная
+// правка содержимого правила — новая ревизия (чанк 73, приоритет 1E
+// п.1). Текст разбирается парсером (без записи при ошибке), sid в тексте
+// обязан совпадать с sid правила; тюнинг аналитика не трогается.
+func (h *handlers) createRuleRevision(w http.ResponseWriter, r *http.Request) {
+	orgID, ok := h.resolveOrgID(w, r)
+	if !ok {
+		return
+	}
+	id, ok := pathUUID(w, chi.URLParam(r, "id"), "id")
+	if !ok {
+		return
+	}
+	var in struct {
+		Raw string `json:"raw"`
+	}
+	if !decodeJSON(w, r, &in) {
+		return
+	}
+	raw := strings.TrimSpace(in.Raw)
+	if raw == "" {
+		writeValidation(w, fieldErrors{"raw": "обязательное поле (текст правила)"})
+		return
+	}
+	parsed, err := rules.Parse(raw)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, CodeValidation,
+			"правило не разбирается парсером", map[string]any{"reason": err.Error()})
+		return
+	}
+	if parsed == nil {
+		writeValidation(w, fieldErrors{"raw": "пустая строка или комментарий — не правило"})
+		return
+	}
+	rule, err := h.d.Store.Rules.Get(r.Context(), id)
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	if rule.OrganizationID != orgID {
+		writeError(w, http.StatusNotFound, CodeNotFound, "ресурс не найден", nil)
+		return
+	}
+	if parsed.SID != rule.SID {
+		writeError(w, http.StatusBadRequest, CodeValidation,
+			"sid в тексте не совпадает с sid правила",
+			map[string]any{"raw_sid": parsed.SID, "rule_sid": rule.SID})
+		return
+	}
+	parsedJSON, _ := json.Marshal(parsed)
+	updated, rev, state, err := h.d.Store.Rules.AddRevision(r.Context(), id, store.ImportItem{
+		SID: parsed.SID, Msg: parsed.Msg, Classtype: parsed.Classtype,
+		Raw: raw, Parsed: parsedJSON,
+	})
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	objType := "rule"
+	h.audit(r, identityFrom(r.Context()), "rules.revision", &objType, &id, "success",
+		"ревизия "+strconv.Itoa(rev)+" ("+state+")")
+	writeJSON(w, http.StatusCreated, map[string]any{
+		"rule": updated, "revision": rev, "state": state,
+	})
+}
