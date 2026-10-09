@@ -7,6 +7,13 @@
 
 ### Added
 
+- Чанк 85 (2026-10-10): UI каналов уведомлений — вкладка «Уведомления»
+  (perm notifications.read): список каналов (тип/куда/статус), создание
+  (webhook url | telegram bot_token+chat_id, подсказки форматов),
+  переименование, вкл/выкл, удаление, кнопка «Тест» (POST
+  /notification_channels/{id}/test — живая проверка). npm build чисто.
+  (ui)
+
 - Чанк 84 (2026-10-10): движок уведомлений с дедупликацией (пр. 2,
   п. 7 ТЗ) — миграция 000016 notification_deliveries (PK
   (channel_id, fingerprint), атомарный upsert TryDelivery: повтор в

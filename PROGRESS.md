@@ -530,6 +530,20 @@ getProfileScoped (org + scoping). UI ProfilesPanel: кнопка «истори�
 store/httpapi/textdiff ok (feedsync/pki/agent-UDP падают как и раньше
 — sandbox сети/прав, не связано), npm build чисто.
 
+Чанк 85 ГОТОВ (2026-10-10, этот коммит): UI каналов уведомлений —
+вкладка «Уведомления» (web/src/pages/Notifications.tsx, perm
+notifications.read): таблица каналов (имя/тип/куда — url или chat_id,
+статус вкл/выкл, обновлён), форма создания по типу (webhook — url;
+telegram — bot_token + chat_id, подсказки форматов и напоминание
+writeOnly), переименование инлайн, вкл/выкл, удаление с confirm,
+кнопка «Тест» → POST /{id}/test (живая проверка, чанк 83). Текст про
+дедупликацию (10 мин) в шапке. Регистрация вкладки в App.tsx (16-я).
+Проверки: npm build чисто (TS strict).
+
+**Следующий шаг после 85**: дашборды флот/кластер/хост (1C),
+SIEM-конфиг через ConfigPush (пр. 2). Опционально: расширение событий
+движка (провалы деплоев), escalation (повтор если не подтверждён).
+
 Чанк 84 ГОТОВ (2026-10-10, этот коммит; без переката — стенд не
 трогаем): движок уведомлений с дедупликацией (пр. 2; п. 7 ТЗ
 «уведомления с дедупликацией и эскалацией»). Миграция 000016
@@ -1781,7 +1795,8 @@ managed-файле (245 правил).
 | 81 | UI: кнопка «Валидация» в ProfilesPanel (POST /config_profiles/{id}/validate, canary по умолчанию). npm build чисто | (этот коммит) |
 | 82 | История версий профилей: миграция 000014 config_profile_versions (+бэкфилл), store снимки в tx Create/Update + ListVersions/GetVersion/Rollback, internal/textdiff (unified diff, юнит-тесты), API /versions + /versions/diff + /rollback по спеке, UI «история» с diff и откатом. Стенд выключен — e2e при перекате .28 | 90c9527 |
 | 83 | Каналы уведомлений webhook/Telegram (пр. 2): миграция 000015, internal/notify (Sender + 6 юнит-тестов), store CRUD + Public (bot_token writeOnly), API /notification_channels + POST /{id}/test, права notifications.*, OpenAPI. Движок дедупликации и UI — следующие чанки | (этот коммит) |
-| 84 | Движок уведомлений с дедупликацией (пр. 2): миграция 000016 notification_deliveries, TryDelivery атомарный upsert (окно 10 мин), notify Engine (Emit/EmitAsync, ChannelStore-интерфейс, 6 юнит-тестов), хаб OnAgentStatus (offline стрим/свипер, online revive), cmd/server emitAgentStatusEvent. UI — следующий чанк | (этот коммит) |
+| 84 | Движок уведомлений с дедупликацией (пр. 2): миграция 000016 notification_deliveries, TryDelivery атомарный upsert (окно 10 мин), notify Engine (Emit/EmitAsync, ChannelStore-интерфейс, 6 юнит-тестов), хаб OnAgentStatus (offline стрим/свипер, online revive), cmd/server emitAgentStatusEvent. UI — следующий чанк | 25d2988 |
+| 85 | UI каналов уведомлений: вкладка «Уведомления» (список, создание webhook/telegram, ред., вкл/выкл, удаление, кнопка «Тест»). npm build чисто | (этот коммит) |
 | 63 | OpenAPI под факт чанков 54–62: /config_versions*, /instances/{id}/config/current+history, /clusters/{id}/capabilities, схемы ConfigVersion/ConfigDeploy/CapabilitiesSet. Перекатан .28, health ok | (этот коммит) |
 | 62 | SetCapabilitiesTask: живое применение capability без рестарта (агент applyCapabilities под mu; сервер push после PUT). Код, e2e после переката | (этот коммит) |
 | 61 | UI capability хоста: HostCapsPanel в «Конфигурациях» (GET/PUT /hosts/{id}/capabilities, чекбоксы каталога, apiPut). Перекат .28 прерван зависанием ВМ | (этот коммит) |
