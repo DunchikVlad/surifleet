@@ -1,11 +1,174 @@
 import React from "react";
-import { apiGet, apiPostEx, Page, Rule, Ruleset } from "../api";
+import { apiDelete, apiGet, apiPatch, apiPost, apiPostEx, Page, Rule, Ruleset } from "../api";
 import { Badge, ErrorBox, fmtTime, short, SortState, SortTh, sortBy } from "../components";
 import { useCan } from "../perms";
 
 const LIMIT = 50;
 
+// AutoRuleset — авто-обновляемый набор (чанк 93).
+interface AutoRuleset {
+  id: string;
+  name: string;
+  enabled: boolean;
+  include_suriupdate: boolean;
+  include_ioc: boolean;
+  include_manual: boolean;
+  include_feeds: boolean;
+  exclude_sids: number[];
+  targeting: { mode?: string; instance_ids?: string[] };
+  last_built_at?: string;
+  last_ruleset_version_id?: string;
+}
+
+// AutoRulesetsPanel — авто-ruleset'ы: состав по происхождению (suricata-
+// update + IOC + ручные), exclude_sids — запрет на деплой, таргетинг
+// агентов, пересборка по кнопке (и автоматически после suricata-update).
+function AutoRulesetsPanel() {
+  const can = useCan();
+  const [items, setItems] = React.useState<AutoRuleset[]>([]);
+  const [instances, setInstances] = React.useState<{ id: string; name: string; hostname?: string }[]>([]);
+  const [err, setErr] = React.useState<unknown>(null);
+  const [msg, setMsg] = React.useState("");
+  const [busy, setBusy] = React.useState(false);
+  const [name, setName] = React.useState("");
+  const [incSU, setIncSU] = React.useState(true);
+  const [incIoc, setIncIoc] = React.useState(true);
+  const [incMan, setIncMan] = React.useState(true);
+  const [exclude, setExclude] = React.useState("");
+  const [mode, setMode] = React.useState("all_clusters");
+  const [selInst, setSelInst] = React.useState<string[]>([]);
+
+  const load = () =>
+    apiGet<{ items?: AutoRuleset[] }>("/auto_rulesets")
+      .then(d => setItems(d.items || []))
+      .catch(() => {});
+
+  React.useEffect(() => {
+    load();
+    apiGet<{ items?: { id: string; name: string; hostname?: string }[] }>("/instances?limit=100")
+      .then(d => setInstances(d.items || []))
+      .catch(() => {});
+  }, []);
+
+  const add = async () => {
+    setBusy(true);
+    try {
+      const targeting: Record<string, unknown> =
+        mode === "specific_instances"
+          ? { mode: "specific_instances", instance_ids: selInst }
+          : { mode: "all_clusters" };
+      const body: Record<string, unknown> = {
+        name: name.trim(), targeting,
+        include_suriupdate: incSU, include_ioc: incIoc, include_manual: incMan,
+        exclude_sids: exclude.split(",").map(x => Number(x.trim())).filter(x => Number.isFinite(x) && x > 0),
+      };
+      await apiPost("/auto_rulesets", body);
+      setMsg(`авто-ruleset ${name.trim()} создан`);
+      setName(""); setExclude("");
+      await load();
+    } catch (e) { setErr(e); } finally { setBusy(false); }
+  };
+
+  const rebuild = async (a: AutoRuleset) => {
+    setBusy(true);
+    try {
+      const r = await apiPost<{ skipped: boolean; ruleset_version?: string; instances?: number }>(
+        `/auto_rulesets/${a.id}/rebuild`, {});
+      setMsg(r.skipped
+        ? `${a.name}: пересборка пропущена (пустой состав/нет целей)`
+        : `${a.name}: версия ${r.ruleset_version}, инстансов: ${r.instances} — деплой пошёл`);
+      await load();
+    } catch (e) { setErr(e); } finally { setBusy(false); }
+  };
+
+  const toggleEnabled = async (a: AutoRuleset) => {
+    try {
+      await apiPatch(`/auto_rulesets/${a.id}`, { name: a.name, targeting: a.targeting, enabled: !a.enabled });
+      await load();
+    } catch (e) { setErr(e); }
+  };
+
+  const del = async (a: AutoRuleset) => {
+    if (!confirm(`Удалить авто-ruleset ${a.name}?`)) return;
+    try { await apiDelete(`/auto_rulesets/${a.id}`); await load(); } catch (e) { setErr(e); }
+  };
+
+  return (
+    <div className="panel">
+      <h3>Авто-обновляемые ruleset'ы (suricata-update + IOC + ручные)</h3>
+      <ErrorBox error={err} />
+      {msg && <p className="muted">{msg}</p>}
+      {items.length > 0 && (
+        <table>
+          <thead><tr><th>Имя</th><th>Состав</th><th>Запрет (sid)</th><th>Последняя сборка</th><th></th></tr></thead>
+          <tbody>
+            {items.map(a => (
+              <tr key={a.id}>
+                <td><b>{a.name}</b>{!a.enabled && <span className="muted"> (выкл)</span>}</td>
+                <td className="muted">
+                  {[a.include_suriupdate && "suriupdate", a.include_ioc && "ioc", a.include_manual && "manual", a.include_feeds && "feeds"]
+                    .filter(Boolean).join(" + ")}
+                </td>
+                <td className="muted">{(a.exclude_sids || []).length || "—"}</td>
+                <td className="muted">{a.last_built_at ? fmtTime(a.last_built_at) : "не собирался"}</td>
+                <td style={{ whiteSpace: "nowrap" }}>
+                  {can("rules.write") && <>
+                    <button className="btn primary" disabled={busy || !a.enabled} onClick={() => rebuild(a)}>пересобрать</button>{" "}
+                    <button className="btn" disabled={busy} onClick={() => toggleEnabled(a)}>{a.enabled ? "выкл" : "вкл"}</button>{" "}
+                    <button className="btn" disabled={busy} onClick={() => del(a)}>×</button>
+                  </>}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      {can("rules.write") && (
+        <>
+          <p className="muted">
+            Новый:{" "}
+            <input placeholder="имя" value={name} onChange={e => setName(e.target.value)} />{" "}
+            состав:{" "}
+            <label><input type="checkbox" checked={incSU} onChange={e => setIncSU(e.target.checked)} /> suricata-update</label>{" "}
+            <label><input type="checkbox" checked={incIoc} onChange={e => setIncIoc(e.target.checked)} /> IOC</label>{" "}
+            <label><input type="checkbox" checked={incMan} onChange={e => setIncMan(e.target.checked)} /> ручные</label>{" "}
+            таргетинг:{" "}
+            <select value={mode} onChange={e => setMode(e.target.value)}>
+              <option value="all_clusters">все кластеры</option>
+              <option value="specific_instances">выбранные инстансы</option>
+            </select>{" "}
+            <button className="btn primary" disabled={busy || !name.trim() || (mode === "specific_instances" && selInst.length === 0)} onClick={add}>
+              Создать
+            </button>
+          </p>
+          {mode === "specific_instances" && (
+            <p className="muted">
+              {instances.map(i => (
+                <label key={i.id} style={{ marginRight: "1em" }}>
+                  <input type="checkbox" checked={selInst.includes(i.id)}
+                    onChange={() => setSelInst(prev => prev.includes(i.id) ? prev.filter(x => x !== i.id) : [...prev, i.id])} />{" "}
+                  {i.hostname ? i.hostname + " · " : ""}{i.name}
+                </label>
+              ))}
+            </p>
+          )}
+          <p className="muted">
+            Запрет на деплой (sid через запятую — не попадут в набор):{" "}
+            <input placeholder="напр. 2030692, 9000001" value={exclude} onChange={e => setExclude(e.target.value)} style={{ minWidth: "18em" }} />
+          </p>
+        </>
+      )}
+      <p className="muted">
+        Пересборка автоматически запускается после каждого импорта suricata-update
+        (включённые наборы с составом suricata-update): новая версия ruleset →
+        волновой деплой на таргетинг.
+      </p>
+    </div>
+  );
+}
+
 export default function Rulesets({ active }: { active: boolean }) {
+
   const can = useCan();
   const [items, setItems] = React.useState<Ruleset[] | null>(null);
   const [err, setErr] = React.useState<unknown>(null);
@@ -109,6 +272,7 @@ export default function Rulesets({ active }: { active: boolean }) {
   return (
     <>
       <h2>Ruleset'ы</h2>
+      <AutoRulesetsPanel />
       <ErrorBox error={err} />
       {items && !items.length && <p className="muted">Ruleset'ов нет.</p>}
       {items && items.length > 0 && (
