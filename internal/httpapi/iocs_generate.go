@@ -178,6 +178,7 @@ func (h *handlers) generateIocRulesCore(ctx context.Context, orgID uuid.UUID, re
 			Msg:    iocrules.MsgFor(ioc.Type, ioc.Value),
 			Raw:    raw,
 			Parsed: parsed,
+			Origin: "ioc",
 		}, "ioc", "ioc")
 		if err != nil {
 			return nil, err

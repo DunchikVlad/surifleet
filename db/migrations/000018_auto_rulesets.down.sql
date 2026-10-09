@@ -1,0 +1,3 @@
+-- откат 000018.
+DROP TABLE IF EXISTS auto_rulesets;
+ALTER TABLE rules DROP COLUMN IF EXISTS origin;

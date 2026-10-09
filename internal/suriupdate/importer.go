@@ -58,7 +58,7 @@ func HandleResult(ctx context.Context, log *slog.Logger, st *store.Store, b *blo
 		}
 		_, outcome, err := st.Rules.UpsertImport(ctx, orgID, store.ImportItem{
 			SID: p.SID, Rev: p.Rev, Msg: p.Msg, Classtype: p.Classtype,
-			Raw: p.Raw, Parsed: parsedJSON,
+			Raw: p.Raw, Parsed: parsedJSON, Origin: "suriupdate",
 		}, "", "file")
 		if err != nil {
 			log.Error("suriupdate: upsert правила", "sid", p.SID, "err", err)

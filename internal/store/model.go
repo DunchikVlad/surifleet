@@ -147,6 +147,7 @@ type Rule struct {
 	Priority       *int            `json:"priority"`
 	Threshold      json.RawMessage `json:"threshold"`
 	SourceType     string          `json:"source_type"`
+	Origin         string          `json:"origin"` // manual | feed | ioc | suriupdate (миграция 000018)
 	FeedID         *uuid.UUID      `json:"feed_id"`
 	CreatedAt      time.Time       `json:"created_at"`
 	UpdatedAt      time.Time       `json:"updated_at"`

@@ -19,12 +19,13 @@ type RulesRepo struct {
 }
 
 const ruleColumns = `id, organization_id, sid, msg, category, tags, status, priority,
-	threshold, source_type, feed_id, created_at, updated_at`
+	threshold, source_type, feed_id, origin, created_at, updated_at`
 
 func scanRule(row pgx.Row) (Rule, error) {
 	var r Rule
 	err := row.Scan(&r.ID, &r.OrganizationID, &r.SID, &r.Msg, &r.Category, &r.Tags,
-		&r.Status, &r.Priority, &r.Threshold, &r.SourceType, &r.FeedID, &r.CreatedAt, &r.UpdatedAt)
+		&r.Status, &r.Priority, &r.Threshold, &r.SourceType, &r.FeedID, &r.Origin,
+		&r.CreatedAt, &r.UpdatedAt)
 	return r, err
 }
 
@@ -52,6 +53,9 @@ type ImportItem struct {
 	// фид et_open передаёт 'disabled' для выключенных в фиде правил.
 	// На существующие правила не влияет — статус аналитика не перетирается.
 	InitialStatus string
+	// Origin — происхождение правила (чанк 91): manual|feed|ioc|suriupdate;
+	// пусто → по FeedID (feed/manual). Существующие правила не меняет.
+	Origin string
 }
 
 // Hash — sha256(hex) от Raw (ключ сравнения ревизий).
@@ -104,11 +108,19 @@ func (r *RulesRepo) UpsertImport(ctx context.Context, orgID uuid.UUID, it Import
 		if initialStatus == "" {
 			initialStatus = "under_review"
 		}
+		// Origin: явный из ImportItem, иначе по feed_id ('feed'/'manual').
+		origin := it.Origin
+		if origin == "" {
+			origin = "manual"
+			if it.FeedID != nil {
+				origin = "feed"
+			}
+		}
 		rule, err = scanRule(tx.QueryRow(ctx,
-			`INSERT INTO rules (organization_id, sid, msg, category, status, source_type, feed_id)
-			 VALUES ($1, $2, $3, $4, $5, $6, $7)
+			`INSERT INTO rules (organization_id, sid, msg, category, status, source_type, feed_id, origin)
+			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 			 RETURNING `+ruleColumns,
-			orgID, it.SID, it.Msg, it.category(categoryOverride), initialStatus, sourceType, it.FeedID))
+			orgID, it.SID, it.Msg, it.category(categoryOverride), initialStatus, sourceType, it.FeedID, origin))
 		if err != nil {
 			return Rule{}, "", translate(err)
 		}
@@ -179,8 +191,8 @@ func (r *RulesRepo) CreateManual(ctx context.Context, orgID uuid.UUID, it Import
 		category = in.Category
 	}
 	rule, err := scanRule(tx.QueryRow(ctx,
-		`INSERT INTO rules (organization_id, sid, msg, category, tags, status, priority, threshold, source_type)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'file')
+		`INSERT INTO rules (organization_id, sid, msg, category, tags, status, priority, threshold, source_type, origin)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'file', 'manual')
 		 RETURNING `+ruleColumns,
 		orgID, it.SID, it.Msg, category, tags, status, in.Priority, nullableJSON(in.Threshold)))
 	if err != nil {
