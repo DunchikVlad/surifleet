@@ -7,6 +7,13 @@
 
 ### Added
 
+- Чанк 68 (2026-10-09): API волнового деплоя конфигураций — POST
+  /config_versions/{id}/deploy_wave (config.write): targeting +
+  canary/batch → Deployment kind=config → оркестратор (auto-pause при
+  провале волны); desired_state не пишется. Аудит configs.deploy_wave.
+  OpenAPI: путь deploy_wave, Deployment дополнен kind/
+  config_version_id. Стенд выключен — e2e отложен. (server, api)
+
 - Чанк 67 (2026-10-09): волновой деплой конфигураций — backend-
   фундамент. Миграция 000013: deployments.kind (rules|config) +
   config_version_id FK, ruleset_version_id перестал быть NOT NULL.

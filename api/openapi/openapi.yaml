@@ -2042,6 +2042,34 @@ paths:
                   agent_id: {type: string, format: uuid}
         default: {$ref: '#/components/responses/Error'}
 
+  /config_versions/{id}/deploy_wave:
+    parameters:
+      - {$ref: '#/components/parameters/PathId'}
+    post:
+      operationId: deploy_config_wave
+      tags: [config]
+      summary: Волновой деплой конфигурации (canary + батчи)
+      description: "Требуется право: config.write. Оркестратор (kind=config): задачи deploy_config по волнам; провал волны → auto-pause. Требуется capability config на хостах."
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [targeting]
+              properties:
+                targeting: {$ref: '#/components/schemas/Targeting'}
+                batch_size: {type: integer, default: 50}
+                concurrency: {type: integer, default: 10}
+                canary_size: {type: integer, default: 1}
+      responses:
+        '201':
+          description: Волновой деплой создан
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Deployment'}
+        default: {$ref: '#/components/responses/Error'}
+
   /instances/{id}/config/current:
     parameters:
       - {$ref: '#/components/parameters/PathId'}
@@ -3364,7 +3392,9 @@ components:
       properties:
         id: {type: string, format: uuid}
         organization_id: {type: string, format: uuid}
-        ruleset_version_id: {type: string, format: uuid}
+        kind: {type: string, enum: [rules, config], description: Вид деплоя (миграция 000013)}
+        ruleset_version_id: {type: string, format: uuid, nullable: true}
+        config_version_id: {type: string, format: uuid, nullable: true}
         deploy_template_id: {type: string, format: uuid, nullable: true}
         targeting: {$ref: '#/components/schemas/Targeting'}
         batch_size: {type: integer}

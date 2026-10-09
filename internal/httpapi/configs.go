@@ -6,8 +6,10 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -15,6 +17,7 @@ import (
 	"github.com/google/uuid"
 
 	agentv1 "github.com/surifleet/surifleet/internal/gen/agent/v1"
+	"github.com/surifleet/surifleet/internal/orchestrator"
 	"github.com/surifleet/surifleet/internal/ruleset"
 	"github.com/surifleet/surifleet/internal/store"
 )
@@ -305,4 +308,100 @@ func (h *handlers) getInstanceConfigHistory(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": items, "count": len(items)})
+}
+
+// deployConfigWaveInput — POST /config_versions/{id}/deploy_wave.
+type deployConfigWaveInput struct {
+	Targeting   targetingInput `json:"targeting"`
+	BatchSize   int            `json:"batch_size"`
+	Concurrency int            `json:"concurrency"`
+	CanarySize  int            `json:"canary_size"`
+}
+
+// deployConfigWave — POST /config_versions/{id}/deploy_wave (config.write):
+// волновой деплой версии конфигурации через оркестратор (чанк 68,
+// план 1B; kind='config', миграция 000013). Как и у rules: canary —
+// первая волна, провал волны → auto-pause. Desired_state не пишется
+// (правила не затрагиваются).
+func (h *handlers) deployConfigWave(w http.ResponseWriter, r *http.Request) {
+	orgID, ok := h.resolveOrgID(w, r)
+	if !ok {
+		return
+	}
+	id, ok := pathUUID(w, chi.URLParam(r, "id"), "id")
+	if !ok {
+		return
+	}
+	var in deployConfigWaveInput
+	if !decodeJSON(w, r, &in) {
+		return
+	}
+	fe := fieldErrors{}
+	switch in.Targeting.Mode {
+	case "all_clusters", "selected_clusters", "all_except_clusters", "specific_hosts", "specific_instances":
+	case "":
+		fe.add("targeting.mode", "обязательное поле")
+	default:
+		fe.add("targeting.mode", "допустимы: all_clusters, selected_clusters, all_except_clusters, specific_hosts, specific_instances")
+	}
+	if in.BatchSize < 0 || in.Concurrency < 0 || in.CanarySize < 0 {
+		fe.add("batch_size/concurrency/canary_size", "неотрицательные значения")
+	}
+	if fe.any() {
+		writeValidation(w, fe)
+		return
+	}
+	if in.BatchSize == 0 {
+		in.BatchSize = 50
+	}
+	if in.Concurrency == 0 {
+		in.Concurrency = 10
+	}
+
+	cv, err := h.d.Store.Configs.Get(r.Context(), id)
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	if cv.OrganizationID != orgID {
+		writeError(w, http.StatusNotFound, CodeNotFound, "ресурс не найден", nil)
+		return
+	}
+
+	instanceIDs, ok := h.resolveTargets(w, r, orgID, in.Targeting)
+	if !ok {
+		return
+	}
+	instanceIDs, ok = h.scopeTargets(w, r, instanceIDs, in.Targeting)
+	if !ok {
+		return
+	}
+	if len(instanceIDs) == 0 {
+		writeError(w, http.StatusBadRequest, CodeValidation,
+			"таргетинг не выбрал ни одного инстанса", nil)
+		return
+	}
+
+	targetingRaw, _ := json.Marshal(in.Targeting)
+	d := store.Deployment{
+		OrganizationID:  orgID,
+		Kind:            "config",
+		ConfigVersionID: &cv.ID,
+		Targeting:       targetingRaw,
+		BatchSize:       in.BatchSize,
+		Concurrency:     in.Concurrency,
+		CanarySize:      in.CanarySize,
+	}
+	waves := orchestrator.ComputeWaves(instanceIDs, in.CanarySize, in.BatchSize)
+	created, err := h.d.Store.Deployments.Create(r.Context(), d, waves)
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	h.d.Orch.Start(created.ID)
+	objType := "config_version"
+	h.audit(r, identityFrom(r.Context()), "configs.deploy_wave", &objType, &cv.ID, "success",
+		"волновой деплой "+cv.Version+": "+strconv.Itoa(len(instanceIDs))+" инстансов")
+	progress, _ := h.d.Store.Deployments.GetProgress(r.Context(), created.ID)
+	writeJSON(w, http.StatusCreated, deploymentView{created, progress})
 }

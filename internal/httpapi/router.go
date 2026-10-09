@@ -152,6 +152,7 @@ func NewRouter(d Deps) http.Handler {
 				r.With(h.requirePerm(PermConfigRead)).Get("/", h.getConfigVersion)
 				r.With(h.requirePerm(PermConfigRead)).Get("/content", h.getConfigContent)
 				r.With(h.requirePerm(PermConfigWrite)).Post("/deploy", h.deployConfig)
+				r.With(h.requirePerm(PermConfigWrite)).Post("/deploy_wave", h.deployConfigWave)
 			})
 		})
 
