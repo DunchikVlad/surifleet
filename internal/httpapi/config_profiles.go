@@ -1,7 +1,7 @@
 // Профили конфигурации Suricata (чанк 64, план 1B): CRUD
 // /config_profiles по openapi-спеке. Наследование кластер → хост →
-// инстанс через parent_id; рендер шаблона с переменными, история
-// версий и валидация через агента — следующие чанки.
+// инстанс через parent_id; рендер шаблона с переменными (65), валидация
+// через агента (77), история версий + diff + rollback (82).
 package httpapi
 
 import (
@@ -15,6 +15,7 @@ import (
 
 	"github.com/surifleet/surifleet/internal/cfgrender"
 	"github.com/surifleet/surifleet/internal/store"
+	"github.com/surifleet/surifleet/internal/textdiff"
 )
 
 var profileScopes = map[string]bool{"cluster": true, "host": true, "instance": true}
@@ -78,7 +79,7 @@ func (h *handlers) createConfigProfile(w http.ResponseWriter, r *http.Request) {
 		}
 		parent = &pid
 	}
-	p, err := h.d.Store.ConfigProfiles.Create(r.Context(), orgID, in.Name, in.Description, in.ScopeType, scopeID, parent, in.ContentYAML)
+	p, err := h.d.Store.ConfigProfiles.Create(r.Context(), orgID, in.Name, in.Description, in.ScopeType, scopeID, parent, in.ContentYAML, IdentityFrom(r.Context()))
 	if err != nil {
 		writeStoreError(w, err)
 		return
@@ -187,7 +188,7 @@ func (h *handlers) updateConfigProfile(w http.ResponseWriter, r *http.Request) {
 		writeValidation(w, fieldErrors{"name": "не может быть пустым"})
 		return
 	}
-	p, err := h.d.Store.ConfigProfiles.Update(r.Context(), id, in.Name, in.Description, in.ContentYAML)
+	p, err := h.d.Store.ConfigProfiles.Update(r.Context(), id, in.Name, in.Description, in.ContentYAML, IdentityFrom(r.Context()))
 	if err != nil {
 		writeStoreError(w, err)
 		return
@@ -486,4 +487,131 @@ func (h *handlers) validateConfigProfile(w http.ResponseWriter, r *http.Request)
 		"task_id": taskID, "config_version_id": cv.ID, "version": cv.Version,
 		"instance_id": instID, "agent_id": agentID, "profile_id": p.ID,
 	})
+}
+
+// getProfileScoped — профиль по id с проверкой принадлежности организации
+// и scoping объекта области (общий пролог для versions/diff/rollback).
+func (h *handlers) getProfileScoped(w http.ResponseWriter, r *http.Request) (store.ConfigProfile, bool) {
+	orgID, ok := h.resolveOrgID(w, r)
+	if !ok {
+		return store.ConfigProfile{}, false
+	}
+	id, ok := pathUUID(w, chi.URLParam(r, "id"), "id")
+	if !ok {
+		return store.ConfigProfile{}, false
+	}
+	p, err := h.d.Store.ConfigProfiles.Get(r.Context(), id)
+	if err != nil {
+		writeStoreError(w, err)
+		return store.ConfigProfile{}, false
+	}
+	if p.OrganizationID != orgID {
+		writeError(w, http.StatusNotFound, CodeNotFound, "ресурс не найден", nil)
+		return store.ConfigProfile{}, false
+	}
+	if !h.profileScopeExists(w, r, p.ScopeType, p.ScopeID) {
+		return store.ConfigProfile{}, false
+	}
+	return p, true
+}
+
+// listConfigProfileVersions — GET /config_profiles/{id}/versions
+// (config.read): история версий профиля, свежие первыми; keyset по
+// номеру версии (cursor — «версия меньше N»).
+func (h *handlers) listConfigProfileVersions(w http.ResponseWriter, r *http.Request) {
+	p, ok := h.getProfileScoped(w, r)
+	if !ok {
+		return
+	}
+	limit := defaultLimit
+	if s := r.URL.Query().Get("limit"); s != "" {
+		n, err := strconv.Atoi(s)
+		if err != nil || n < 1 {
+			writeError(w, http.StatusBadRequest, CodeValidation,
+				"limit должен быть целым числом от 1 до 1000", map[string]any{"limit": s})
+			return
+		}
+		if n > maxLimit {
+			n = maxLimit
+		}
+		limit = n
+	}
+	cursor := 0
+	if s := r.URL.Query().Get("cursor"); s != "" {
+		n, err := strconv.Atoi(s)
+		if err != nil || n < 1 {
+			writeError(w, http.StatusBadRequest, CodeValidation,
+				"некорректный cursor (ожидается номер версии)", map[string]any{"cursor": s})
+			return
+		}
+		cursor = n
+	}
+	items, next, err := h.d.Store.ConfigProfiles.ListVersions(r.Context(), p.ID, cursor, limit)
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": items, "next_cursor": next})
+}
+
+// diffConfigProfileVersions — GET /config_profiles/{id}/versions/diff
+// ?from=N&to=M (config.read): unified diff содержимого двух версий
+// (internal/textdiff, контекст 3 строки).
+func (h *handlers) diffConfigProfileVersions(w http.ResponseWriter, r *http.Request) {
+	p, ok := h.getProfileScoped(w, r)
+	if !ok {
+		return
+	}
+	from, errFrom := strconv.Atoi(r.URL.Query().Get("from"))
+	to, errTo := strconv.Atoi(r.URL.Query().Get("to"))
+	if errFrom != nil || errTo != nil || from < 1 || to < 1 {
+		writeValidation(w, fieldErrors{"from/to": "обязательные целые номера версий (>= 1)"})
+		return
+	}
+	if from == to {
+		writeValidation(w, fieldErrors{"to": "версии from и to должны различаться"})
+		return
+	}
+	vFrom, err := h.d.Store.ConfigProfiles.GetVersion(r.Context(), p.ID, from)
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	vTo, err := h.d.Store.ConfigProfiles.GetVersion(r.Context(), p.ID, to)
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	diff := textdiff.Unified(vFrom.ContentYAML, vTo.ContentYAML,
+		"v"+strconv.Itoa(from), "v"+strconv.Itoa(to), 3)
+	writeJSON(w, http.StatusOK, map[string]any{"from": from, "to": to, "diff": diff})
+}
+
+// rollbackConfigProfile — POST /config_profiles/{id}/rollback {version}
+// (config.write): откат содержимого профиля к указанной версии — создаёт
+// НОВУЮ версию с содержимым целевой (история не переписывается, спека).
+func (h *handlers) rollbackConfigProfile(w http.ResponseWriter, r *http.Request) {
+	p, ok := h.getProfileScoped(w, r)
+	if !ok {
+		return
+	}
+	var in struct {
+		Version int `json:"version"`
+	}
+	if !decodeJSON(w, r, &in) {
+		return
+	}
+	if in.Version < 1 {
+		writeValidation(w, fieldErrors{"version": "обязательный целый номер версии (>= 1)"})
+		return
+	}
+	updated, err := h.d.Store.ConfigProfiles.Rollback(r.Context(), p.ID, in.Version, IdentityFrom(r.Context()))
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	objType := "config_profile"
+	h.audit(r, identityFrom(r.Context()), "config_profiles.rollback", &objType, &p.ID, "success",
+		"откат "+p.Name+" к v"+strconv.Itoa(in.Version)+" → новая v"+strconv.Itoa(updated.Version))
+	writeJSON(w, http.StatusOK, updated)
 }

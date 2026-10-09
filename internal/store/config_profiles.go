@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"strconv"
 	"time"
 
 	"github.com/google/uuid"
@@ -13,17 +14,17 @@ import (
 // Наследование кластер → хост → инстанс через ParentID; рендер переменных —
 // следующие чанки.
 type ConfigProfile struct {
-	ID             uuid.UUID `json:"id"`
-	OrganizationID uuid.UUID `json:"organization_id"`
-	Name           string    `json:"name"`
-	Description    *string   `json:"description"`
-	ScopeType      string    `json:"scope_type"` // cluster | host | instance
-	ScopeID        uuid.UUID `json:"scope_id"`
+	ID             uuid.UUID  `json:"id"`
+	OrganizationID uuid.UUID  `json:"organization_id"`
+	Name           string     `json:"name"`
+	Description    *string    `json:"description"`
+	ScopeType      string     `json:"scope_type"` // cluster | host | instance
+	ScopeID        uuid.UUID  `json:"scope_id"`
 	ParentID       *uuid.UUID `json:"parent_id"`
-	ContentYAML    string    `json:"content_yaml"`
-	Version        int       `json:"version"`
-	CreatedAt      time.Time `json:"created_at"`
-	UpdatedAt      time.Time `json:"updated_at"`
+	ContentYAML    string     `json:"content_yaml"`
+	Version        int        `json:"version"`
+	CreatedAt      time.Time  `json:"created_at"`
+	UpdatedAt      time.Time  `json:"updated_at"`
 }
 
 // ConfigProfilesRepo — профили конфигурации Suricata.
@@ -40,15 +41,28 @@ func scanConfigProfile(row pgx.Row) (ConfigProfile, error) {
 	return p, err
 }
 
-// Create — создать профиль. parent_id (если задан) должен существовать —
-// иначе 23503 → translate → conflict.
-func (r *ConfigProfilesRepo) Create(ctx context.Context, orgID uuid.UUID, name, description, scopeType string, scopeID uuid.UUID, parentID *uuid.UUID, content string) (ConfigProfile, error) {
-	p, err := scanConfigProfile(r.pool.QueryRow(ctx,
+// Create — создать профиль + первый снимок версии (version=1, чанк 82)
+// в одной транзакции. actor — email актора для истории (пусто — системный
+// вызов). parent_id (если задан) должен существовать — иначе 23503 →
+// translate → conflict.
+func (r *ConfigProfilesRepo) Create(ctx context.Context, orgID uuid.UUID, name, description, scopeType string, scopeID uuid.UUID, parentID *uuid.UUID, content, actor string) (ConfigProfile, error) {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return ConfigProfile{}, translate(err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	p, err := scanConfigProfile(tx.QueryRow(ctx,
 		`INSERT INTO config_profiles (organization_id, name, description, scope_type, scope_id, parent_id, content_yaml)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING `+configProfileColumns,
 		orgID, name, description, scopeType, scopeID, parentID, content))
 	if err != nil {
 		return p, translate(err)
+	}
+	if err := insertVersionSnapshot(ctx, tx, p.ID, p.Version, p.ContentYAML, actor); err != nil {
+		return ConfigProfile{}, translate(err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return ConfigProfile{}, translate(err)
 	}
 	return p, nil
 }
@@ -108,9 +122,15 @@ func (r *ConfigProfilesRepo) List(ctx context.Context, orgID uuid.UUID, scopeTyp
 
 // Update — переименование/описание/содержимое. Смена content_yaml
 // инкрементирует version (по спеке: «изменение содержимого создаёт новую
-// версию»); история версий — следующие чанки.
-func (r *ConfigProfilesRepo) Update(ctx context.Context, id uuid.UUID, name, description, content *string) (ConfigProfile, error) {
-	p, err := scanConfigProfile(r.pool.QueryRow(ctx,
+// версию») и пишет снимок в config_profile_versions (чанк 82) — всё в
+// одной транзакции. actor — email актора для истории (пусто — системный).
+func (r *ConfigProfilesRepo) Update(ctx context.Context, id uuid.UUID, name, description, content *string, actor string) (ConfigProfile, error) {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return ConfigProfile{}, translate(err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	p, err := scanConfigProfile(tx.QueryRow(ctx,
 		`UPDATE config_profiles SET
 		   name = COALESCE($2, name),
 		   description = CASE WHEN $3::text IS NULL THEN description ELSE $3 END,
@@ -122,7 +142,29 @@ func (r *ConfigProfilesRepo) Update(ctx context.Context, id uuid.UUID, name, des
 	if err != nil {
 		return p, translate(err)
 	}
+	if content != nil {
+		if err := insertVersionSnapshot(ctx, tx, p.ID, p.Version, p.ContentYAML, actor); err != nil {
+			return ConfigProfile{}, translate(err)
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return ConfigProfile{}, translate(err)
+	}
 	return p, nil
+}
+
+// insertVersionSnapshot — снимок содержимого версии (внутри tx Create/
+// Update/Rollback). Уникальность (profile_id, version) гарантируется
+// инкрементом version в Update; повтор — 23505 → conflict.
+func insertVersionSnapshot(ctx context.Context, tx pgx.Tx, profileID uuid.UUID, version int, content, actor string) error {
+	var actorArg *string
+	if actor != "" {
+		actorArg = &actor
+	}
+	_, err := tx.Exec(ctx,
+		`INSERT INTO config_profile_versions (profile_id, version, content_yaml, created_by)
+		 VALUES ($1, $2, $3, $4)`, profileID, version, content, actorArg)
+	return err
 }
 
 // Chain — цепочка наследования профиля от корня к самому профилю
@@ -158,7 +200,7 @@ func (r *ConfigProfilesRepo) Chain(ctx context.Context, id uuid.UUID) ([]ConfigP
 }
 
 // Delete — удалить профиль. Дочерние профили остаются (parent_id → NULL
-	// по ON DELETE SET NULL).
+// по ON DELETE SET NULL).
 func (r *ConfigProfilesRepo) Delete(ctx context.Context, id uuid.UUID) error {
 	_, err := r.pool.Exec(ctx, `DELETE FROM config_profiles WHERE id = $1`, id)
 	return translate(err)
@@ -169,4 +211,79 @@ func nullIfEmpty(s string) *string {
 		return nil
 	}
 	return &s
+}
+
+// ConfigProfileVersion — снимок содержимого версии профиля (таблица
+// config_profile_versions, чанк 82). CreatedBy — email актора (NULL для
+// бэкфилла миграции 000014).
+type ConfigProfileVersion struct {
+	ID          uuid.UUID `json:"-"`
+	ProfileID   uuid.UUID `json:"-"`
+	Version     int       `json:"version"`
+	ContentYAML string    `json:"content_yaml"`
+	CreatedBy   *string   `json:"created_by"`
+	CreatedAt   time.Time `json:"created_at"`
+}
+
+// ListVersions — история версий профиля, свежие первыми; keyset по
+// version (cursor — «версия меньше N»).
+func (r *ConfigProfilesRepo) ListVersions(ctx context.Context, profileID uuid.UUID, cursor, limit int) ([]ConfigProfileVersion, *string, error) {
+	var cursorArg *int
+	if cursor > 0 {
+		cursorArg = &cursor
+	}
+	rows, err := r.pool.Query(ctx,
+		`SELECT id, profile_id, version, content_yaml, created_by, created_at
+		 FROM config_profile_versions
+		 WHERE profile_id = $1 AND ($2::int IS NULL OR version < $2)
+		 ORDER BY version DESC LIMIT $3`, profileID, cursorArg, limit+1)
+	if err != nil {
+		return nil, nil, translate(err)
+	}
+	defer rows.Close()
+	items := []ConfigProfileVersion{}
+	for rows.Next() {
+		var v ConfigProfileVersion
+		if err := rows.Scan(&v.ID, &v.ProfileID, &v.Version, &v.ContentYAML, &v.CreatedBy, &v.CreatedAt); err != nil {
+			return nil, nil, translate(err)
+		}
+		items = append(items, v)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, nil, translate(err)
+	}
+	var next *string
+	if len(items) > limit {
+		s := strconv.Itoa(items[limit-1].Version)
+		next = &s
+		items = items[:limit]
+	}
+	return items, next, nil
+}
+
+// GetVersion — содержимое конкретной версии профиля. Нет записи →
+// ErrNotFound.
+func (r *ConfigProfilesRepo) GetVersion(ctx context.Context, profileID uuid.UUID, version int) (ConfigProfileVersion, error) {
+	var v ConfigProfileVersion
+	err := r.pool.QueryRow(ctx,
+		`SELECT id, profile_id, version, content_yaml, created_by, created_at
+		 FROM config_profile_versions WHERE profile_id = $1 AND version = $2`,
+		profileID, version).
+		Scan(&v.ID, &v.ProfileID, &v.Version, &v.ContentYAML, &v.CreatedBy, &v.CreatedAt)
+	if err != nil {
+		return v, translate(err)
+	}
+	return v, nil
+}
+
+// Rollback — откат профиля к содержимому версии version: текущая версия
+// инкрементируется, содержимое берётся из целевой (по спеке «откат
+// создаёт новую версию» — история не переписывается). Возвращает
+// обновлённый профиль. Целевая версия не найдена → ErrNotFound.
+func (r *ConfigProfilesRepo) Rollback(ctx context.Context, id uuid.UUID, version int, actor string) (ConfigProfile, error) {
+	target, err := r.GetVersion(ctx, id, version)
+	if err != nil {
+		return ConfigProfile{}, err
+	}
+	return r.Update(ctx, id, nil, nil, &target.ContentYAML, actor)
 }

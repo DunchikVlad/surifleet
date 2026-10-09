@@ -508,12 +508,40 @@ ProfilesPanel — POST /config_profiles/{id}/validate (чанк 77) без те�
 canary-инстанс по умолчанию; сообщение с task_id/версией/целью, итог —
 в истории применений. Проверки: npm build чисто.
 
+Чанк 82 ГОТОВ (2026-10-09, этот коммит; стенд выключен — живой e2E
+при перекате .28, миграция 000014): история версий профилей по спеке.
+Миграция 000014 config_profile_versions (profile_id FK CASCADE, version,
+content_yaml, created_by, UNIQUE(profile_id, version); бэкфилл текущих
+версий существующих профилей). Store: Create/Update пишут снимок версии
+в той же транзакции (Create — v1; Update — при смене content_yaml;
+оба принимают actor email → created_by), ListVersions (keyset по номеру
+версии, свежие первыми), GetVersion, Rollback (откат = новая версия с
+содержимым целевой — история не переписывается). Новый пакет
+internal/textdiff: unified diff на LCS без новых зависимостей (лимит
+таблицы 4M ячеек → деградация без контекста), юнит-тесты (изменение,
+только +/-, слияние/разбиение hunks, деградация). API по спеке: GET
+/config_profiles/{id}/versions (config.read), GET .../versions/diff
+?from&to (контекст 3 строки, DiffResult), POST .../rollback {version}
+(config.write, аудит config_profiles.rollback); общий пролог
+getProfileScoped (org + scoping). UI ProfilesPanel: кнопка «история»
+у профиля — таблица версий (кем/когда/текущая), чекбоксы двух версий
+→ «Diff выбранных» (pre unified), «откатить сюда» (создаёт новую
+версию, список обновляется). Проверки: build/vet зелёные, go test
+store/httpapi/textdiff ok (feedsync/pki/agent-UDP падают как и раньше
+— sandbox сети/прав, не связано), npm build чисто.
+
+**Следующий шаг после 82**: перекат .28 (миграция 000014), живой e2E:
+PATCH профиля → v2 в истории → diff v1/v2 → откат к v1 → v3 = содержимое
+v1. Далее по roadmap: дашборды флот/кластер/хост (1C), уведомления
+webhook+Telegram, SIEM-конфиг через ConfigPush (пр. 2).
+
 **Push 2026-10-09 (Kimi Code)**: origin/main догнан до fed65cc (чанки
 70–80 + фиксы по живому e2E, 11 коммитов) — синхронизация по команде
 пользователя.
 
 **Следующий шаг после 81**: хвосты по спеке: история версий профилей
 (/versions, diff, rollback — миграция 000014 config_profile_versions).
+✅ ЗАКРЫТО чанком 82.
 
 **Следующий шаг после 64**: рендер профиля (resolve parent-цепочки +
 подстановка переменных {{var}} — решить синтаксис) и интеграция с
@@ -1704,6 +1732,7 @@ managed-файле (245 правил).
 | 79 | IP агента в «Параметрах» инстанса (GET /instances/{id} + UI); фиксы по живому e2E: IDsForOrg nil→[] (canary 400), рендер терял «%YAML 1.1» (suricata-заголовок восстанавливается). Перекат .28+.67, миграции 13, e2E 1B+1E пройден, compliance in_sync 1/1 | 701f7fe |
 | 80 | Systemd unit + PID в «Параметрах»: Heartbeat.agent_pid, статусы сервисов с реальными instance_id (bound_instances.json), Redis agent_svc, GET /instances/{id} → service_state/service_pid/agent_pid, UI. Живой e2E: active pid 2103 = MainPID, agent_pid 3073 | fed65cc |
 | 81 | UI: кнопка «Валидация» в ProfilesPanel (POST /config_profiles/{id}/validate, canary по умолчанию). npm build чисто | (этот коммит) |
+| 82 | История версий профилей: миграция 000014 config_profile_versions (+бэкфилл), store снимки в tx Create/Update + ListVersions/GetVersion/Rollback, internal/textdiff (unified diff, юнит-тесты), API /versions + /versions/diff + /rollback по спеке, UI «история» с diff и откатом. Стенд выключен — e2e при перекате .28 | (этот коммит) |
 | 63 | OpenAPI под факт чанков 54–62: /config_versions*, /instances/{id}/config/current+history, /clusters/{id}/capabilities, схемы ConfigVersion/ConfigDeploy/CapabilitiesSet. Перекатан .28, health ok | (этот коммит) |
 | 62 | SetCapabilitiesTask: живое применение capability без рестарта (агент applyCapabilities под mu; сервер push после PUT). Код, e2e после переката | (этот коммит) |
 | 61 | UI capability хоста: HostCapsPanel в «Конфигурациях» (GET/PUT /hosts/{id}/capabilities, чекбоксы каталога, apiPut). Перекат .28 прерван зависанием ВМ | (этот коммит) |

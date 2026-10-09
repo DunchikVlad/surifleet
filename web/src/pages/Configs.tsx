@@ -132,6 +132,14 @@ interface RenderResult {
   sources: { profile_id: string; name: string; scope_type: string }[];
 }
 
+// ProfileVersion — снимок версии профиля (чанк 82, GET /config_profiles/{id}/versions).
+interface ProfileVersion {
+  version: number;
+  content_yaml: string;
+  created_by?: string | null;
+  created_at: string;
+}
+
 interface Cluster {
   id: string;
   name: string;
@@ -141,7 +149,9 @@ interface Cluster {
 // preview рендера для инстанса (GET /config_profiles/{id}/render) и
 // деплой отрендеренного профиля (POST /{id}/deploy). Наследование
 // кластер→хост→инстанс — через parent_id (задаётся в API, в панели —
-// базовый сценарий без родителя).
+// базовый сценарий без родителя). История версий (чанк 82): раскрытие
+// строки «история» — список версий, diff двух (GET .../versions/diff),
+// откат (POST .../rollback — новая версия с содержимым целевой).
 function ProfilesPanel({ instances }: { instances: Instance[] }) {
   const can = useCan();
   const [items, setItems] = React.useState<ConfigProfile[]>([]);
@@ -161,6 +171,11 @@ function ProfilesPanel({ instances }: { instances: Instance[] }) {
   const [targetID, setTargetID] = React.useState("");
   const [rendered, setRendered] = React.useState<RenderResult | null>(null);
   const [validateOnly, setValidateOnly] = React.useState(false);
+  // история версий (чанк 82): раскрытый профиль, версии, выбор для diff, diff
+  const [histProfileID, setHistProfileID] = React.useState("");
+  const [versions, setVersions] = React.useState<ProfileVersion[]>([]);
+  const [diffSel, setDiffSel] = React.useState<number[]>([]);
+  const [diffText, setDiffText] = React.useState<string | null>(null);
 
   const load = React.useCallback(async () => {
     try {
@@ -230,6 +245,46 @@ function ProfilesPanel({ instances }: { instances: Instance[] }) {
     } catch (e) { setErr(e); } finally { setBusy(false); }
   };
 
+  // loadVersions — история версий профиля (чанк 82): раскрытие строки
+  // «история» загружает список (свежие первыми).
+  const loadVersions = async (pid: string) => {
+    if (histProfileID === pid) { setHistProfileID(""); setVersions([]); setDiffText(null); setDiffSel([]); return; }
+    setHistProfileID(pid); setDiffText(null); setDiffSel([]);
+    try {
+      const d = await apiGet<Page<ProfileVersion>>(`/config_profiles/${pid}/versions?limit=100`);
+      setVersions(d.items || []);
+    } catch (e) { setErr(e); setVersions([]); }
+  };
+
+  // toggleDiffSel — выбор двух версий для diff (клик по чекбоксу vN).
+  const toggleDiffSel = (v: number) =>
+    setDiffSel(prev => prev.includes(v) ? prev.filter(x => x !== v) : [...prev.slice(-1), v]);
+
+  const showDiff = async () => {
+    if (diffSel.length !== 2) { setMsg("отметьте две версии для diff"); return; }
+    const [a, b] = [...diffSel].sort((x, y) => x - y);
+    setBusy(true);
+    try {
+      const d = await apiGet<{ from: number; to: number; diff: string }>(
+        `/config_profiles/${histProfileID}/versions/diff?from=${a}&to=${b}`);
+      setDiffText(d.diff || `(версии v${a} и v${b} идентичны)`);
+    } catch (e) { setErr(e); setDiffText(null); } finally { setBusy(false); }
+  };
+
+  // rollback — POST /config_profiles/{id}/rollback {version}: откат
+  // содержимого к выбранной версии (создаёт новую версию).
+  const rollback = async (v: number) => {
+    setBusy(true);
+    try {
+      const p = await apiPost<ConfigProfile>(`/config_profiles/${histProfileID}/rollback`, { version: v });
+      setMsg(`откат к v${v} выполнен — новая версия v${p.version}`);
+      setDiffText(null);
+      await load();
+      const d = await apiGet<Page<ProfileVersion>>(`/config_profiles/${histProfileID}/versions?limit=100`);
+      setVersions(d.items || []);
+    } catch (e) { setErr(e); } finally { setBusy(false); }
+  };
+
   return (
     <div className="panel">
       <h3>Профили конфигурации (наследование + переменные)</h3>
@@ -240,16 +295,66 @@ function ProfilesPanel({ instances }: { instances: Instance[] }) {
           <thead><tr><th>Имя</th><th>Scope</th><th>Версия</th><th></th></tr></thead>
           <tbody>
             {items.map(p => (
-              <tr key={p.id}>
-                <td><b>{p.name}</b></td>
-                <td className="muted">{p.scope_type}</td>
-                <td className="muted">v{p.version}</td>
-                <td>
-                  <button className="btn" onClick={() => { setProfileID(p.id); setRendered(null); }}>
-                    {profileID === p.id ? "✓ выбран" : "выбрать"}
-                  </button>
-                </td>
-              </tr>
+              <React.Fragment key={p.id}>
+                <tr>
+                  <td><b>{p.name}</b></td>
+                  <td className="muted">{p.scope_type}</td>
+                  <td className="muted">v{p.version}</td>
+                  <td>
+                    <button className="btn" onClick={() => { setProfileID(p.id); setRendered(null); }}>
+                      {profileID === p.id ? "✓ выбран" : "выбрать"}
+                    </button>{" "}
+                    <button className="btn" onClick={() => loadVersions(p.id)}>
+                      {histProfileID === p.id ? "скрыть историю" : "история"}
+                    </button>
+                  </td>
+                </tr>
+                {histProfileID === p.id && (
+                  <tr>
+                    <td colSpan={4}>
+                      {versions.length === 0 && <p className="muted">версий нет</p>}
+                      {versions.length > 0 && (
+                        <>
+                          <table>
+                            <thead><tr><th></th><th>Версия</th><th>Кем</th><th>Когда</th><th></th></tr></thead>
+                            <tbody>
+                              {versions.map(v => (
+                                <tr key={v.version}>
+                                  <td>
+                                    <input type="checkbox" checked={diffSel.includes(v.version)}
+                                      title="отметьте две версии для diff"
+                                      onChange={() => toggleDiffSel(v.version)} />
+                                  </td>
+                                  <td><b>v{v.version}</b>{v.version === p.version ? " (текущая)" : ""}</td>
+                                  <td className="muted">{v.created_by || "—"}</td>
+                                  <td className="muted">{fmtTime(v.created_at)}</td>
+                                  <td>
+                                    {can("config.write") && v.version !== p.version && (
+                                      <button className="btn" disabled={busy}
+                                        title={`откат содержимого к v${v.version} (создаст новую версию)`}
+                                        onClick={() => rollback(v.version)}>
+                                        откатить сюда
+                                      </button>
+                                    )}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                          <p>
+                            <button className="btn" disabled={busy || diffSel.length !== 2} onClick={showDiff}>
+                              Diff выбранных
+                            </button>
+                          </p>
+                          {diffText !== null && (
+                            <pre style={{ maxHeight: "20em", overflow: "auto" }}>{diffText}</pre>
+                          )}
+                        </>
+                      )}
+                    </td>
+                  </tr>
+                )}
+              </React.Fragment>
             ))}
           </tbody>
         </table>

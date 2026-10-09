@@ -7,6 +7,19 @@
 
 ### Added
 
+- Чанк 82 (2026-10-09): история версий профилей конфигурации — миграция
+  000014 config_profile_versions (снимок content_yaml на create/update,
+  created_by, бэкфилл текущих версий); store ListVersions/GetVersion/
+  Rollback (tx, откат = новая версия с содержимым целевой);
+  internal/textdiff (unified diff на LCS без новых зависимостей, юнит-
+  тесты); API по спеке: GET /config_profiles/{id}/versions (keyset по
+  версии), GET .../versions/diff?from&to (контекст 3), POST
+  .../rollback (аудит config_profiles.rollback); UI: «история» в
+  ProfilesPanel — список версий, diff выбранных, кнопка «откатить
+  сюда». Проверки: build/vet/test (store/httpapi/textdiff) зелёные,
+  npm build чисто; живой e2E — при перекате .28 (миграция 14).
+  (server, db, ui)
+
 - Чанк 81 (2026-10-09): UI — кнопка «Валидация» в ProfilesPanel
   (POST /config_profiles/{id}/validate: suricata -T рендера на canary-
   инстансе, итог в истории применений). npm build чисто. (ui)

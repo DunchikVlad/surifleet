@@ -189,8 +189,8 @@ func NewRouter(d Deps) http.Handler {
 				r.With(h.requirePerm(PermHostsWrite)).Delete("/", h.deleteHost)
 				r.With(h.requirePerm(PermHostsRead)).Get("/discovery", h.getDiscovery)
 				r.With(h.requirePerm(PermHostsWrite)).Post("/confirm_discovery", h.confirmDiscovery)
-			r.With(h.requirePerm(PermHostsRead)).Get("/capabilities", h.getHostCapabilities)
-			r.With(h.requirePerm(PermHostsWrite)).Put("/capabilities", h.setHostCapabilities)
+				r.With(h.requirePerm(PermHostsRead)).Get("/capabilities", h.getHostCapabilities)
+				r.With(h.requirePerm(PermHostsWrite)).Put("/capabilities", h.setHostCapabilities)
 			})
 		})
 
@@ -218,6 +218,9 @@ func NewRouter(d Deps) http.Handler {
 				r.With(h.requirePerm(PermConfigRead)).Get("/render", h.renderConfigProfile)
 				r.With(h.requirePerm(PermConfigWrite)).Post("/deploy", h.deployConfigProfile)
 				r.With(h.requirePerm(PermConfigWrite)).Post("/validate", h.validateConfigProfile)
+				r.With(h.requirePerm(PermConfigRead)).Get("/versions", h.listConfigProfileVersions)
+				r.With(h.requirePerm(PermConfigRead)).Get("/versions/diff", h.diffConfigProfileVersions)
+				r.With(h.requirePerm(PermConfigWrite)).Post("/rollback", h.rollbackConfigProfile)
 			})
 		})
 
