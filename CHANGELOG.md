@@ -7,6 +7,10 @@
 
 ### Added
 
+- Чанк 81 (2026-10-09): UI — кнопка «Валидация» в ProfilesPanel
+  (POST /config_profiles/{id}/validate: suricata -T рендера на canary-
+  инстансе, итог в истории применений). npm build чисто. (ui)
+
 - Чанк 80 (2026-10-09): Systemd unit и PID'ы в «Параметрах» инстанса —
   Heartbeat.agent_pid (добавочное поле proto); статусы сервисов в
   heartbeat теперь с реальными instance_id (маппинг через

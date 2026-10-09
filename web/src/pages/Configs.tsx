@@ -217,6 +217,19 @@ function ProfilesPanel({ instances }: { instances: Instance[] }) {
     } catch (e) { setErr(e); } finally { setBusy(false); }
   };
 
+  // validate — POST /config_profiles/{id}/validate (чанк 77): suricata -T
+  // отрендеренного профиля на canary (первый инстанс org) без применения.
+  const validate = async () => {
+    if (!profileID) { setMsg("выберите профиль (кнопка «выбрать» в таблице)"); return; }
+    setBusy(true);
+    try {
+      const r = await apiPost<{ task_id: string; version: string; instance_id: string }>(
+        `/config_profiles/${profileID}/validate`, {});
+      setMsg(`валидация запущена: задача ${short(r.task_id)} (версия ${r.version}, canary ` +
+        `${r.instance_id.slice(0, 8)}…) — результат в истории применений инстанса`);
+    } catch (e) { setErr(e); } finally { setBusy(false); }
+  };
+
   return (
     <div className="panel">
       <h3>Профили конфигурации (наследование + переменные)</h3>
@@ -288,7 +301,12 @@ function ProfilesPanel({ instances }: { instances: Instance[] }) {
               {" "}только валидация
             </label>{" "}
             <button className="btn primary" disabled={busy || !profileID || !targetID} onClick={deploy}>Деплой профиля</button>
-          </>}
+          </>}{" "}
+          {can("config.write") && (
+            <button className="btn" disabled={busy || !profileID} title="suricata -T отрендеренного профиля на canary-инстансе" onClick={validate}>
+              Валидация
+            </button>
+          )}
         </p>
       )}
       {rendered && (
