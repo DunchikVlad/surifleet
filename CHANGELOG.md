@@ -7,6 +7,12 @@
 
 ### Added
 
+- Чанк 74 (2026-10-09): UI редактора правила (1E п.1) — Rules.tsx:
+  RuleEditor вместо prompt'а «ред.»: raw последней ревизии
+  (GET /rules/{id}/revisions?limit=1), «Проверить» → POST /rules/validate
+  (логика + ошибки), «Сохранить ревизию» → POST /rules/{id}/revisions.
+  npm build чисто. (ui)
+
 - Чанк 73 (2026-10-09): ручная ревизия правила (1E п.1, server) —
   POST /rules/{id}/revisions {raw} (rules.write): валидация парсером,
   sid обязан совпадать; AddRevision — revision=max+1, msg/category по

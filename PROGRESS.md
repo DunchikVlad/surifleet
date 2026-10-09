@@ -406,12 +406,20 @@ RulesRepo.AddRevision (tx): ревизия = max+1, rules.msg/category
 /rules/{id}/revisions. Проверки: build/vet, yaml ok, store/httpapi/rules
 тесты ok.
 
-**Следующий шаг после 73**: чанк 74 — UI редактора правил (вкладка
-«Правила» вместо prompt'а «ред.»: raw из последней ревизии
-(GET /rules/{id}/revisions?limit=1), textarea, кнопка «Проверить»
-(POST /rules/validate) с показом логики/ошибок, «Сохранить» → POST
-/rules/{id}/revisions; далее suricata -T через агента (флаг
-validate_only в DeployRulesTask или отдельная задача); 1E п.3 матрица.
+Чанк 74 ГОТОВ (2026-10-09, этот коммит; стенд выключен — живой чек
+отложен): 1E п.1, UI редактора — Rules.tsx: компонент RuleEditor
+вместо prompt'а «ред.»: raw последней ревизии (GET
+/rules/{id}/revisions?limit=1), textarea, «Проверить» → POST
+/rules/validate (логика: action/proto/адреса/порты/msg/classtype/prio/
+rev/reference/metadata + ошибки построчно), «Сохранить ревизию» → POST
+/rules/{id}/revisions (чанк 73), перезагрузка списка. Проверки: npm
+build чисто (TS strict; JSX-атрибут placeholder — без бэкслеш-экранов).
+
+**Следующий шаг после 74**: проверка правил suricata -T через агента
+(флаг validate_only в DeployRulesTask — proto-изменение: gen-proto,
+агент, hub; или отдельная задача — решить на месте); 1E п.3 — матрица
+«правила × инстансы»: раскрытие строки с карточкой логики (тот же
+RuleEditor/validate); перекат .28 и живой e2E при включении стенда.
 
 **Следующий шаг после 64**: рендер профиля (resolve parent-цепочки +
 подстановка переменных {{var}} — решить синтаксис) и интеграция с
@@ -1593,7 +1601,8 @@ managed-файле (245 правил).
 | 70 | UI доводка 1B: parent_id в форме профиля (наследование цепочки), волновой деплой из UI (кнопка «волна», таргетинг all/specific + canary/батч). npm build чисто. Стенд выключен — живой чек отложен | ffa5c2f |
 | 71 | Скачивание ruleset'ов (1E п.2): GET /rulesets/{id}/download (attachment+ETag, блоб как у агентов), кнопка «скачать» в UI, OpenAPI. Стенд выключен — живой чек отложен | e5e077d |
 | 72 | Валидация правил (1E п.1, server): POST /rules/validate — разбор internal/rules без записи, структурная логика + построчные ошибки; OpenAPI ParsedRule/LineError. Стенд выключен — живой чек отложен | 823268c |
-| 73 | Ручная ревизия правила (1E п.1, server): POST /rules/{id}/revisions {raw} — валидация парсером + контроль sid, AddRevision (msg/category обновляются, тюнинг не трогается, идемпотентно по sha256); OpenAPI. Стенд выключен — живой чек отложен | (этот коммит) |
+| 73 | Ручная ревизия правила (1E п.1, server): POST /rules/{id}/revisions {raw} — валидация парсером + контроль sid, AddRevision (msg/category обновляются, тюнинг не трогается, идемпотентно по sha256); OpenAPI. Стенд выключен — живой чек отложен | 047b2c4 |
+| 74 | UI редактора правила (1E п.1): RuleEditor в «Правилах» вместо prompt'а — raw последней ревизии, «Проверить» (логика+ошибки), «Сохранить ревизию». npm build чисто. Стенд выключен — живой чек отложен | (этот коммит) |
 | 63 | OpenAPI под факт чанков 54–62: /config_versions*, /instances/{id}/config/current+history, /clusters/{id}/capabilities, схемы ConfigVersion/ConfigDeploy/CapabilitiesSet. Перекатан .28, health ok | (этот коммит) |
 | 62 | SetCapabilitiesTask: живое применение capability без рестарта (агент applyCapabilities под mu; сервер push после PUT). Код, e2e после переката | (этот коммит) |
 | 61 | UI capability хоста: HostCapsPanel в «Конфигурациях» (GET/PUT /hosts/{id}/capabilities, чекбоксы каталога, apiPut). Перекат .28 прерван зависанием ВМ | (этот коммит) |
