@@ -118,6 +118,183 @@ function HostCapsPanel() {
   );
 }
 
+interface ConfigProfile {
+  id: string;
+  name: string;
+  description?: string | null;
+  scope_type: string; // cluster | host | instance
+  scope_id: string;
+  version: number;
+}
+
+interface RenderResult {
+  rendered_yaml: string;
+  sources: { profile_id: string; name: string; scope_type: string }[];
+}
+
+interface Cluster {
+  id: string;
+  name: string;
+}
+
+// ProfilesPanel — профили конфигурации (чанк 69): список, создание,
+// preview рендера для инстанса (GET /config_profiles/{id}/render) и
+// деплой отрендеренного профиля (POST /{id}/deploy). Наследование
+// кластер→хост→инстанс — через parent_id (задаётся в API, в панели —
+// базовый сценарий без родителя).
+function ProfilesPanel({ instances }: { instances: Instance[] }) {
+  const can = useCan();
+  const [items, setItems] = React.useState<ConfigProfile[]>([]);
+  const [hosts, setHosts] = React.useState<Host[]>([]);
+  const [clusters, setClusters] = React.useState<Cluster[]>([]);
+  const [err, setErr] = React.useState<unknown>(null);
+  const [msg, setMsg] = React.useState("");
+  const [busy, setBusy] = React.useState(false);
+  // форма создания
+  const [name, setName] = React.useState("");
+  const [scopeType, setScopeType] = React.useState("cluster");
+  const [scopeID, setScopeID] = React.useState("");
+  const [content, setContent] = React.useState("");
+  // рендер/деплой
+  const [profileID, setProfileID] = React.useState("");
+  const [targetID, setTargetID] = React.useState("");
+  const [rendered, setRendered] = React.useState<RenderResult | null>(null);
+  const [validateOnly, setValidateOnly] = React.useState(false);
+
+  const load = React.useCallback(async () => {
+    try {
+      const d = await apiGet<Page<ConfigProfile>>("/config_profiles?limit=100");
+      setItems(d.items || []);
+    } catch (e) { setErr(e); }
+  }, []);
+
+  React.useEffect(() => {
+    load();
+    apiGet<Page<Host>>("/hosts?limit=100").then(d => setHosts(d.items || [])).catch(() => {});
+    apiGet<Page<Cluster>>("/clusters?limit=100").then(d => setClusters(d.items || [])).catch(() => {});
+  }, [load]);
+
+  const scopeOptions = () => {
+    if (scopeType === "cluster") return clusters.map(c => ({ id: c.id, label: c.name }));
+    if (scopeType === "host") return hosts.map(h => ({ id: h.id, label: h.hostname || h.name || h.id }));
+    return instances.map(i => ({ id: i.id, label: (i.hostname ? i.hostname + " · " : "") + i.name }));
+  };
+
+  const add = async () => {
+    setBusy(true);
+    try {
+      const p = await apiPost<ConfigProfile>("/config_profiles", {
+        name: name.trim(), scope_type: scopeType, scope_id: scopeID, content_yaml: content,
+      });
+      setMsg(`профиль ${p.name} создан (v${p.version})`);
+      setName(""); setScopeID(""); setContent("");
+      await load();
+    } catch (e) { setErr(e); } finally { setBusy(false); }
+  };
+
+  const render = async () => {
+    if (!profileID || !targetID) { setMsg("выберите профиль и инстанс-цель"); return; }
+    setBusy(true);
+    try {
+      const d = await apiGet<RenderResult>(`/config_profiles/${profileID}/render?target=${targetID}`);
+      setRendered(d);
+      setMsg("");
+    } catch (e) { setErr(e); setRendered(null); } finally { setBusy(false); }
+  };
+
+  const deploy = async () => {
+    if (!profileID || !targetID) { setMsg("выберите профиль и инстанс-цель"); return; }
+    setBusy(true);
+    try {
+      const r = await apiPost<{ task_id: string; version: string }>(`/config_profiles/${profileID}/deploy`, {
+        instance_id: targetID, validate_only: validateOnly,
+      });
+      setMsg(`задача ${short(r.task_id)} отправлена (версия ${r.version}` +
+        (validateOnly ? ", только валидация" : "") + ") — результат в истории применений");
+    } catch (e) { setErr(e); } finally { setBusy(false); }
+  };
+
+  return (
+    <div className="panel">
+      <h3>Профили конфигурации (наследование + переменные)</h3>
+      <ErrorBox error={err} />
+      {msg && <p className="muted">{msg}</p>}
+      {items.length > 0 && (
+        <table>
+          <thead><tr><th>Имя</th><th>Scope</th><th>Версия</th><th></th></tr></thead>
+          <tbody>
+            {items.map(p => (
+              <tr key={p.id}>
+                <td><b>{p.name}</b></td>
+                <td className="muted">{p.scope_type}</td>
+                <td className="muted">v{p.version}</td>
+                <td>
+                  <button className="btn" onClick={() => { setProfileID(p.id); setRendered(null); }}>
+                    {profileID === p.id ? "✓ выбран" : "выбрать"}
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      {can("config.write") && (
+        <p>
+          Новый профиль:{" "}
+          <input placeholder="имя" value={name} onChange={e => setName(e.target.value)} />{" "}
+          <select value={scopeType} onChange={e => { setScopeType(e.target.value); setScopeID(""); }}>
+            <option value="cluster">кластер</option>
+            <option value="host">хост</option>
+            <option value="instance">инстанс</option>
+          </select>{" "}
+          <select value={scopeID} onChange={e => setScopeID(e.target.value)}>
+            <option value="">— объект —</option>
+            {scopeOptions().map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
+          </select>{" "}
+          <button className="btn primary" disabled={busy || !name.trim() || !scopeID || !content.trim()} onClick={add}>
+            Создать
+          </button>
+        </p>
+      )}
+      {can("config.write") && (
+        <textarea
+          placeholder={"content_yaml профиля; переменные {{var}} в кавычках: vars: {iface: enp0s3} + interface: \"{{iface}}\";\nвстроенные: {{instance.name}}, {{host.hostname}}, {{cluster.name}} и др."}
+          value={content}
+          onChange={e => setContent(e.target.value)}
+          style={{ width: "100%", minHeight: "8em", fontFamily: "monospace" }}
+        />
+      )}
+      {items.length > 0 && instances.length > 0 && (
+        <p className="muted">
+          Рендер/деплой: профиль выбран кнопкой выше; цель —{" "}
+          <select value={targetID} onChange={e => { setTargetID(e.target.value); setRendered(null); }}>
+            <option value="">— инстанс —</option>
+            {instances.map(i => (
+              <option key={i.id} value={i.id}>{i.hostname ? i.hostname + " · " : ""}{i.name}</option>
+            ))}
+          </select>{" "}
+          <button className="btn" disabled={busy || !profileID || !targetID} onClick={render}>Предпросмотр рендера</button>
+          {can("config.write") && <>{" "}
+            <label className="muted">
+              <input type="checkbox" checked={validateOnly} onChange={e => setValidateOnly(e.target.checked)} />
+              {" "}только валидация
+            </label>{" "}
+            <button className="btn primary" disabled={busy || !profileID || !targetID} onClick={deploy}>Деплой профиля</button>
+          </>}
+        </p>
+      )}
+      {rendered && (
+        <>
+          <p className="muted">
+            Цепочка наследования: {rendered.sources.map(s => `${s.name} (${s.scope_type})`).join(" → ")}
+          </p>
+          <pre style={{ maxHeight: "24em", overflow: "auto" }}>{rendered.rendered_yaml}</pre>
+        </>
+      )}
+    </div>
+  );
+}
+
 export default function Configs({ active }: { active: boolean }) {
   const can = useCan();
   const [items, setItems] = React.useState<ConfigVersion[]>([]);
@@ -244,6 +421,7 @@ export default function Configs({ active }: { active: boolean }) {
       <ErrorBox error={err} />
       {result && <p className="muted">{result}</p>}
       <HostCapsPanel />
+      {active && <ProfilesPanel instances={instances} />}
 
       {can("config.write") && (
         <div className="panel">

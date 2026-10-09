@@ -355,10 +355,19 @@ configs.deploy_wave. OpenAPI: путь /config_versions/{id}/deploy_wave,
 Проверки: build/vet зелёные, yaml ok (102 paths), go test — только
 не-блокер samlauth (NTFS).
 
-**Следующий шаг после 68**: UI профилей (список/редактор/preview рендера
-/кнопка деплоя и волны на вкладке «Конфигурации»); перекат .28
-(миграции 000012+000013, живой e2E: рендер → deploy validate_only →
-волновой deploy_config).
+Чанк 69 ГОТОВ (2026-10-09, этот коммит; стенд выключен — UI проверен
+сборкой): UI профилей конфигурации — ProfilesPanel на вкладке
+«Конфигурации» (web/src/pages/Configs.tsx): список профилей, создание
+(имя + тип scope + объект из списков кластеров/хостов/инстансов +
+content_yaml с подсказкой синтаксиса {{var}}), предпросмотр рендера
+для выбранного инстанса (цепочка наследования + rendered_yaml), деплой
+профиля (validate_only-флаг). Родительский профиль (parent_id) в форме
+пока не задаётся — через API. Проверки: npm build чисто (TS strict), go
+build не затронут.
+
+**Следующий шаг после 69**: UI: parent_id в форме профиля + волновой
+деплой из UI (deploy_wave); перекат .28 (миграции 000012+000013, живой
+e2E: рендер → deploy validate_only → волновой deploy_config).
 
 **Следующий шаг после 64**: рендер профиля (resolve parent-цепочки +
 подстановка переменных {{var}} — решить синтаксис) и интеграция с
@@ -1535,7 +1544,8 @@ managed-файле (245 правил).
 | 65 | Рендер профилей: internal/cfgrender (deep-мерж цепочки + {{var}} — vars: профилей + встроенные instance./host./cluster., строгий режим), store Chain + ErrCycle, GET /config_profiles/{id}/render?target= (RenderResult по спеке), юнит-тесты рендера. Стенд выключен — e2e отложен | 5e04399 |
 | 66 | Деплой отрендеренного профиля: POST /config_profiles/{id}/deploy (render → версия cfg-v<N> → задача deploy_config, 202+profile_id, аудит); рефакторинг configs.go (storeConfigVersion, dispatchDeployConfigTask — поведение прежнее); OpenAPI /deploy. Стенд выключен — e2e отложен | (этот коммит) |
 | 67 | Волновой деплой конфигов, backend-фундамент: миграция 000013 deployments kind(rules|config)+config_version_id, store Deployment.Kind, оркестратор ветвится по kind (DeployConfigTask из config_versions, DeployConfig-результаты). API создания config-деплоев — следующий чанк | 158207b |
-| 68 | API волнового деплоя конфигов: POST /config_versions/{id}/deploy_wave (targeting+canary/batch, kind=config, оркестратор, аудит); OpenAPI deploy_wave + Deployment.kind/config_version_id. Стенд выключен — e2e отложен | (этот коммит) |
+| 68 | API волнового деплоя конфигов: POST /config_versions/{id}/deploy_wave (targeting+canary/batch, kind=config, оркестратор, аудит); OpenAPI deploy_wave + Deployment.kind/config_version_id. Стенд выключен — e2e отложен | 9601260 |
+| 69 | UI профилей конфигурации: ProfilesPanel в «Конфигурациях» (список, создание, preview рендера с цепочкой, деплой профиля). npm build чисто. Стенд выключен — живой UI-чек отложен | (этот коммит) |
 | 63 | OpenAPI под факт чанков 54–62: /config_versions*, /instances/{id}/config/current+history, /clusters/{id}/capabilities, схемы ConfigVersion/ConfigDeploy/CapabilitiesSet. Перекатан .28, health ok | (этот коммит) |
 | 62 | SetCapabilitiesTask: живое применение capability без рестарта (агент applyCapabilities под mu; сервер push после PUT). Код, e2e после переката | (этот коммит) |
 | 61 | UI capability хоста: HostCapsPanel в «Конфигурациях» (GET/PUT /hosts/{id}/capabilities, чекбоксы каталога, apiPut). Перекат .28 прерван зависанием ВМ | (этот коммит) |

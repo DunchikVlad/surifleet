@@ -7,6 +7,12 @@
 
 ### Added
 
+- Чанк 69 (2026-10-09): UI профилей конфигурации — ProfilesPanel на
+  вкладке «Конфигурации»: список, создание (scope из списков
+  кластеров/хостов/инстансов, подсказка синтаксиса {{var}}),
+  предпросмотр рендера с цепочкой наследования, деплой профиля
+  (validate_only). npm build чисто. (ui)
+
 - Чанк 68 (2026-10-09): API волнового деплоя конфигураций — POST
   /config_versions/{id}/deploy_wave (config.write): targeting +
   canary/batch → Deployment kind=config → оркестратор (auto-pause при
