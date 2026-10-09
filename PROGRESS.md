@@ -365,9 +365,21 @@ content_yaml с подсказкой синтаксиса {{var}}), предпр
 пока не задаётся — через API. Проверки: npm build чисто (TS strict), go
 build не затронут.
 
-**Следующий шаг после 69**: UI: parent_id в форме профиля + волновой
-деплой из UI (deploy_wave); перекат .28 (миграции 000012+000013, живой
-e2E: рендер → deploy validate_only → волновой deploy_config).
+Чанк 70 ГОТОВ (2026-10-09, этот коммит; стенд выключен — живой UI-чек
+отложен): доводка UI плана 1B. Форма профиля (ProfilesPanel): выбор
+родительского профиля (parent_id — наследование цепочки кластер→хост→
+инстанс; API валидирует существование). Панель версий: волновой деплой
+из UI — кнопка «волна» у версии, настройки в панели «Цель деплоя»
+(таргетинг все кластеры/выбранные инстансы чекбоксами, canary_size,
+batch_size) → POST /config_versions/{id}/deploy_wave; результат —
+ссылка наблюдения на вкладку «Деплои». Проверки: npm build чисто
+(TS strict).
+
+**Следующий шаг после 70**: перекат .28 при включении стенда
+(миграции 000012+000013, сборка сервер+агент+фронт) + живой e2E
+плана 1B: рендер профиля → deploy validate_only (suricata -T) →
+волновой deploy_config; далее — приоритет 1E (редактор правил,
+чанк 71+, согласовано 09.10).
 
 **Следующий шаг после 64**: рендер профиля (resolve parent-цепочки +
 подстановка переменных {{var}} — решить синтаксис) и интеграция с
@@ -1545,7 +1557,8 @@ managed-файле (245 правил).
 | 66 | Деплой отрендеренного профиля: POST /config_profiles/{id}/deploy (render → версия cfg-v<N> → задача deploy_config, 202+profile_id, аудит); рефакторинг configs.go (storeConfigVersion, dispatchDeployConfigTask — поведение прежнее); OpenAPI /deploy. Стенд выключен — e2e отложен | (этот коммит) |
 | 67 | Волновой деплой конфигов, backend-фундамент: миграция 000013 deployments kind(rules|config)+config_version_id, store Deployment.Kind, оркестратор ветвится по kind (DeployConfigTask из config_versions, DeployConfig-результаты). API создания config-деплоев — следующий чанк | 158207b |
 | 68 | API волнового деплоя конфигов: POST /config_versions/{id}/deploy_wave (targeting+canary/batch, kind=config, оркестратор, аудит); OpenAPI deploy_wave + Deployment.kind/config_version_id. Стенд выключен — e2e отложен | 9601260 |
-| 69 | UI профилей конфигурации: ProfilesPanel в «Конфигурациях» (список, создание, preview рендера с цепочкой, деплой профиля). npm build чисто. Стенд выключен — живой UI-чек отложен | (этот коммит) |
+| 69 | UI профилей конфигурации: ProfilesPanel в «Конфигурациях» (список, создание, preview рендера с цепочкой, деплой профиля). npm build чисто. Стенд выключен — живой UI-чек отложен | e84bef5 |
+| 70 | UI доводка 1B: parent_id в форме профиля (наследование цепочки), волновой деплой из UI (кнопка «волна», таргетинг all/specific + canary/батч). npm build чисто. Стенд выключен — живой чек отложен | (этот коммит) |
 | 63 | OpenAPI под факт чанков 54–62: /config_versions*, /instances/{id}/config/current+history, /clusters/{id}/capabilities, схемы ConfigVersion/ConfigDeploy/CapabilitiesSet. Перекатан .28, health ok | (этот коммит) |
 | 62 | SetCapabilitiesTask: живое применение capability без рестарта (агент applyCapabilities под mu; сервер push после PUT). Код, e2e после переката | (этот коммит) |
 | 61 | UI capability хоста: HostCapsPanel в «Конфигурациях» (GET/PUT /hosts/{id}/capabilities, чекбоксы каталога, apiPut). Перекат .28 прерван зависанием ВМ | (этот коммит) |

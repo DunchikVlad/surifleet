@@ -154,6 +154,7 @@ function ProfilesPanel({ instances }: { instances: Instance[] }) {
   const [name, setName] = React.useState("");
   const [scopeType, setScopeType] = React.useState("cluster");
   const [scopeID, setScopeID] = React.useState("");
+  const [parentID, setParentID] = React.useState("");
   const [content, setContent] = React.useState("");
   // рендер/деплой
   const [profileID, setProfileID] = React.useState("");
@@ -183,11 +184,13 @@ function ProfilesPanel({ instances }: { instances: Instance[] }) {
   const add = async () => {
     setBusy(true);
     try {
-      const p = await apiPost<ConfigProfile>("/config_profiles", {
+      const body: Record<string, unknown> = {
         name: name.trim(), scope_type: scopeType, scope_id: scopeID, content_yaml: content,
-      });
+      };
+      if (parentID) body.parent_id = parentID;
+      const p = await apiPost<ConfigProfile>("/config_profiles", body);
       setMsg(`профиль ${p.name} создан (v${p.version})`);
-      setName(""); setScopeID(""); setContent("");
+      setName(""); setScopeID(""); setParentID(""); setContent("");
       await load();
     } catch (e) { setErr(e); } finally { setBusy(false); }
   };
@@ -251,6 +254,11 @@ function ProfilesPanel({ instances }: { instances: Instance[] }) {
             <option value="">— объект —</option>
             {scopeOptions().map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
           </select>{" "}
+          родитель:{" "}
+          <select value={parentID} onChange={e => setParentID(e.target.value)}>
+            <option value="">— нет (корень цепочки) —</option>
+            {items.map(p => <option key={p.id} value={p.id}>{p.name} ({p.scope_type})</option>)}
+          </select>{" "}
           <button className="btn primary" disabled={busy || !name.trim() || !scopeID || !content.trim()} onClick={add}>
             Создать
           </button>
@@ -310,6 +318,11 @@ export default function Configs({ active }: { active: boolean }) {
   // деплой
   const [instID, setInstID] = React.useState("");
   const [validateOnly, setValidateOnly] = React.useState(false);
+  // волновой деплой (чанк 70): режим таргетинга + canary/батчи
+  const [waveMode, setWaveMode] = React.useState("all_clusters");
+  const [waveInstIDs, setWaveInstIDs] = React.useState<string[]>([]);
+  const [canarySize, setCanarySize] = React.useState(1);
+  const [batchSize, setBatchSize] = React.useState(50);
   // редактор «как на хосте» (чанк 56): загрузка фактического yaml с сенсора
   const [srcInstID, setSrcInstID] = React.useState("");
   const [fetching, setFetching] = React.useState(false);
@@ -415,6 +428,27 @@ export default function Configs({ active }: { active: boolean }) {
     } catch (e) { setErr(e); } finally { setBusy(false); }
   };
 
+  // deployWave — волновой деплой версии через оркестратор (чанк 70):
+  // canary-волна → батчи, auto-pause при провале; статус — на вкладке
+  // «Деплои» (kind=config) или GET /deployments/{id}.
+  const deployWave = async (id: string) => {
+    if (waveMode === "specific_instances" && waveInstIDs.length === 0) {
+      setResult("выберите хотя бы один инстанс для волнового деплоя");
+      return;
+    }
+    setBusy(true);
+    try {
+      const targeting: Record<string, unknown> =
+        waveMode === "specific_instances"
+          ? { mode: "specific_instances", instance_ids: waveInstIDs }
+          : { mode: "all_clusters" };
+      const d = await apiPost<{ id: string; status: string }>(`/config_versions/${id}/deploy_wave`, {
+        targeting, canary_size: canarySize, batch_size: batchSize,
+      });
+      setResult(`волновой деплой создан (${short(d.id)}), статус ${d.status} — наблюдение на вкладке «Деплои»`);
+    } catch (e) { setErr(e); } finally { setBusy(false); }
+  };
+
   return (
     <>
       <h2>Конфигурации Suricata</h2>
@@ -486,6 +520,7 @@ export default function Configs({ active }: { active: boolean }) {
                     </button>
                     {can("config.write") && <>{" "}<button className="btn" disabled={fetching} onClick={() => toEditor(v)}>в редактор</button></>}
                     {can("config.write") && <>{" "}<button className="btn primary" onClick={() => deploy(v.id)}>деплой</button></>}
+                    {can("config.write") && <>{" "}<button className="btn" disabled={busy} onClick={() => deployWave(v.id)}>волна</button></>}
                   </td>
                 </tr>
                 {expanded === v.id && (
@@ -511,6 +546,31 @@ export default function Configs({ active }: { active: boolean }) {
               {" "}только валидация (suricata -T, без применения)
             </label>
           </p>
+          <p className="muted">
+            Волновой деплой (кнопка «волна» у версии):{" "}
+            <select value={waveMode} onChange={e => setWaveMode(e.target.value)}>
+              <option value="all_clusters">все кластеры</option>
+              <option value="specific_instances">выбранные инстансы</option>
+            </select>{" "}
+            canary:{" "}
+            <input type="number" min={0} max={99} value={canarySize} style={{ width: "3.5em" }}
+              onChange={e => setCanarySize(Number(e.target.value) || 0)} />{" "}
+            батч:{" "}
+            <input type="number" min={1} max={500} value={batchSize} style={{ width: "4em" }}
+              onChange={e => setBatchSize(Number(e.target.value) || 50)} />
+          </p>
+          {waveMode === "specific_instances" && (
+            <p className="muted">
+              {instances.map(i => (
+                <label key={i.id} style={{ marginRight: "1em" }}>
+                  <input type="checkbox" checked={waveInstIDs.includes(i.id)}
+                    onChange={() => setWaveInstIDs(prev =>
+                      prev.includes(i.id) ? prev.filter(x => x !== i.id) : [...prev, i.id])} />{" "}
+                  {i.hostname ? i.hostname + " · " : ""}{i.name}
+                </label>
+              ))}
+            </p>
+          )}
         </div>
       )}
       {can("config.read") && instances.length > 0 && (
