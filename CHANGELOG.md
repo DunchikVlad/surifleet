@@ -7,6 +7,17 @@
 
 ### Added
 
+- Чанк 87 (2026-10-10): дашборд кластера (план 1C, срез 2) — GET
+  /clusters/{id}/dashboard (fleet.read, scoping чанка 43): кластер,
+  агенты по статусам (AgentsRepo.CountByStatusForCluster), инстансы по
+  compliance (Summary с фильтром кластера), хосты с агентами
+  (AgentsRepo.HostsWithAgentStatus — hostname, статус агента,
+  last_seen_at, число инстансов, compliance-разбивка jsonb_object_agg).
+  OpenAPI: путь + схема ClusterDashboard. UI «Обзор»: селектор кластера
+  + ClusterDashPanel (карточки агенты/инстансы, таблица хостов с
+  бейджами статусов). Проверки: build/vet/test зелёные, yaml ok,
+  npm build чисто. (server, ui, api)
+
 - Чанк 86 (2026-10-10): дашборд флота одним экраном (план 1C, срез 1;
   п. 5.4 ТЗ) — GET /fleet/dashboard (fleet.read): агенты по статусам
   (AgentsRepo.CountByStatus), инстансы по compliance (существующая

@@ -140,6 +140,76 @@ func (h *handlers) getInstanceState(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, view)
 }
 
+// --- GET /api/v1/clusters/{id}/dashboard (дашборд кластера, чанк 87) ---
+
+// clusterDashboardView — ответ GET /clusters/{id}/dashboard: те же
+// блоки, что у дашборда флота, но в рамках кластера + построчная
+// разбивка по хостам (агент/инстансы/compliance).
+type clusterDashboardView struct {
+	Cluster struct {
+		ID   uuid.UUID `json:"id"`
+		Name string    `json:"name"`
+	} `json:"cluster"`
+	Agents struct {
+		Total    int            `json:"total"`
+		ByStatus map[string]int `json:"by_status"`
+	} `json:"agents"`
+	Instances struct {
+		Total    int            `json:"total"`
+		ByStatus map[string]int `json:"by_status"`
+	} `json:"instances"`
+	Hosts []store.HostAgentStatus `json:"hosts"`
+}
+
+// getClusterDashboard — GET /api/v1/clusters/{id}/dashboard (fleet.read,
+// чанк 87, план 1C срез 2): сводка по кластеру — агенты по статусам,
+// инстансы по compliance, хосты с агентами.
+func (h *handlers) getClusterDashboard(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathUUID(w, chi.URLParam(r, "id"), "id")
+	if !ok {
+		return
+	}
+	if !h.clusterAllowed(w, r, id) { // scoping: вне scope → 404 (чанк 43)
+		return
+	}
+	cluster, err := h.d.Store.Clusters.Get(r.Context(), id)
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	ctx := r.Context()
+	var view clusterDashboardView
+	view.Cluster.ID = cluster.ID
+	view.Cluster.Name = cluster.Name
+
+	agentStatuses, err := h.d.Store.Agents.CountByStatusForCluster(ctx, id)
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	view.Agents.ByStatus = agentStatuses
+	for _, n := range agentStatuses {
+		view.Agents.Total += n
+	}
+
+	summary, err := h.d.Store.Compliance.Summary(ctx, id)
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	view.Instances.Total = summary.TotalInstances
+	view.Instances.ByStatus = summary.ByStatus
+
+	hosts, err := h.d.Store.Agents.HostsWithAgentStatus(ctx, id)
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	view.Hosts = hosts
+
+	writeJSON(w, http.StatusOK, view)
+}
+
 // --- GET /api/v1/fleet/dashboard (дашборд флота, чанк 86) ---
 
 // fleetDashboardView — ответ GET /fleet/dashboard: сводка флота «одним

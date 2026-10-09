@@ -530,6 +530,24 @@ getProfileScoped (org + scoping). UI ProfilesPanel: кнопка «истори�
 store/httpapi/textdiff ok (feedsync/pki/agent-UDP падают как и раньше
 — sandbox сети/прав, не связано), npm build чисто.
 
+Чанк 87 ГОТОВ (2026-10-10, этот коммит): дашборд кластера (план 1C,
+срез 2). Store: AgentsRepo.CountByStatusForCluster (GROUP BY по
+кластеру), AgentsRepo.HostsWithAgentStatus (LEFT JOIN agents,
+подзапросы: число инстансов + jsonb_object_agg compliance-статусов по
+хосту; агент может отсутствовать — онбординг не пройден). API: GET
+/clusters/{id}/dashboard (fleet.read + scoping чанка 43 через
+clusterAllowed) — {cluster{id,name}, agents, instances, hosts[]}.
+OpenAPI: путь + схема ClusterDashboard. UI «Обзор»: селектор кластера
+(список /clusters) + ClusterDashPanel — 6 карточек (агенты
+online/offline, инстансы in_sync/drift+stale) и таблица хостов (хост,
+бейдж статуса агента, виден, инстансов, compliance k:v). Обновление
+панели раз в 15 с. Проверки: build/vet зелёные, go test store/httpapi
+ok, yaml ok, npm build чисто.
+
+**Следующий шаг после 87**: срез 1C — дашборд хоста
+(/hosts/{id}/dashboard: агент, инстансы с compliance, метрики-спарки
+из ClickHouse); SIEM-конфиг через ConfigPush (пр. 2).
+
 Чанк 86 ГОТОВ (2026-10-10, этот коммит): дашборд флота одним экраном
 (план 1C, срез 1; п. 5.4 ТЗ «дашборды флот/кластер/хост»). Store:
 AgentsRepo.CountByStatus (GROUP BY status), AgentsRepo.ListOffline
@@ -1817,7 +1835,8 @@ managed-файле (245 правил).
 | 83 | Каналы уведомлений webhook/Telegram (пр. 2): миграция 000015, internal/notify (Sender + 6 юнит-тестов), store CRUD + Public (bot_token writeOnly), API /notification_channels + POST /{id}/test, права notifications.*, OpenAPI. Движок дедупликации и UI — следующие чанки | (этот коммит) |
 | 84 | Движок уведомлений с дедупликацией (пр. 2): миграция 000016 notification_deliveries, TryDelivery атомарный upsert (окно 10 мин), notify Engine (Emit/EmitAsync, ChannelStore-интерфейс, 6 юнит-тестов), хаб OnAgentStatus (offline стрим/свипер, online revive), cmd/server emitAgentStatusEvent. UI — следующий чанк | 25d2988 |
 | 85 | UI каналов уведомлений: вкладка «Уведомления» (список, создание webhook/telegram, ред., вкл/выкл, удаление, кнопка «Тест»). npm build чисто | b4a452a |
-| 86 | Дашборд флота (1C срез 1): GET /fleet/dashboard (агенты по статусам + compliance + деплои 24ч + топ-10 offline), store CountByStatus/ListOffline/CountByStatusSince, OpenAPI FleetDashboard, UI «Обзор» — блок «Агенты» + offline-строка + деплои 24ч | (этот коммит) |
+| 86 | Дашборд флота (1C срез 1): GET /fleet/dashboard (агенты по статусам + compliance + деплои 24ч + топ-10 offline), store CountByStatus/ListOffline/CountByStatusSince, OpenAPI FleetDashboard, UI «Обзор» — блок «Агенты» + offline-строка + деплои 24ч | b80a0ae |
+| 87 | Дашборд кластера (1C срез 2): GET /clusters/{id}/dashboard (агенты/compliance/хосты кластера), store CountByStatusForCluster/HostsWithAgentStatus, OpenAPI ClusterDashboard, UI «Обзор» — селектор кластера + ClusterDashPanel (карточки + таблица хостов) | (этот коммит) |
 | 63 | OpenAPI под факт чанков 54–62: /config_versions*, /instances/{id}/config/current+history, /clusters/{id}/capabilities, схемы ConfigVersion/ConfigDeploy/CapabilitiesSet. Перекатан .28, health ok | (этот коммит) |
 | 62 | SetCapabilitiesTask: живое применение capability без рестарта (агент applyCapabilities под mu; сервер push после PUT). Код, e2e после переката | (этот коммит) |
 | 61 | UI capability хоста: HostCapsPanel в «Конфигурациях» (GET/PUT /hosts/{id}/capabilities, чекбоксы каталога, apiPut). Перекат .28 прерван зависанием ВМ | (этот коммит) |

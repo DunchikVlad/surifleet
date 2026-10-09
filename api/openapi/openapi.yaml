@@ -2351,6 +2351,22 @@ paths:
               schema: {$ref: '#/components/schemas/CapabilitiesSet'}
         default: {$ref: '#/components/responses/Error'}
 
+  /clusters/{id}/dashboard:
+    parameters:
+      - {$ref: '#/components/parameters/PathId'}
+    get:
+      operationId: get_cluster_dashboard
+      tags: [fleet]
+      summary: Дашборд кластера (агенты, compliance, хосты с агентами)
+      description: "Требуется право: fleet.read. План 1C (чанк 87): сводка по кластеру — агенты по статусам, инстансы по compliance, построчная разбивка по хостам."
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ClusterDashboard'}
+        default: {$ref: '#/components/responses/Error'}
+
   /config_profiles:
     get:
       operationId: list_config_profiles
@@ -3773,6 +3789,39 @@ components:
               hostname: {type: string}
               cluster: {type: string}
               last_seen_at: {type: string, format: date-time, nullable: true}
+
+    ClusterDashboard:
+      type: object
+      description: Дашборд кластера (чанк 87, план 1C)
+      properties:
+        cluster:
+          type: object
+          properties:
+            id: {type: string, format: uuid}
+            name: {type: string}
+        agents:
+          type: object
+          properties:
+            total: {type: integer}
+            by_status: {type: object, additionalProperties: {type: integer}}
+        instances:
+          type: object
+          properties:
+            total: {type: integer}
+            by_status: {type: object, additionalProperties: {type: integer}, description: 'compliance-статусы → число'}
+        hosts:
+          type: array
+          description: Хосты кластера с агентами (агент может отсутствовать — онбординг не пройден)
+          items:
+            type: object
+            properties:
+              host_id: {type: string, format: uuid}
+              hostname: {type: string}
+              agent_id: {type: string, format: uuid, nullable: true}
+              agent_status: {type: string, nullable: true, description: 'online | offline | degraded | updating | error'}
+              last_seen_at: {type: string, format: date-time, nullable: true}
+              instances: {type: integer}
+              by_compliance: {type: object, additionalProperties: {type: integer}}
         next_cursor: {type: string, nullable: true}
 
     FailedRule:
