@@ -36,6 +36,7 @@ import (
 	"github.com/surifleet/surifleet/internal/httpapi"
 	"github.com/surifleet/surifleet/internal/hub"
 	"github.com/surifleet/surifleet/internal/iocrules"
+	"github.com/surifleet/surifleet/internal/notify"
 	"github.com/surifleet/surifleet/internal/oidc"
 	"github.com/surifleet/surifleet/internal/orchestrator"
 	"github.com/surifleet/surifleet/internal/pki"
@@ -335,6 +336,7 @@ func (a *App) routes() http.Handler {
 		FeedSync: a.feedSync,
 		OIDC:     oidc.NewService(a.db),
 		SAML:     samlauth.NewService(samlSPKeyDir(a.cfg)),
+		Notify:   notify.NewSender(),
 		PingDB:   a.db.Pool.Ping,
 	})
 }

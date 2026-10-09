@@ -15,30 +15,31 @@ import (
 type Store struct {
 	Pool *pgxpool.Pool
 
-	Organizations *OrganizationsRepo
-	Clusters      *ClustersRepo
-	Hosts         *HostsRepo
-	JoinTokens    *JoinTokensRepo
-	Agents        *AgentsRepo
-	Instances     *InstancesRepo
-	Rules         *RulesRepo
-	Iocs          *IocsRepo
-	Feeds         *FeedsRepo
-	Rulesets      *RulesetsRepo
-	Deployments   *DeploymentsRepo
-	DesiredState  *DesiredStateRepo
-	ActualState   *ActualStateRepo
-	Compliance    *ComplianceRepo
-	Capabilities  *CapabilitiesRepo
-	Users         *UsersRepo
-	Roles         *RolesRepo
-	Sessions      *SessionsRepo
-	Audit         *AuditRepo
-	ApiTokens     *ApiTokensRepo
-	Configs       *ConfigsRepo
-	ConfigProfiles *ConfigProfilesRepo
-	SsoProviders  *SsoProvidersRepo
-	OidcStates    *OidcStatesRepo
+	Organizations        *OrganizationsRepo
+	Clusters             *ClustersRepo
+	Hosts                *HostsRepo
+	JoinTokens           *JoinTokensRepo
+	Agents               *AgentsRepo
+	Instances            *InstancesRepo
+	Rules                *RulesRepo
+	Iocs                 *IocsRepo
+	Feeds                *FeedsRepo
+	Rulesets             *RulesetsRepo
+	Deployments          *DeploymentsRepo
+	DesiredState         *DesiredStateRepo
+	ActualState          *ActualStateRepo
+	Compliance           *ComplianceRepo
+	Capabilities         *CapabilitiesRepo
+	Users                *UsersRepo
+	Roles                *RolesRepo
+	Sessions             *SessionsRepo
+	Audit                *AuditRepo
+	ApiTokens            *ApiTokensRepo
+	Configs              *ConfigsRepo
+	ConfigProfiles       *ConfigProfilesRepo
+	SsoProviders         *SsoProvidersRepo
+	OidcStates           *OidcStatesRepo
+	NotificationChannels *NotificationChannelsRepo
 }
 
 // Connect открывает пул соединений по DSN и проверяет его ping'ом.
@@ -90,6 +91,7 @@ func Connect(ctx context.Context, dsn string) (*Store, error) {
 	s.ConfigProfiles = &ConfigProfilesRepo{pool: pool}
 	s.SsoProviders = &SsoProvidersRepo{pool: pool}
 	s.OidcStates = &OidcStatesRepo{pool: pool}
+	s.NotificationChannels = &NotificationChannelsRepo{pool: pool}
 	return s, nil
 }
 

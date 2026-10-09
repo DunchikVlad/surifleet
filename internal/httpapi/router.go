@@ -16,6 +16,7 @@ import (
 	"github.com/surifleet/surifleet/internal/chlogs"
 	"github.com/surifleet/surifleet/internal/feedsync"
 	"github.com/surifleet/surifleet/internal/hub"
+	"github.com/surifleet/surifleet/internal/notify"
 	"github.com/surifleet/surifleet/internal/oidc"
 	"github.com/surifleet/surifleet/internal/orchestrator"
 	"github.com/surifleet/surifleet/internal/samlauth"
@@ -52,6 +53,10 @@ type Deps struct {
 	OIDC *oidc.Service
 	// SAML — SAML 2.0 SSO (chunk 41; nil — SAML-эндпоинты возвращают 503).
 	SAML *samlauth.Service
+
+	// Notify — отправка уведомлений в каналы webhook/telegram (chunk 83;
+	// nil — POST /notification_channels/{id}/test возвращает 503).
+	Notify *notify.Sender
 
 	// PingDB проверяет живость PostgreSQL для /health (nil — проверка выкл.).
 	PingDB func(ctx context.Context) error
@@ -271,6 +276,17 @@ func NewRouter(d Deps) http.Handler {
 				r.With(h.requirePerm(PermFeedsWrite)).Delete("/", h.deleteFeed)
 				r.With(h.requirePerm(PermFeedsWrite)).Post("/sync", h.syncFeed)
 				r.With(h.requirePerm(PermFeedsRead)).Get("/runs", h.listFeedRuns)
+			})
+		})
+
+		r.Route("/notification_channels", func(r chi.Router) {
+			r.With(h.requirePerm(PermNotificationsRead)).Get("/", h.listNotificationChannels)
+			r.With(h.requirePerm(PermNotificationsWrite)).Post("/", h.createNotificationChannel)
+			r.Route("/{id}", func(r chi.Router) {
+				r.With(h.requirePerm(PermNotificationsRead)).Get("/", h.getNotificationChannel)
+				r.With(h.requirePerm(PermNotificationsWrite)).Patch("/", h.updateNotificationChannel)
+				r.With(h.requirePerm(PermNotificationsWrite)).Delete("/", h.deleteNotificationChannel)
+				r.With(h.requirePerm(PermNotificationsWrite)).Post("/test", h.testNotificationChannel)
 			})
 		})
 

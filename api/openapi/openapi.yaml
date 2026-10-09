@@ -1169,6 +1169,105 @@ paths:
         default: {$ref: '#/components/responses/Error'}
 
   # --------------------------------------------------------------------------
+  # Каналы уведомлений (webhook/Telegram)
+  # --------------------------------------------------------------------------
+
+  /notification_channels:
+    get:
+      operationId: list_notification_channels
+      tags: [notification_channels]
+      summary: Список каналов уведомлений
+      description: "Требуется право: notifications.read"
+      parameters:
+        - {$ref: '#/components/parameters/Limit'}
+        - {$ref: '#/components/parameters/Cursor'}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/NotificationChannelPage'}
+        default: {$ref: '#/components/responses/Error'}
+    post:
+      operationId: create_notification_channel
+      tags: [notification_channels]
+      summary: Создать канал уведомлений
+      description: "Требуется право: notifications.write"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/NotificationChannelInput'}
+      responses:
+        '201':
+          description: Создан
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/NotificationChannel'}
+        default: {$ref: '#/components/responses/Error'}
+
+  /notification_channels/{id}:
+    parameters:
+      - {$ref: '#/components/parameters/PathId'}
+    get:
+      operationId: get_notification_channel
+      tags: [notification_channels]
+      summary: Канал по id
+      description: "Требуется право: notifications.read"
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/NotificationChannel'}
+        default: {$ref: '#/components/responses/Error'}
+    patch:
+      operationId: update_notification_channel
+      tags: [notification_channels]
+      summary: Изменить канал (пустой bot_token — «не менять»)
+      description: "Требуется право: notifications.write"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/NotificationChannelUpdateInput'}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/NotificationChannel'}
+        default: {$ref: '#/components/responses/Error'}
+    delete:
+      operationId: delete_notification_channel
+      tags: [notification_channels]
+      summary: Удалить канал
+      description: "Требуется право: notifications.write"
+      responses:
+        '204':
+          description: Удалён
+        default: {$ref: '#/components/responses/Error'}
+
+  /notification_channels/{id}/test:
+    post:
+      operationId: test_notification_channel
+      tags: [notification_channels]
+      summary: Тестовая отправка в канал (живая проверка)
+      description: "Требуется право: notifications.write"
+      parameters:
+        - {$ref: '#/components/parameters/PathId'}
+      responses:
+        '200':
+          description: Отправлено
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: {type: boolean}
+        default: {$ref: '#/components/responses/Error'}
+
+  # --------------------------------------------------------------------------
   # IOC
   # --------------------------------------------------------------------------
 
@@ -3381,6 +3480,41 @@ components:
         rules_unchanged: {type: integer, description: 'Только в ответе sync: правила без изменений'}
         ruleset_version: {type: string, description: 'Только в ответе sync: собранная версия ruleset ioc-current-*'}
 
+    NotificationChannel:
+      type: object
+      description: 'Канал уведомлений (чанк 83). config по типу: webhook — {url, headers?}; telegram — {chat_id} (bot_token — writeOnly, в ответах обнуляется)'
+      properties:
+        id: {type: string, format: uuid}
+        organization_id: {type: string, format: uuid}
+        name: {type: string}
+        type: {type: string, enum: [webhook, telegram]}
+        config: {type: object, additionalProperties: true}
+        enabled: {type: boolean}
+        created_at: {type: string, format: date-time}
+        updated_at: {type: string, format: date-time}
+
+    NotificationChannelInput:
+      type: object
+      required: [name, type, config]
+      properties:
+        name: {type: string}
+        type: {type: string, enum: [webhook, telegram]}
+        config:
+          type: object
+          additionalProperties: true
+          description: 'webhook: {url (http/https), headers?}; telegram: {bot_token (writeOnly), chat_id}'
+        enabled: {type: boolean, default: true}
+
+    NotificationChannelUpdateInput:
+      type: object
+      properties:
+        name: {type: string}
+        config:
+          type: object
+          additionalProperties: true
+          description: 'Как в NotificationChannelInput; пустой bot_token в telegram — «не менять»'
+        enabled: {type: boolean}
+
     Ioc:
       type: object
       properties:
@@ -4018,6 +4152,7 @@ components:
     RuleHistoryPage: {type: object, properties: {items: {type: array, items: {$ref: '#/components/schemas/RuleHistoryItem'}}, next_cursor: {type: string, nullable: true}}}
     FeedPage: {type: object, properties: {items: {type: array, items: {$ref: '#/components/schemas/Feed'}}, next_cursor: {type: string, nullable: true}}}
     FeedRunPage: {type: object, properties: {items: {type: array, items: {$ref: '#/components/schemas/FeedRun'}}, next_cursor: {type: string, nullable: true}}}
+    NotificationChannelPage: {type: object, properties: {items: {type: array, items: {$ref: '#/components/schemas/NotificationChannel'}}, next_cursor: {type: string, nullable: true}}}
     IocPage: {type: object, properties: {items: {type: array, items: {$ref: '#/components/schemas/Ioc'}}, next_cursor: {type: string, nullable: true}}}
     DeployTemplatePage: {type: object, properties: {items: {type: array, items: {$ref: '#/components/schemas/DeployTemplate'}}, next_cursor: {type: string, nullable: true}}}
     RulesetPage: {type: object, properties: {items: {type: array, items: {$ref: '#/components/schemas/RulesetVersion'}}, next_cursor: {type: string, nullable: true}}}

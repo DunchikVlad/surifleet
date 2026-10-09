@@ -7,6 +7,20 @@
 
 ### Added
 
+- Чанк 83 (2026-10-09): каналы уведомлений webhook/Telegram (пр. 2
+  roadmap, п. 5.5 ТЗ) — миграция 000015 notification_channels (config
+  jsonb по типу, UNIQUE(org, name)); internal/notify (синхронный
+  Sender: webhook POST JSON с headers, Telegram Bot API sendMessage,
+  таймаут 10 с, базовый URL инжектируем для тестов; 6 юнит-тестов
+  httptest); store NotificationChannelsRepo (CRUD, keyset; Public()
+  обнуляет bot_token — writeOnly по образцу SSO client_secret);
+  API /notification_channels (CRUD + POST /{id}/test — живая проверка
+  200|502, аудит notification_channels.*), права notifications.read/
+  write в каталоге; OpenAPI: пути + схемы NotificationChannel*;
+  cmd/server: Deps.Notify. Движок событий с дедупликацией и UI —
+  следующие чанки. Проверки: build/vet/test (store/httpapi/notify)
+  зелёные, yaml ok. (server, db, api)
+
 - Чанк 82 (2026-10-09): история версий профилей конфигурации — миграция
   000014 config_profile_versions (снимок content_yaml на create/update,
   created_by, бэкфилл текущих версий); store ListVersions/GetVersion/

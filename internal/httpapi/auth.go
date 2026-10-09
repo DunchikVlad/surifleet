@@ -29,29 +29,31 @@ import (
 
 // Каталог разрешений (строки в roles.permissions; '*' — все).
 const (
-	PermFleetRead   = "fleet.read"   // обзор, compliance, матрица
-	PermHostsRead   = "hosts.read"   // организации/кластеры/хосты/инстансы — чтение
-	PermHostsWrite  = "hosts.write"  // кластеры/хосты/инстансы — изменение, join-токены, confirm_discovery
-	PermAgentsRead  = "agents.read"  // список агентов, логи агентов
-	PermRulesRead   = "rules.read"   // правила, ruleset'ы, ревизии — чтение
-	PermRulesWrite  = "rules.write"  // правила CRUD/import/bulk, сборка ruleset
-	PermRulesDeploy = "rules.deploy" // деплои: create/pause/resume/cancel, iocs/generate
-	PermIocRead     = "ioc.read"
-	PermIocWrite    = "ioc.write"
-	PermFeedsRead   = "feeds.read"
-	PermFeedsWrite  = "feeds.write" // CRUD фидов + sync
-	PermConfigRead  = "config.read"  // версии конфигураций (чанк 54)
-	PermConfigWrite = "config.write" // создание версий + deploy_config
-	PermUsersRead   = "users.read"
-	PermUsersWrite  = "users.write" // пользователи + отзыв сессий
-	PermTokensRead  = "tokens.read" // API-токены автоматизации (чанк 29)
-	PermTokensWrite = "tokens.write"
-	PermRolesRead   = "roles.read"
-	PermRolesWrite  = "roles.write" // кастомные роли
-	PermAuditRead   = "audit.read"
-	PermSsoRead     = "sso.read" // SSO-провайдеры (чанк 35)
-	PermSsoWrite    = "sso.write"
-	PermAll         = "*" // admin; также admin-only операции (организации CUD)
+	PermFleetRead          = "fleet.read"   // обзор, compliance, матрица
+	PermHostsRead          = "hosts.read"   // организации/кластеры/хосты/инстансы — чтение
+	PermHostsWrite         = "hosts.write"  // кластеры/хосты/инстансы — изменение, join-токены, confirm_discovery
+	PermAgentsRead         = "agents.read"  // список агентов, логи агентов
+	PermRulesRead          = "rules.read"   // правила, ruleset'ы, ревизии — чтение
+	PermRulesWrite         = "rules.write"  // правила CRUD/import/bulk, сборка ruleset
+	PermRulesDeploy        = "rules.deploy" // деплои: create/pause/resume/cancel, iocs/generate
+	PermIocRead            = "ioc.read"
+	PermIocWrite           = "ioc.write"
+	PermFeedsRead          = "feeds.read"
+	PermFeedsWrite         = "feeds.write"  // CRUD фидов + sync
+	PermConfigRead         = "config.read"  // версии конфигураций (чанк 54)
+	PermConfigWrite        = "config.write" // создание версий + deploy_config
+	PermUsersRead          = "users.read"
+	PermUsersWrite         = "users.write" // пользователи + отзыв сессий
+	PermTokensRead         = "tokens.read" // API-токены автоматизации (чанк 29)
+	PermTokensWrite        = "tokens.write"
+	PermRolesRead          = "roles.read"
+	PermRolesWrite         = "roles.write" // кастомные роли
+	PermAuditRead          = "audit.read"
+	PermSsoRead            = "sso.read" // SSO-провайдеры (чанк 35)
+	PermSsoWrite           = "sso.write"
+	PermNotificationsRead  = "notifications.read"  // каналы уведомлений (чанк 83)
+	PermNotificationsWrite = "notifications.write" // CRUD каналов + тест-отправка
+	PermAll                = "*"                   // admin; также admin-only операции (организации CUD)
 )
 
 // knownPermissions — весь каталог (валидация permissions кастомных ролей).
@@ -64,6 +66,7 @@ var knownPermissions = map[string]bool{
 	PermUsersWrite: true, PermTokensRead: true, PermTokensWrite: true,
 	PermRolesRead: true, PermRolesWrite: true,
 	PermAuditRead: true, PermSsoRead: true, PermSsoWrite: true,
+	PermNotificationsRead: true, PermNotificationsWrite: true,
 }
 
 // validPermission — разрешение из каталога или '*'.

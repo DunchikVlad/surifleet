@@ -530,10 +530,33 @@ getProfileScoped (org + scoping). UI ProfilesPanel: кнопка «истори�
 store/httpapi/textdiff ok (feedsync/pki/agent-UDP падают как и раньше
 — sandbox сети/прав, не связано), npm build чисто.
 
-**Следующий шаг после 82**: перекат .28 (миграция 000014), живой e2E:
-PATCH профиля → v2 в истории → diff v1/v2 → откат к v1 → v3 = содержимое
-v1. Далее по roadmap: дашборды флот/кластер/хост (1C), уведомления
+**Следующий шаг после 82**: ~~перекат .28 (миграция 000014), живой e2E~~
+(по команде пользователя 09.10: на тестовую среду не катим, работаем
+кодом). Далее по roadmap: дашборды флот/кластер/хост (1C), уведомления
 webhook+Telegram, SIEM-конфиг через ConfigPush (пр. 2).
+
+Чанк 83 ГОТОВ (2026-10-09, этот коммит; без переката — по команде
+пользователя стенд не трогаем): каналы уведомлений webhook/Telegram
+(пр. 2 roadmap; п. 5.5 ТЗ «уведомления email/webhook/Telegram»),
+первый срез — CRUD + живая проверка. Миграция 000015
+notification_channels (org FK, type webhook|telegram, config jsonb,
+UNIQUE(org,name)). Новый пакет internal/notify: синхронный Sender
+(webhook — POST JSON Message{title,text,severity,fields} с
+произвольными headers; telegram — Bot API sendMessage, ok=false →
+ошибка с description; таймаут 10 с; TelegramAPIBase инжектируется —
+6 юнит-тестов httptest: ok/HTTP-ошибка/пустой конфиг/путь с токеном).
+Store NotificationChannelsRepo (CRUD + keyset-листинг; Public()
+удаляет bot_token из config — writeOnly как client_secret у SSO;
+BotToken() — для отправки). API /notification_channels: CRUD (права
+notifications.read/write — новые в каталоге; PATCH: тип менять
+нельзя, пустой bot_token — «не менять»), POST /{id}/test — живая
+отправка тестового сообщения (200 {ok:true} | 502 с текстом, аудит
+notification_channels.test). OpenAPI: пути /notification_channels*
++ схемы NotificationChannel*/Page. cmd/server: Deps.Notify =
+notify.NewSender(). Движок событий с дедупликацией (offline/online
+агентов, провалы деплоев) и UI-вкладка — следующие чанки. Проверки:
+build/vet зелёные, go test store/httpapi/notify ok (feedsync/pki/
+agent-UDP — sandbox, не связано), yaml ok.
 
 **Push 2026-10-09 (Kimi Code)**: origin/main догнан до fed65cc (чанки
 70–80 + фиксы по живому e2E, 11 коммитов) — синхронизация по команде
@@ -1732,7 +1755,8 @@ managed-файле (245 правил).
 | 79 | IP агента в «Параметрах» инстанса (GET /instances/{id} + UI); фиксы по живому e2E: IDsForOrg nil→[] (canary 400), рендер терял «%YAML 1.1» (suricata-заголовок восстанавливается). Перекат .28+.67, миграции 13, e2E 1B+1E пройден, compliance in_sync 1/1 | 701f7fe |
 | 80 | Systemd unit + PID в «Параметрах»: Heartbeat.agent_pid, статусы сервисов с реальными instance_id (bound_instances.json), Redis agent_svc, GET /instances/{id} → service_state/service_pid/agent_pid, UI. Живой e2E: active pid 2103 = MainPID, agent_pid 3073 | fed65cc |
 | 81 | UI: кнопка «Валидация» в ProfilesPanel (POST /config_profiles/{id}/validate, canary по умолчанию). npm build чисто | (этот коммит) |
-| 82 | История версий профилей: миграция 000014 config_profile_versions (+бэкфилл), store снимки в tx Create/Update + ListVersions/GetVersion/Rollback, internal/textdiff (unified diff, юнит-тесты), API /versions + /versions/diff + /rollback по спеке, UI «история» с diff и откатом. Стенд выключен — e2e при перекате .28 | (этот коммит) |
+| 82 | История версий профилей: миграция 000014 config_profile_versions (+бэкфилл), store снимки в tx Create/Update + ListVersions/GetVersion/Rollback, internal/textdiff (unified diff, юнит-тесты), API /versions + /versions/diff + /rollback по спеке, UI «история» с diff и откатом. Стенд выключен — e2e при перекате .28 | 90c9527 |
+| 83 | Каналы уведомлений webhook/Telegram (пр. 2): миграция 000015, internal/notify (Sender + 6 юнит-тестов), store CRUD + Public (bot_token writeOnly), API /notification_channels + POST /{id}/test, права notifications.*, OpenAPI. Движок дедупликации и UI — следующие чанки | (этот коммит) |
 | 63 | OpenAPI под факт чанков 54–62: /config_versions*, /instances/{id}/config/current+history, /clusters/{id}/capabilities, схемы ConfigVersion/ConfigDeploy/CapabilitiesSet. Перекатан .28, health ok | (этот коммит) |
 | 62 | SetCapabilitiesTask: живое применение capability без рестарта (агент applyCapabilities под mu; сервер push после PUT). Код, e2e после переката | (этот коммит) |
 | 61 | UI capability хоста: HostCapsPanel в «Конфигурациях» (GET/PUT /hosts/{id}/capabilities, чекбоксы каталога, apiPut). Перекат .28 прерван зависанием ВМ | (этот коммит) |
