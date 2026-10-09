@@ -252,35 +252,117 @@ func (h *handlers) renderConfigProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	chainStore, err := h.d.Store.ConfigProfiles.Chain(r.Context(), id)
+	yml, sources, err := h.renderProfile(r, id, inst)
+	if err != nil {
+		writeRenderError(w, err)
+		return
+	}
+	objType := "config_profile"
+	h.audit(r, identityFrom(r.Context()), "config_profiles.render", &objType, &p.ID, "success",
+		"цель "+inst.Name+" ("+strconv.Itoa(len(sources))+" профилей в цепочке)")
+	writeJSON(w, http.StatusOK, map[string]any{"rendered_yaml": yml, "sources": sources})
+}
+
+// deployConfigProfile — POST /config_profiles/{id}/deploy (config.write):
+// интеграция рендера с deploy_config (чанк 66) — отрендерить профиль для
+// инстанса, сохранить результат версией конфигурации (content-addressed,
+// авто cfg-v<N>) и отправить агенту задачу deploy_config.
+func (h *handlers) deployConfigProfile(w http.ResponseWriter, r *http.Request) {
+	orgID, ok := h.resolveOrgID(w, r)
+	if !ok {
+		return
+	}
+	id, ok := pathUUID(w, chi.URLParam(r, "id"), "id")
+	if !ok {
+		return
+	}
+	var in deployConfigInput // instance_id + validate_only
+	if !decodeJSON(w, r, &in) {
+		return
+	}
+	instID, err := uuid.Parse(in.InstanceID)
+	if err != nil {
+		writeValidation(w, fieldErrors{"instance_id": "обязательный UUID"})
+		return
+	}
+	p, err := h.d.Store.ConfigProfiles.Get(r.Context(), id)
 	if err != nil {
 		writeStoreError(w, err)
 		return
 	}
-	facts, err := h.renderTarget(r, inst)
+	if p.OrganizationID != orgID {
+		writeError(w, http.StatusNotFound, CodeNotFound, "ресурс не найден", nil)
+		return
+	}
+	if !h.profileScopeExists(w, r, p.ScopeType, p.ScopeID) {
+		return
+	}
+	inst, err := h.d.Store.Instances.Get(r.Context(), instID)
 	if err != nil {
 		writeStoreError(w, err)
 		return
+	}
+	if !h.instanceAllowed(w, r, inst.HostID) { // scoping (чанк 43)
+		return
+	}
+
+	yml, _, err := h.renderProfile(r, id, inst)
+	if err != nil {
+		writeRenderError(w, err)
+		return
+	}
+	note := "render профиля " + p.Name + " v" + strconv.Itoa(p.Version) + " → " + inst.Name
+	cv, _, err := h.storeConfigVersion(r.Context(), orgID, "", yml, note)
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	taskID, agentID, err := h.dispatchDeployConfigTask(r.Context(), cv, inst, in.ValidateOnly)
+	if errors.Is(err, errAgentOffline) {
+		writeError(w, http.StatusConflict, CodeConflict, errAgentOffline.Error(), nil)
+		return
+	}
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	objType := "config_profile"
+	reason := "деплой на инстанс " + inst.Name + ", версия " + cv.Version + " (задача " + taskID + ")"
+	h.audit(r, identityFrom(r.Context()), "config_profiles.deploy", &objType, &p.ID, "success", reason)
+	writeJSON(w, http.StatusAccepted, map[string]any{
+		"task_id": taskID, "config_version_id": cv.ID, "version": cv.Version,
+		"instance_id": instID, "agent_id": agentID, "profile_id": p.ID,
+	})
+}
+
+// renderProfile — цепочка наследования + факты цели + cfgrender.Render
+// для пары (профиль, инстанс-цель); маппинг ошибок — в writeRenderError.
+func (h *handlers) renderProfile(r *http.Request, profileID uuid.UUID, inst store.Instance) (string, []cfgrender.Source, error) {
+	chainStore, err := h.d.Store.ConfigProfiles.Chain(r.Context(), profileID)
+	if err != nil {
+		return "", nil, err
+	}
+	facts, err := h.renderTarget(r, inst)
+	if err != nil {
+		return "", nil, err
 	}
 	chain := make([]cfgrender.Profile, len(chainStore))
 	for i, cp := range chainStore {
 		chain[i] = cfgrender.Profile{ID: cp.ID.String(), Name: cp.Name, ScopeType: cp.ScopeType, Content: cp.ContentYAML}
 	}
-	yml, sources, err := cfgrender.Render(chain, facts)
-	if err != nil {
-		var uv *cfgrender.UnknownVarsError
-		if errors.As(err, &uv) {
-			writeError(w, http.StatusBadRequest, CodeValidation,
-				"неизвестные переменные профиля", map[string]any{"variables": uv.Names})
-			return
-		}
-		writeError(w, http.StatusBadRequest, CodeValidation, err.Error(), nil)
+	return cfgrender.Render(chain, facts)
+}
+
+// writeRenderError — маппинг ошибок рендера на HTTP: неизвестные
+// переменные → 400 с деталями, прочее → 400 validation_failed.
+func writeRenderError(w http.ResponseWriter, err error) {
+	var uv *cfgrender.UnknownVarsError
+	if errors.As(err, &uv) {
+		writeError(w, http.StatusBadRequest, CodeValidation,
+			"неизвестные переменные профиля", map[string]any{"variables": uv.Names})
 		return
 	}
-	objType := "config_profile"
-	h.audit(r, identityFrom(r.Context()), "config_profiles.render", &objType, &p.ID, "success",
-		"цель "+inst.Name+" ("+strconv.Itoa(len(chain))+" профилей в цепочке)")
-	writeJSON(w, http.StatusOK, map[string]any{"rendered_yaml": yml, "sources": sources})
+	writeError(w, http.StatusBadRequest, CodeValidation, err.Error(), nil)
 }
 
 // renderTarget — факты об инстансе-цели для встроенных переменных

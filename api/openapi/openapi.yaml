@@ -2205,6 +2205,40 @@ paths:
               schema: {$ref: '#/components/schemas/RenderResult'}
         default: {$ref: '#/components/responses/Error'}
 
+  /config_profiles/{id}/deploy:
+    parameters:
+      - {$ref: '#/components/parameters/PathId'}
+    post:
+      operationId: deploy_config_profile
+      tags: [config_profiles]
+      summary: Деплой отрендеренного профиля на инстанс
+      description: "Требуется право: config.write. Рендер профиля для инстанса → версия конфигурации (content-addressed, авто cfg-v<N>) → задача deploy_config агенту. 409 — агент offline."
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [instance_id]
+              properties:
+                instance_id: {type: string, format: uuid}
+                validate_only: {type: boolean, default: false}
+      responses:
+        '202':
+          description: Задача отправлена агенту
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  task_id: {type: string, format: uuid}
+                  config_version_id: {type: string, format: uuid}
+                  version: {type: string}
+                  instance_id: {type: string, format: uuid}
+                  agent_id: {type: string, format: uuid}
+                  profile_id: {type: string, format: uuid}
+        default: {$ref: '#/components/responses/Error'}
+
   /config_profiles/{id}/validate:
     post:
       operationId: validate_config_profile

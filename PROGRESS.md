@@ -310,10 +310,28 @@ RenderResult по спеке — spec требует GET, бриф говори�
 build/vet зелёные, go test ./internal/... 17 ok (единственный FAIL —
 известный не-блокер samlauth на NTFS).
 
-**Следующий шаг после 65**: интеграция с deploy_config — деплой
-отрендеренного профиля на инстанс (эндпоинт + OpenAPI); затем волновой
-деплой конфигов через оркестратор; UI профилей; перекат .28 (миграция
-000012 + живой e2E рендера).
+Чанк 66 ГОТОВ (2026-10-09, этот коммит; стенд выключен — живой e2e
+отложен): интеграция рендера профилей с deploy_config. Новый эндпоинт
+POST /config_profiles/{id}/deploy {instance_id, validate_only}
+(config.write): рендер профиля для инстанса → результат сохраняется
+версией конфигурации (content-addressed, авто cfg-v<N>, note «render
+профиля …») → агенту инстанса уходит штатная задача deploy_config
+(бэкап → suricata -T → запись/откат — без изменений агента). Ответ 202
+как у /config_versions/{id}/deploy + profile_id; аудит
+config_profiles.deploy. Рефакторинг без смены поведения: из
+configs.go выделены helpers storeConfigVersion (ядро POST
+/config_versions, сохранён 200/201 по идемпотентности sha) и
+dispatchDeployConfigTask (ядро deployConfig, errAgentOffline → 409);
+render-часть GET /render переиспользует общий renderProfile.
+OpenAPI: добавлен путь /config_profiles/{id}/deploy (safe_load ok).
+Проверки: build/vet зелёные, go test — только известный не-блокер
+samlauth (NTFS).
+
+**Следующий шаг после 66**: волновой деплой конфигов через оркестратор
+(internal/orchestrator заточен под rules — расширить типом
+deploy_config); UI профилей (список/редактор/render preview/кнопка
+деплоя); перекат .28 (миграция 000012 + живой e2E: рендер → deploy
+профиля validate_only → suricata -T).
 
 **Следующий шаг после 64**: рендер профиля (resolve parent-цепочки +
 подстановка переменных {{var}} — решить синтаксис) и интеграция с
@@ -1487,7 +1505,8 @@ managed-файле (245 правил).
 | Чанк | Содержание | Коммит |
 |---|---|---|
 | 64 | Профили конфигураций, фундамент: миграция 000012 config_profiles (parent_id self-ref, version), ConfigProfilesRepo CRUD, API /config_profiles по спеке (scoping, аудит). Рендер переменных — следующие чанки | f39ac54 |
-| 65 | Рендер профилей: internal/cfgrender (deep-мерж цепочки + {{var}} — vars: профилей + встроенные instance./host./cluster., строгий режим), store Chain + ErrCycle, GET /config_profiles/{id}/render?target= (RenderResult по спеке), юнит-тесты рендера. Стенд выключен — e2e отложен | (этот коммит) |
+| 65 | Рендер профилей: internal/cfgrender (deep-мерж цепочки + {{var}} — vars: профилей + встроенные instance./host./cluster., строгий режим), store Chain + ErrCycle, GET /config_profiles/{id}/render?target= (RenderResult по спеке), юнит-тесты рендера. Стенд выключен — e2e отложен | 5e04399 |
+| 66 | Деплой отрендеренного профиля: POST /config_profiles/{id}/deploy (render → версия cfg-v<N> → задача deploy_config, 202+profile_id, аудит); рефакторинг configs.go (storeConfigVersion, dispatchDeployConfigTask — поведение прежнее); OpenAPI /deploy. Стенд выключен — e2e отложен | (этот коммит) |
 | 63 | OpenAPI под факт чанков 54–62: /config_versions*, /instances/{id}/config/current+history, /clusters/{id}/capabilities, схемы ConfigVersion/ConfigDeploy/CapabilitiesSet. Перекатан .28, health ok | (этот коммит) |
 | 62 | SetCapabilitiesTask: живое применение capability без рестарта (агент applyCapabilities под mu; сервер push после PUT). Код, e2e после переката | (этот коммит) |
 | 61 | UI capability хоста: HostCapsPanel в «Конфигурациях» (GET/PUT /hosts/{id}/capabilities, чекбоксы каталога, apiPut). Перекат .28 прерван зависанием ВМ | (этот коммит) |

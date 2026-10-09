@@ -7,6 +7,16 @@
 
 ### Added
 
+- Чанк 66 (2026-10-09): деплой отрендеренного профиля —
+  POST /config_profiles/{id}/deploy {instance_id, validate_only}
+  (config.write): рендер → версия конфигурации (content-addressed,
+  авто cfg-v<N>) → штатная задача deploy_config агенту; 202 +
+  profile_id, аудит config_profiles.deploy. Рефакторинг configs.go:
+  общие helpers storeConfigVersion (идемпотентность 200/201
+  сохранена) и dispatchDeployConfigTask. OpenAPI: путь
+  /config_profiles/{id}/deploy. Стенд выключен — e2e отложен.
+  (server, api)
+
 - Чанк 65 (2026-10-09): рендер профилей конфигурации —
   deep-мерж цепочки наследования + подстановка переменных
   `{{var}}`. Новый пакет `internal/cfgrender` (чистая функция,

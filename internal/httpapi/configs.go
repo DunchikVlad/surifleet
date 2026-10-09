@@ -3,8 +3,10 @@
 package httpapi
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"net/http"
 	"strings"
 	"time"
@@ -22,6 +24,33 @@ type configVersionInput struct {
 	Version string `json:"version"` // пусто → авто cfg-v<N> per-org
 	YAML    string `json:"yaml"`    // содержимое suricata.yaml
 	Note    string `json:"note"`
+}
+
+// storeConfigVersion — общее ядро сохранения версии конфигурации
+// (POST /config_versions и деплой профиля, чанк 66): sha256,
+// content-addressed блоб в S3, запись в БД. version пусто → авто
+// cfg-v<N> per-org. Вызыватели сами пишут аудит и ответ.
+func (h *handlers) storeConfigVersion(ctx context.Context, orgID uuid.UUID, version, yml, note string) (store.ConfigVersion, bool, error) {
+	if version == "" {
+		var err error
+		version, err = h.d.Store.Configs.NextAutoVersion(ctx, orgID)
+		if err != nil {
+			return store.ConfigVersion{}, false, err
+		}
+	}
+	sum := sha256.Sum256([]byte(yml))
+	sha := hex.EncodeToString(sum[:])
+	key := ruleset.BlobKey(sha) // тот же бакет/схема, что у ruleset
+	if _, err := h.d.Blob.PutIfAbsent(ctx, key, []byte(yml)); err != nil {
+		errLog.Error("загрузка конфиг-блоба в S3", "err", err)
+		return store.ConfigVersion{}, false, err
+	}
+	var createdBy *uuid.UUID
+	if id := identityFrom(ctx); id != nil && !id.Dev {
+		createdBy = &id.UserID
+	}
+	v, created, err := h.d.Store.Configs.Create(ctx, orgID, version, sha, key, note, createdBy)
+	return v, created, err
 }
 
 // createConfigVersion — POST /config_versions (config.write): сохранить
@@ -43,33 +72,11 @@ func (h *handlers) createConfigVersion(w http.ResponseWriter, r *http.Request) {
 		writeValidation(w, fe)
 		return
 	}
-	version := in.Version
-	if version == "" {
-		var err error
-		version, err = h.d.Store.Configs.NextAutoVersion(r.Context(), orgID)
-		if err != nil {
-			writeStoreError(w, err)
-			return
-		}
-	} else if !validName(version) {
+	if in.Version != "" && !validName(in.Version) {
 		writeValidation(w, fieldErrors{"version": "1..200 символов"})
 		return
 	}
-
-	sum := sha256.Sum256([]byte(in.YAML))
-	sha := hex.EncodeToString(sum[:])
-	key := ruleset.BlobKey(sha) // тот же бакет/схема, что у ruleset
-	if _, err := h.d.Blob.PutIfAbsent(r.Context(), key, []byte(in.YAML)); err != nil {
-		errLog.Error("загрузка конфиг-блоба в S3", "err", err)
-		writeError(w, http.StatusInternalServerError, CodeInternal, "загрузка блоба в хранилище", nil)
-		return
-	}
-
-	var createdBy *uuid.UUID
-	if id := identityFrom(r.Context()); id != nil && !id.Dev {
-		createdBy = &id.UserID
-	}
-	v, created, err := h.d.Store.Configs.Create(r.Context(), orgID, version, sha, key, in.Note, createdBy)
+	v, created, err := h.storeConfigVersion(r.Context(), orgID, in.Version, in.YAML, in.Note)
 	if err != nil {
 		writeStoreError(w, err)
 		return
@@ -143,6 +150,36 @@ type deployConfigInput struct {
 	ValidateOnly bool   `json:"validate_only"` // только suricata -T, не применять
 }
 
+// errAgentOffline — агент инстанса не подключён (409, как в deployConfig).
+var errAgentOffline = errors.New("агент инстанса не подключён (offline)")
+
+// dispatchDeployConfigTask — общая часть отправки задачи deploy_config
+// агенту инстанса (POST /config_versions/{id}/deploy и деплой профиля,
+// чанк 66): агент по host_id, подписанный URL блоба, SendTask.
+func (h *handlers) dispatchDeployConfigTask(ctx context.Context, cv store.ConfigVersion, inst store.Instance, validateOnly bool) (taskID string, agentID uuid.UUID, err error) {
+	agent, err := h.d.Store.Agents.GetByHostID(ctx, nil, inst.HostID)
+	if err != nil {
+		return "", uuid.Nil, err
+	}
+	url, err := h.d.Blob.PresignGet(ctx, cv.S3Key, 15*time.Minute)
+	if err != nil {
+		return "", uuid.Nil, err
+	}
+	task := &agentv1.Task{
+		TaskId: uuid.New().String(),
+		Type: &agentv1.Task_DeployConfig{DeployConfig: &agentv1.DeployConfigTask{
+			InstanceId:    inst.ID.String(),
+			ConfigVersion: cv.Version,
+			ValidateOnly:  validateOnly,
+			Source:        &agentv1.DeployConfigTask_SignedUrl{SignedUrl: url},
+		}},
+	}
+	if !h.d.Hub.SendTask(agent.ID, task) {
+		return "", uuid.Nil, errAgentOffline
+	}
+	return task.TaskId, agent.ID, nil
+}
+
 // deployConfig — POST /config_versions/{id}/deploy (config.write):
 // задача deploy_config агенту инстанса (прямая отправка через hub;
 // волновой оркестратор для конфигов — следующие чанки).
@@ -178,36 +215,21 @@ func (h *handlers) deployConfig(w http.ResponseWriter, r *http.Request) {
 		writeStoreError(w, err)
 		return
 	}
-	agent, err := h.d.Store.Agents.GetByHostID(r.Context(), nil, inst.HostID)
-	if err != nil {
-		writeStoreError(w, err)
+	taskID, agentID, err := h.dispatchDeployConfigTask(r.Context(), cv, inst, in.ValidateOnly)
+	if errors.Is(err, errAgentOffline) {
+		writeError(w, http.StatusConflict, CodeConflict, errAgentOffline.Error(), nil)
 		return
 	}
-	url, err := h.d.Blob.PresignGet(r.Context(), cv.S3Key, 15*time.Minute)
 	if err != nil {
 		writeStoreError(w, err)
-		return
-	}
-	task := &agentv1.Task{
-		TaskId: uuid.New().String(),
-		Type: &agentv1.Task_DeployConfig{DeployConfig: &agentv1.DeployConfigTask{
-			InstanceId:    instID.String(),
-			ConfigVersion: cv.Version,
-			ValidateOnly:  in.ValidateOnly,
-			Source:        &agentv1.DeployConfigTask_SignedUrl{SignedUrl: url},
-		}},
-	}
-	if !h.d.Hub.SendTask(agent.ID, task) {
-		writeError(w, http.StatusConflict, CodeConflict,
-			"агент инстанса не подключён (offline)", nil)
 		return
 	}
 	objType := "config_version"
-	reason := "deploy на инстанс " + inst.Name + " (задача " + task.TaskId + ")"
+	reason := "deploy на инстанс " + inst.Name + " (задача " + taskID + ")"
 	h.audit(r, identityFrom(r.Context()), "configs.deploy", &objType, &cv.ID, "success", reason)
 	writeJSON(w, http.StatusAccepted, map[string]any{
-		"task_id": task.TaskId, "config_version_id": cv.ID, "version": cv.Version,
-		"instance_id": instID, "agent_id": agent.ID,
+		"task_id": taskID, "config_version_id": cv.ID, "version": cv.Version,
+		"instance_id": instID, "agent_id": agentID,
 	})
 }
 
