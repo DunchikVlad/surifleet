@@ -376,6 +376,9 @@ message DeployRulesTask {
   string rules_dir = 5;        // каталог правил инстанса (куда писать managed-файл)
   string config_path = 6;      // путь к suricata.yaml (валидация `suricata -T`, правка rule-files)
   string systemd_unit = 7;     // юнит сервиса (диагностика состояния)
+  // validate_only (чанк 75, 1E): только валидация кандидата suricata -T
+  // во временный файл — без записи, правки suricata.yaml и рестарта.
+  bool validate_only = 8;
 }
 
 // DeployConfigTask — доставка конфигурации suricata.yaml на инстанс.

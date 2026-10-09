@@ -69,7 +69,7 @@
 
 | Задача | Поля | Идемпотентность |
 |---|---|---|
-| `DeployRulesTask` | `instance_id`, `ruleset_version`, `ruleset_hash` (sha256), `signed_url` | По `ruleset_hash`: хэш на диске совпадает → только reload + отчёт |
+| `DeployRulesTask` | `instance_id`, `ruleset_version`, `ruleset_hash` (sha256), `signed_url`, `validate_only` (чанк 75) | По `ruleset_hash`: хэш на диске совпадает → только reload + отчёт; `validate_only` — только `suricata -T` кандидата во временном окружении (без записи/рестарта) |
 | `DeployConfigTask` | `instance_id`, `config_version`, `signed_url` или `inline_yaml`, `validate_only` | По `config_version`; `validate_only` — только `suricata -T` |
 | `ServiceActionTask` | `instance_id`, `action` (reload/restart/stop/start) | Повторное выполнение безопасно по семантике systemd |
 | `RollbackTask` | `instance_id`, цель: `ruleset_version` или `config_version` | По целевой версии |

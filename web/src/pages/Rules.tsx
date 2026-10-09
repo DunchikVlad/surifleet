@@ -44,6 +44,10 @@ function RuleEditor({ rule, onClose, onSaved }: {
   const [check, setCheck] = React.useState<{ ok: boolean; rules: ParsedRule[]; errors: LineError[] } | null>(null);
   const [busy, setBusy] = React.useState(false);
   const [err, setErr] = React.useState<unknown>(null);
+  // Проверка suricata -T через агента (чанк 75).
+  const [instances, setInstances] = React.useState<{ id: string; name: string; hostname?: string }[]>([]);
+  const [agentInstID, setAgentInstID] = React.useState("");
+  const [agentCheck, setAgentCheck] = React.useState<{ ok: boolean; loaded_count?: number; error?: string } | null>(null);
 
   React.useEffect(() => {
     (async () => {
@@ -53,7 +57,21 @@ function RuleEditor({ rule, onClose, onSaved }: {
         setLoaded(true);
       } catch (e) { setErr(e); }
     })();
+    apiGet<{ items?: { id: string; name: string; hostname?: string }[] }>("/instances?limit=100")
+      .then(d => setInstances(d.items || []))
+      .catch(() => {});
   }, [rule.id]);
+
+  // validateOnAgent — suricata -T кандидата на выбранном инстансе (чанк 75).
+  const validateOnAgent = async () => {
+    if (!agentInstID) return;
+    setBusy(true);
+    try {
+      const d = await apiPost<{ ok: boolean; loaded_count?: number; error?: string }>(
+        "/rules/validate_agent", { raw, instance_id: agentInstID });
+      setAgentCheck(d);
+    } catch (e) { setErr(e); } finally { setBusy(false); }
+  };
 
   const validate = async () => {
     setBusy(true);
@@ -87,6 +105,27 @@ function RuleEditor({ rule, onClose, onSaved }: {
         <button className="btn primary" disabled={busy || !raw.trim()} onClick={save}>Сохранить ревизию</button>{" "}
         <button className="btn" onClick={onClose}>Закрыть</button>
       </p>
+      {instances.length > 0 && (
+        <p className="muted">
+          suricata -T на агенте:{" "}
+          <select value={agentInstID} onChange={e => { setAgentInstID(e.target.value); setAgentCheck(null); }}>
+            <option value="">— инстанс —</option>
+            {instances.map(i => (
+              <option key={i.id} value={i.id}>{i.hostname ? i.hostname + " · " : ""}{i.name}</option>
+            ))}
+          </select>{" "}
+          <button className="btn" disabled={busy || !raw.trim() || !agentInstID} onClick={validateOnAgent}>
+            Проверить на агенте
+          </button>
+          {agentCheck && (
+            <span>
+              {" "}→ {agentCheck.ok
+                ? `✓ конфигурация загружена (правил в кандидате: ${agentCheck.loaded_count ?? 0})`
+                : `✗ ${agentCheck.error || "валидация не пройдена"}`}
+            </span>
+          )}
+        </p>
+      )}
       {check && (
         <>
           {check.errors.length > 0 && (

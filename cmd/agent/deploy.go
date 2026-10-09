@@ -188,6 +188,13 @@ func (e *taskExecutor) executeDeploy(task *agentv1.Task, dr *agentv1.DeployRules
 	}
 	log.Info("ruleset скачан и проверен", "bytes", len(data), "sha256", hash)
 
+	// validate_only (чанк 75, 1E): только валидация кандидата suricata -T
+	// во временном окружении — без правки rule-files, записи и рестарта.
+	if dr.GetValidateOnly() {
+		e.validateRulesOnly(taskID, dr, data, hash, log)
+		return
+	}
+
 	// 2. rule-files в suricata.yaml должен включать managed-файл (с бэкапом).
 	if err := ensureRuleFiles(dr.GetConfigPath(), log); err != nil {
 		e.failTask(taskID, nil, "правка rule-files: "+err.Error())
@@ -302,6 +309,88 @@ func (e *taskExecutor) executeDeploy(task *agentv1.Task, dr *agentv1.DeployRules
 	// (правила прошли -T, но убили движок под нагрузкой) → откат
 	// managed-файла и рестарт сервиса. Одноразовая проверка.
 	go watchdogAfterDeploy(dr, target, backup, hadBackup, log)
+}
+
+// validateRulesOnly — ветка validate_only DeployRulesTask (чанк 75):
+// кандидат пишется во временный каталог, рядом — копия suricata.yaml с
+// секцией rule-files, ссылающейся ТОЛЬКО на кандидат (иначе живой
+// managed-файл дал бы Duplicate signature на те же sid), suricata -T.
+// Ничего не применяется; результат — DeployRulesResult (loaded = sid'ов
+// в кандидате) либо failed с хвостом вывода валидатора. Журнал
+// идемпотентности не пишется: задача чисто читающая, повтор безвреден.
+func (e *taskExecutor) validateRulesOnly(taskID string, dr *agentv1.DeployRulesTask, data []byte, hash string, log *slog.Logger) {
+	dir, err := os.MkdirTemp("", "surifleet-validate-")
+	if err != nil {
+		e.failTask(taskID, nil, "temp-каталог для валидации: "+err.Error())
+		return
+	}
+	defer func() {
+		if err := os.RemoveAll(dir); err != nil {
+			log.Warn("validate_only: не удалён temp-каталог", "dir", dir, "err", err)
+		}
+	}()
+
+	candidate := filepath.Join(dir, "candidate.rules")
+	if err := os.WriteFile(candidate, data, 0o644); err != nil {
+		e.failTask(taskID, nil, "запись кандидата: "+err.Error())
+		return
+	}
+	tmpConfig := filepath.Join(dir, "suricata-validate.yaml")
+	if err := rewriteRuleFilesForValidation(dr.GetConfigPath(), candidate, tmpConfig); err != nil {
+		e.failTask(taskID, nil, "временный конфиг для валидации: "+err.Error())
+		return
+	}
+
+	out, err := validateConfig(tmpConfig)
+	loaded := int32(len(parseSids(data)))
+	res := &agentv1.DeployRulesResult{RulesetHash: hash, LoadedCount: loaded}
+	if err != nil {
+		e.failTask(taskID, res, "suricata -T: "+err.Error()+"; вывод: "+tail(out, 20))
+		return
+	}
+	log.Info("validate_only: suricata -T пройден", "loaded", loaded, "bytes", len(data))
+	e.reply(&agentv1.TaskResult{
+		TaskId:  taskID,
+		Status:  agentv1.TaskStatus_TASK_STATUS_SUCCESS,
+		Details: deployDetails(res),
+	})
+}
+
+// rewriteRuleFilesForValidation — копия конфига для validate_only:
+// секция rule-files заменяется единственным активным источником —
+// кандидатом (прочие активные записи выброшены: они либо живой
+// managed-файл, либо отключённые "# surifleet-disabled" — в выбросе
+// нет потерь, копия одноразовая). Остальные секции — как у инстанса.
+func rewriteRuleFilesForValidation(configPath, candidatePath, outPath string) error {
+	raw, err := os.ReadFile(configPath)
+	if err != nil {
+		return err
+	}
+	lines := strings.Split(string(raw), "\n")
+	secIdx := -1
+	for i, ln := range lines {
+		if strings.HasPrefix(strings.TrimSpace(ln), "rule-files:") {
+			secIdx = i
+			break
+		}
+	}
+	if secIdx < 0 {
+		return fmt.Errorf("секция rule-files не найдена в %s", configPath)
+	}
+	// Граница секции: до первой непустой, некомментарной, не-элемента строки.
+	end := secIdx + 1
+	for end < len(lines) {
+		trimmed := strings.TrimSpace(lines[end])
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") || strings.HasPrefix(trimmed, "- ") {
+			end++
+			continue
+		}
+		break
+	}
+	newLines := append([]string{}, lines[:secIdx+1]...)
+	newLines = append(newLines, "  - "+candidatePath)
+	newLines = append(newLines, lines[end:]...)
+	return os.WriteFile(outPath, []byte(strings.Join(newLines, "\n")), 0o644)
 }
 
 // watchdogSettleDelay — пауза перед проверкой живости движка после деплоя:

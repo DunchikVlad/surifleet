@@ -7,6 +7,15 @@
 
 ### Added
 
+- Чанк 75 (2026-10-09): проверка правила suricata -T через агента
+  (1E п.1) — proto: DeployRulesTask.validate_only (поле 8, добавочное);
+  агент: validateRulesOnly — кандидат в temp-каталог, копия suricata.yaml
+  с rule-files → только кандидат, suricata -T, без записи/рестарта.
+  Сервер: POST /rules/validate_agent {raw, instance_id} (синхронно до
+  60 с, аудит). UI: «Проверить на агенте» в RuleEditor. OpenAPI:
+  /rules/validate_agent; protocol.md обновлён. (proto, agent, server,
+  ui, api)
+
 - Чанк 74 (2026-10-09): UI редактора правила (1E п.1) — Rules.tsx:
   RuleEditor вместо prompt'а «ред.»: raw последней ревизии
   (GET /rules/{id}/revisions?limit=1), «Проверить» → POST /rules/validate

@@ -1,16 +1,21 @@
 package httpapi
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"io"
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 
+	agentv1 "github.com/surifleet/surifleet/internal/gen/agent/v1"
 	"github.com/surifleet/surifleet/internal/rules"
+	"github.com/surifleet/surifleet/internal/ruleset"
 	"github.com/surifleet/surifleet/internal/store"
 )
 
@@ -566,4 +571,115 @@ func (h *handlers) createRuleRevision(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, map[string]any{
 		"rule": updated, "revision": rev, "state": state,
 	})
+}
+
+// validateRuleOnAgent — POST /rules/validate_agent (rules.read): проверка
+// кандидата правила suricata -T на агенте инстанса (чанк 75, 1E п.1).
+// Кандидат уходит content-addressed блобом в DeployRulesTask с
+// validate_only=true (агент валидирует во временном окружении, ничего не
+// применяя); результат — синхронное ожидание ответа агента.
+func (h *handlers) validateRuleOnAgent(w http.ResponseWriter, r *http.Request) {
+	_, ok := h.resolveOrgID(w, r)
+	if !ok {
+		return
+	}
+	var in struct {
+		Raw        string `json:"raw"`
+		InstanceID string `json:"instance_id"`
+	}
+	if !decodeJSON(w, r, &in) {
+		return
+	}
+	fe := fieldErrors{}
+	raw := strings.TrimSpace(in.Raw)
+	if raw == "" {
+		fe.add("raw", "обязательное поле (текст правила)")
+	}
+	instID, err := uuid.Parse(in.InstanceID)
+	if err != nil {
+		fe.add("instance_id", "обязательный UUID")
+	}
+	if fe.any() {
+		writeValidation(w, fe)
+		return
+	}
+	parsed, err := rules.Parse(raw)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, CodeValidation,
+			"правило не разбирается парсером", map[string]any{"reason": err.Error()})
+		return
+	}
+	if parsed == nil {
+		writeValidation(w, fieldErrors{"raw": "пустая строка или комментарий — не правило"})
+		return
+	}
+	inst, err := h.d.Store.Instances.Get(r.Context(), instID)
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	if !h.instanceAllowed(w, r, inst.HostID) { // scoping (чанк 43)
+		return
+	}
+	agent, err := h.d.Store.Agents.GetByHostID(r.Context(), nil, inst.HostID)
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+
+	sum := sha256.Sum256([]byte(raw))
+	sha := hex.EncodeToString(sum[:])
+	key := ruleset.BlobKey(sha)
+	if _, err := h.d.Blob.PutIfAbsent(r.Context(), key, []byte(raw)); err != nil {
+		errLog.Error("загрузка кандидата правила в S3", "err", err)
+		writeError(w, http.StatusInternalServerError, CodeInternal, "загрузка блоба в хранилище", nil)
+		return
+	}
+	url, err := h.d.Blob.PresignGet(r.Context(), key, 15*time.Minute)
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	task := &agentv1.Task{
+		TaskId: uuid.New().String(),
+		Type: &agentv1.Task_DeployRules{DeployRules: &agentv1.DeployRulesTask{
+			InstanceId:    instID.String(),
+			RulesetVersion: "validate",
+			RulesetHash:   sha,
+			SignedUrl:     url,
+			RulesDir:      inst.RulesDir,
+			ConfigPath:    inst.ConfigPath,
+			SystemdUnit:   derefStrPtr(inst.SystemdUnit),
+			ValidateOnly:  true,
+		}},
+	}
+	res, ok := h.d.Hub.SendTaskAndWait(r.Context(), agent.ID, task, 60*time.Second)
+	if !ok {
+		writeError(w, http.StatusConflict, CodeConflict,
+			"агент инстанса не подключён (offline) или не ответил вовремя", nil)
+		return
+	}
+	dr := res.GetDeployRules()
+	objType := "rule"
+	h.audit(r, identityFrom(r.Context()), "rules.validate_agent", &objType, nil, mapResultStatus(res.GetStatus()),
+		"suricata -T на "+inst.Name)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":           res.GetStatus() == agentv1.TaskStatus_TASK_STATUS_SUCCESS,
+		"loaded_count": dr.GetLoadedCount(),
+		"error":        res.GetError(),
+	})
+}
+
+func derefStrPtr(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
+}
+
+func mapResultStatus(s agentv1.TaskStatus) string {
+	if s == agentv1.TaskStatus_TASK_STATUS_SUCCESS {
+		return "success"
+	}
+	return "failure"
 }

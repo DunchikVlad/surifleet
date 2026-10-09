@@ -828,6 +828,35 @@ paths:
                   errors: {type: array, items: {$ref: '#/components/schemas/LineError'}}
         default: {$ref: '#/components/responses/Error'}
 
+  /rules/validate_agent:
+    post:
+      operationId: validate_rule_on_agent
+      tags: [rules]
+      summary: Проверка кандидата правила suricata -T на агенте
+      description: "Требуется право: rules.read. Кандидат уходит блобом в DeployRulesTask (validate_only=true); агент валидирует во временном окружении, ничего не применяя. Синхронно (до 60 с). 409 — агент offline."
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [raw, instance_id]
+              properties:
+                raw: {type: string, description: Полный текст правила}
+                instance_id: {type: string, format: uuid}
+      responses:
+        '200':
+          description: Результат suricata -T на агенте
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: {type: boolean}
+                  loaded_count: {type: integer}
+                  error: {type: string, nullable: true}
+        default: {$ref: '#/components/responses/Error'}
+
   /rules/import:
     post:
       operationId: import_rules

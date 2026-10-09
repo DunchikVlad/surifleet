@@ -415,11 +415,28 @@ rev/reference/metadata + ошибки построчно), «Сохранить 
 /rules/{id}/revisions (чанк 73), перезагрузка списка. Проверки: npm
 build чисто (TS strict; JSX-атрибут placeholder — без бэкслеш-экранов).
 
-**Следующий шаг после 74**: проверка правил suricata -T через агента
-(флаг validate_only в DeployRulesTask — proto-изменение: gen-proto,
-агент, hub; или отдельная задача — решить на месте); 1E п.3 — матрица
-«правила × инстансы»: раскрытие строки с карточкой логики (тот же
-RuleEditor/validate); перекат .28 и живой e2E при включении стенда.
+Чанк 75 ГОТОВ (2026-10-09, этот коммит; стенд выключен — живой e2E
+отложен; proto-совместимость: добавочное поле — старые агенты игнорируют
+validate_only, но ветка validate используется только с новыми обеими
+сторонами): 1E п.1, проверка правила suricata -T через агента.
+Proto: DeployRulesTask.validate_only=8 (gen-proto; docs/protocol.md
+обновлён). Агент (cmd/agent/deploy.go): ветка validateRulesOnly —
+кандидат во временный каталог (os.MkdirTemp), копия suricata.yaml с
+rule-files → только кандидат (иначе живой managed-файл дал бы Duplicate
+signature на те же sid), suricata -T; без записи/бэкапов/рестарта,
+журнал идемпотентности не пишется (задача чисто читающая). Сервер:
+POST /rules/validate_agent {raw, instance_id} (rules.read; scoping;
+парсер до отправки; кандидат — content-addressed блоб; SendTaskAndWait
+60 с) → {ok, loaded_count, error}; аудит rules.validate_agent. UI:
+в RuleEditor селект инстанса + «Проверить на агенте» (✓/✗ с выводом).
+OpenAPI: /rules/validate_agent. Проверки: build/vet, go test (agent +
+httpapi), npm build чисто, yaml ok.
+
+**Следующий шаг после 75**: 1E п.3 — матрица «правила × инстансы»:
+раскрытие строки с карточкой логики (переиспользовать RuleEditor/
+validate); перекат .28+.67 при включении стенда (миграции 000012+000013,
+proto с чанка 75 — обе стороны) + живой e2E плана 1B и «Проверить на
+агенте».
 
 **Следующий шаг после 64**: рендер профиля (resolve parent-цепочки +
 подстановка переменных {{var}} — решить синтаксис) и интеграция с
@@ -1602,7 +1619,8 @@ managed-файле (245 правил).
 | 71 | Скачивание ruleset'ов (1E п.2): GET /rulesets/{id}/download (attachment+ETag, блоб как у агентов), кнопка «скачать» в UI, OpenAPI. Стенд выключен — живой чек отложен | e5e077d |
 | 72 | Валидация правил (1E п.1, server): POST /rules/validate — разбор internal/rules без записи, структурная логика + построчные ошибки; OpenAPI ParsedRule/LineError. Стенд выключен — живой чек отложен | 823268c |
 | 73 | Ручная ревизия правила (1E п.1, server): POST /rules/{id}/revisions {raw} — валидация парсером + контроль sid, AddRevision (msg/category обновляются, тюнинг не трогается, идемпотентно по sha256); OpenAPI. Стенд выключен — живой чек отложен | 047b2c4 |
-| 74 | UI редактора правила (1E п.1): RuleEditor в «Правилах» вместо prompt'а — raw последней ревизии, «Проверить» (логика+ошибки), «Сохранить ревизию». npm build чисто. Стенд выключен — живой чек отложен | (этот коммит) |
+| 74 | UI редактора правила (1E п.1): RuleEditor в «Правилах» вместо prompt'а — raw последней ревизии, «Проверить» (логика+ошибки), «Сохранить ревизию». npm build чисто. Стенд выключен — живой чек отложен | 379ba45 |
+| 75 | Проверка правила suricata -T через агента (1E п.1): proto DeployRulesTask.validate_only, агент validateRulesOnly (temp-окружение, без записи), POST /rules/validate_agent, UI «Проверить на агенте», OpenAPI + protocol.md. Стенд выключен — e2e отложен | (этот коммит) |
 | 63 | OpenAPI под факт чанков 54–62: /config_versions*, /instances/{id}/config/current+history, /clusters/{id}/capabilities, схемы ConfigVersion/ConfigDeploy/CapabilitiesSet. Перекатан .28, health ok | (этот коммит) |
 | 62 | SetCapabilitiesTask: живое применение capability без рестарта (агент applyCapabilities под mu; сервер push после PUT). Код, e2e после переката | (этот коммит) |
 | 61 | UI capability хоста: HostCapsPanel в «Конфигурациях» (GET/PUT /hosts/{id}/capabilities, чекбоксы каталога, apiPut). Перекат .28 прерван зависанием ВМ | (этот коммит) |

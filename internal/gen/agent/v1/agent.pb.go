@@ -2827,9 +2827,12 @@ type DeployRulesTask struct {
 	SignedUrl      string                 `protobuf:"bytes,4,opt,name=signed_url,json=signedUrl,proto3" json:"signed_url,omitempty"`                // подписанный URL скачивания блоба
 	// Локальные пути инстанса (из карточки instances на сервере) — задача
 	// самодостаточна, агенту не нужен маппинг instance_id → пути.
-	RulesDir      string `protobuf:"bytes,5,opt,name=rules_dir,json=rulesDir,proto3" json:"rules_dir,omitempty"`          // каталог правил инстанса (куда писать managed-файл)
-	ConfigPath    string `protobuf:"bytes,6,opt,name=config_path,json=configPath,proto3" json:"config_path,omitempty"`    // путь к suricata.yaml (валидация `suricata -T`, правка rule-files)
-	SystemdUnit   string `protobuf:"bytes,7,opt,name=systemd_unit,json=systemdUnit,proto3" json:"systemd_unit,omitempty"` // юнит сервиса (диагностика состояния)
+	RulesDir    string `protobuf:"bytes,5,opt,name=rules_dir,json=rulesDir,proto3" json:"rules_dir,omitempty"`          // каталог правил инстанса (куда писать managed-файл)
+	ConfigPath  string `protobuf:"bytes,6,opt,name=config_path,json=configPath,proto3" json:"config_path,omitempty"`    // путь к suricata.yaml (валидация `suricata -T`, правка rule-files)
+	SystemdUnit string `protobuf:"bytes,7,opt,name=systemd_unit,json=systemdUnit,proto3" json:"systemd_unit,omitempty"` // юнит сервиса (диагностика состояния)
+	// validate_only (чанк 75, 1E): только валидация кандидата suricata -T
+	// во временный файл — без записи, правки suricata.yaml и рестарта.
+	ValidateOnly  bool `protobuf:"varint,8,opt,name=validate_only,json=validateOnly,proto3" json:"validate_only,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2911,6 +2914,13 @@ func (x *DeployRulesTask) GetSystemdUnit() string {
 		return x.SystemdUnit
 	}
 	return ""
+}
+
+func (x *DeployRulesTask) GetValidateOnly() bool {
+	if x != nil {
+		return x.ValidateOnly
+	}
+	return false
 }
 
 // DeployConfigTask — доставка конфигурации suricata.yaml на инстанс.
@@ -3770,7 +3780,7 @@ const file_agent_v1_agent_proto_rawDesc = "" +
 	"\fagent_update\x18\x0f \x01(\v2\x19.agent.v1.AgentUpdateTaskH\x00R\vagentUpdate\x12J\n" +
 	"\x10set_capabilities\x18\x10 \x01(\v2\x1d.agent.v1.SetCapabilitiesTaskH\x00R\x0fsetCapabilities\x12>\n" +
 	"\ffetch_config\x18\x11 \x01(\v2\x19.agent.v1.FetchConfigTaskH\x00R\vfetchConfigB\x06\n" +
-	"\x04type\"\xfe\x01\n" +
+	"\x04type\"\xa3\x02\n" +
 	"\x0fDeployRulesTask\x12\x1f\n" +
 	"\vinstance_id\x18\x01 \x01(\tR\n" +
 	"instanceId\x12'\n" +
@@ -3781,7 +3791,8 @@ const file_agent_v1_agent_proto_rawDesc = "" +
 	"\trules_dir\x18\x05 \x01(\tR\brulesDir\x12\x1f\n" +
 	"\vconfig_path\x18\x06 \x01(\tR\n" +
 	"configPath\x12!\n" +
-	"\fsystemd_unit\x18\a \x01(\tR\vsystemdUnit\"\xcd\x01\n" +
+	"\fsystemd_unit\x18\a \x01(\tR\vsystemdUnit\x12#\n" +
+	"\rvalidate_only\x18\b \x01(\bR\fvalidateOnly\"\xcd\x01\n" +
 	"\x10DeployConfigTask\x12\x1f\n" +
 	"\vinstance_id\x18\x01 \x01(\tR\n" +
 	"instanceId\x12%\n" +
