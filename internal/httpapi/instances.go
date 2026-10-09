@@ -112,7 +112,13 @@ func (h *handlers) getInstance(w http.ResponseWriter, r *http.Request) {
 	if !h.instanceAllowed(w, r, inst.HostID) { // scoping (чанк 43)
 		return
 	}
-	writeJSON(w, http.StatusOK, inst)
+	v := instanceView{Instance: inst}
+	if agent, aerr := h.d.Store.Agents.GetByHostID(r.Context(), nil, inst.HostID); aerr == nil {
+		if ip, ok := h.d.Hub.AgentIP(agent.ID); ok {
+			v.AgentIP = ip
+		}
+	}
+	writeJSON(w, http.StatusOK, v)
 }
 
 // updateInstance — PATCH /api/v1/instances/{id} (пути, интерфейсы, юнит).

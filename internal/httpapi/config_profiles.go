@@ -439,7 +439,7 @@ func (h *handlers) validateConfigProfile(w http.ResponseWriter, r *http.Request)
 		}
 	} else {
 		// canary по умолчанию — первый инстанс организации.
-		ids, err := h.d.Store.Instances.IDsForOrg(r.Context(), orgID, nil)
+		ids, err := h.d.Store.Instances.IDsForOrg(r.Context(), orgID, []uuid.UUID{})
 		if err != nil {
 			writeStoreError(w, err)
 			return

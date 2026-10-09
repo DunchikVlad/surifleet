@@ -7,6 +7,15 @@
 
 ### Added
 
+- Чанк 79 (2026-10-09): IP агента в «Параметрах» инстанса (GET
+  /instances/{id} → agent_ip + строка в InstanceDetail); фиксы по живому
+  e2E: IDsForOrg(nil) → []uuid.UUID{} («NOT x = ANY(NULL)» ломал canary-
+  выборку), cfgrender восстанавливает заголовок «%YAML 1.1» (yaml.v3
+  директиву съедает — suricata отвергала рендер). Перекат .28+.67:
+  миграции 13, живой e2E 1B/1E пройден (validate cfg-v4 validated,
+  волна completed 1/1, validate_agent ok, compliance in_sync 1/1).
+  (server, ui)
+
 - Чанк 78 (2026-10-09): IP агента во вкладке «Инстансы» — хаб снимает
   remote-addr стрима (peer.FromContext) в память (agentIPs; снятие при
   offline и свипером), GET /instances отдаёт agent_ip, колонка в UI.

@@ -191,3 +191,23 @@ eve: "{{eve}}"
 		t.Fatalf("вложенный мерж vars не сработал:\n%s", yml)
 	}
 }
+
+func TestRenderPreservesYamlHeader(t *testing.T) {
+	p := Profile{ID: "p", Name: "t", ScopeType: "instance", Content: "%YAML 1.1\n---\nvars: {iface: enp0s3}\naf-packet:\n  interface: \"{{iface}}\"\n"}
+	yml, _, err := Render([]Profile{p}, testTarget)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if !strings.HasPrefix(yml, "%YAML 1.1\n---\n") {
+		t.Fatalf("заголовок потерян:\n%.60s", yml)
+	}
+	// и без заголовка во входе — рендер добавляет (совместимость suricata)
+	p2 := Profile{ID: "p", Name: "t", ScopeType: "instance", Content: "vars: {iface: enp0s3}\naf-packet:\n  interface: \"{{iface}}\"\n"}
+	yml2, _, err := Render([]Profile{p2}, testTarget)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if !strings.HasPrefix(yml2, "%YAML 1.1\n---\n") {
+		t.Fatalf("заголовок не добавлен:\n%.60s", yml2)
+	}
+}

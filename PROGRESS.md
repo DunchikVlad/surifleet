@@ -461,13 +461,36 @@ agent_ip; агент хоста — GetByHostID). UI: колонка «IP аге
 (offline — если нет IP). Проверки: build/vet, hub/httpapi тесты ok,
 npm build чисто.
 
-**Следующий шаг после 78**: перекат .28+.67 при включении стенда
-(миграции 000012+000013, proto чанка 75 — обе стороны, сборка
-сервер+агент+фронт) + живой e2E плана 1B (рендер → validate_only →
-волновой deploy_config) и «Проверить на агенте»; хвосты по спеке:
-история версий профилей (/versions, diff, rollback — нужна миграция
-000014 config_profile_versions); UI: кнопка «validate» в ProfilesPanel
-(эндпоинт готов, чанк 77).
+Чанк 79 ГОТОВ (2026-10-09, этот коммит; **живой e2E на стенде
+пройден** — стенд поднялся днём): (1) IP агента в «Параметрах» инстанса:
+GET /instances/{id} отдаёт agent_ip (тот же instanceView, что и в списке),
+в UI InstanceDetail строка «IP агента». (2) Фикс по живому e2E: canary-
+выборка Instances.IDsForOrg с nil давала «NOT (x = ANY(NULL))» → пусто —
+validate профиля отдавал 400 «нет инстансов»; оба вызова (config_profiles,
+deployments) переведены на []uuid.UUID{}. (3) Фикс рендера: yaml.v3
+съедает директиву «%YAML 1.1» при разборе и не восстанавливает —
+suricata отвергала отрендеренный конфиг («must begin with %YAML 1.1 and
+---»); cfgrender теперь гарантированно ставит заголовок, тест
+TestRenderPreservesYamlHeader (2 кейса).
+
+**Деплой 2026-10-09 дневной (Kimi Code)**: перекат .28 (миграции →
+version 13: config_profiles + deployments.kind, health ok) и .67 (online,
+Suricata active; proto чанка 75 — обе стороны новые). **Живой e2E
+пройден**: GET /instances → agent_ip 192.168.31.67 (и в детали инстанса);
+профиль e2e-prof → рендер (vars + builtin {{instance.interface}} →
+enp0s3, типизированный threads, заголовок YAML) → POST
+/config_profiles/{id}/validate → 202 → история cfg-v4 **validated**
+(«Configuration provided was successfully loaded») → волновой деплой
+cfg-v1 → deployment **completed** 1/1 succeeded → POST
+/rules/validate_agent → 200 ok loaded_count=1 (кандаидат прошёл
+suricata -T во временном окружении, чанк 75) → **compliance in_sync 1/1**.
+Негативные провалы рендера (отсутствие заголовка) история зафиксировала
+корректно как validation_failed.
+
+**Следующий шаг после 79**: хвосты по спеке: история версий профилей
+(/versions, diff, rollback — миграция 000014 config_profile_versions);
+UI-кнопка «validate» в ProfilesPanel (эндпоинт готов, чанк 77);
+push origin (main на 12 коммитов впереди — по команде).
 
 **Следующий шаг после 64**: рендер профиля (resolve parent-цепочки +
 подстановка переменных {{var}} — решить синтаксис) и интеграция с
@@ -1654,7 +1677,8 @@ managed-файле (245 правил).
 | 75 | Проверка правила suricata -T через агента (1E п.1): proto DeployRulesTask.validate_only, агент validateRulesOnly (temp-окружение, без записи), POST /rules/validate_agent, UI «Проверить на агенте», OpenAPI + protocol.md. Стенд выключен — e2e отложен | 6ebae2a |
 | 76 | Матрица «правила × инстансы» с карточкой логики (1E п.3): MatrixRule.ID в store+openapi, UI — клик по строке раскрывает raw+логику (revisions + /rules/validate). npm build чисто. Стенд выключен — живой чек отложен | d0377c1 |
 | 77 | Валидация профиля по спеке: POST /config_profiles/{id}/validate — рендер → версия → deploy_config validate_only, canary по умолчанию (первый инстанс org), аудит config_profiles.validate. Стенд выключен — живой чек отложен | a7a0e0d |
-| 78 | IP агента в «Инстансах»: хаб хранит remote-addr стрима (agentIPs, снятие при offline/свипере), GET /instances → agent_ip, колонка в UI. Стенд выключен — живой чек отложен | (этот коммит) |
+| 78 | IP агента в «Инстансах»: хаб хранит remote-addr стрима (agentIPs, снятие при offline/свипере), GET /instances → agent_ip, колонка в UI. Стенд выключен — живой чек отложен | 4b68244 |
+| 79 | IP агента в «Параметрах» инстанса (GET /instances/{id} + UI); фиксы по живому e2E: IDsForOrg nil→[] (canary 400), рендер терял «%YAML 1.1» (suricata-заголовок восстанавливается). Перекат .28+.67, миграции 13, e2E 1B+1E пройден, compliance in_sync 1/1 | (этот коммит) |
 | 63 | OpenAPI под факт чанков 54–62: /config_versions*, /instances/{id}/config/current+history, /clusters/{id}/capabilities, схемы ConfigVersion/ConfigDeploy/CapabilitiesSet. Перекатан .28, health ok | (этот коммит) |
 | 62 | SetCapabilitiesTask: живое применение capability без рестарта (агент applyCapabilities под mu; сервер push после PUT). Код, e2e после переката | (этот коммит) |
 | 61 | UI capability хоста: HostCapsPanel в «Конфигурациях» (GET/PUT /hosts/{id}/capabilities, чекбоксы каталога, apiPut). Перекат .28 прерван зависанием ВМ | (этот коммит) |

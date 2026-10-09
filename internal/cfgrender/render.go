@@ -128,7 +128,14 @@ func Render(chain []Profile, target Target) (string, []Source, error) {
 	if err := enc.Close(); err != nil {
 		return "", nil, fmt.Errorf("сериализация результата: %w", err)
 	}
-	return sb.String(), sources, nil
+	out := sb.String()
+	// Suricata требует заголовок «%YAML 1.1» + «---»; yaml.v3 директиву
+	// при разборе съедает и при сериализации не восстанавливает — вернуть
+	// принудительно, если рендер его потерял (живой e2E чанка 78).
+	if !strings.HasPrefix(out, "%YAML") {
+		out = "%YAML 1.1\n---\n" + out
+	}
+	return out, sources, nil
 }
 
 // parseDoc разбирает content_yaml профиля в map (пустое содержимое —

@@ -172,7 +172,7 @@ func (h *handlers) resolveTargets(w http.ResponseWriter, r *http.Request, orgID 
 	}
 	switch t.Mode {
 	case "all_clusters":
-		ids, err := h.d.Store.Instances.IDsForOrg(r.Context(), orgID, nil)
+		ids, err := h.d.Store.Instances.IDsForOrg(r.Context(), orgID, []uuid.UUID{})
 		if err != nil {
 			writeStoreError(w, err)
 			return nil, false

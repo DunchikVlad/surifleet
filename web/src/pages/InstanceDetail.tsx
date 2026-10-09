@@ -70,6 +70,7 @@ export default function InstanceDetail({ id, onBack }: { id: string; onBack: () 
             <tbody>
               <tr><th>ID</th><td className="muted">{inst.id}</td></tr>
               <tr><th>Хост</th><td className="muted">{inst.host_id || "—"}</td></tr>
+              <tr><th>IP агента</th><td className="muted">{inst.agent_ip || "offline"}</td></tr>
               <tr><th>Версия Suricata</th><td>{inst.suricata_version || "—"}</td></tr>
               <tr><th>Конфиг</th><td className="muted">{inst.config_path || "—"}</td></tr>
               <tr><th>Каталог правил</th><td className="muted">{inst.rules_dir || "—"}</td></tr>
