@@ -19,9 +19,10 @@ import (
 
 // MatrixRule — строка оси правил матрицы.
 type MatrixRule struct {
-	SID    int64   `json:"sid"`
-	Msg    *string `json:"msg"`
-	Status string  `json:"status"`
+	ID     uuid.UUID `json:"id"` // для карточки логики (чанк 76)
+	SID    int64     `json:"sid"`
+	Msg    *string   `json:"msg"`
+	Status string    `json:"status"`
 }
 
 // MatrixInstance — столбец оси инстансов матрицы.
@@ -77,7 +78,7 @@ func (r *RulesRepo) MatrixRulesPage(ctx context.Context, orgID uuid.UUID, status
 		sidArg = &sid
 	}
 	rows, err := r.pool.Query(ctx,
-		`SELECT sid, msg, status FROM rules
+		`SELECT id, sid, msg, status FROM rules
 		 WHERE organization_id = $1
 		   AND ($2::text IS NULL AND status != 'deleted' OR status = $2)
 		   AND ($3::text IS NULL OR category = $3)
@@ -93,7 +94,7 @@ func (r *RulesRepo) MatrixRulesPage(ctx context.Context, orgID uuid.UUID, status
 	items := []MatrixRule{}
 	for rows.Next() {
 		var it MatrixRule
-		if err := rows.Scan(&it.SID, &it.Msg, &it.Status); err != nil {
+		if err := rows.Scan(&it.ID, &it.SID, &it.Msg, &it.Status); err != nil {
 			return nil, nil, translate(err)
 		}
 		items = append(items, it)

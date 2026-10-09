@@ -432,11 +432,22 @@ POST /rules/validate_agent {raw, instance_id} (rules.read; scoping;
 OpenAPI: /rules/validate_agent. Проверки: build/vet, go test (agent +
 httpapi), npm build чисто, yaml ok.
 
-**Следующий шаг после 75**: 1E п.3 — матрица «правила × инстансы»:
-раскрытие строки с карточкой логики (переиспользовать RuleEditor/
-validate); перекат .28+.67 при включении стенда (миграции 000012+000013,
-proto с чанка 75 — обе стороны) + живой e2E плана 1B и «Проверить на
-агенте».
+Чанк 76 ГОТОВ (2026-10-09, этот коммит; стенд выключен — живой чек
+отложен): 1E п.3 закрыт по коду — матрица «правила × инстансы» с
+карточкой логики. Store MatrixRulesPage отдаёт id правила (MatrixRule.ID
+→ openapi RulesMatrix.rules[].id); UI Matrix.tsx: клик по строке
+раскрывает RuleLogicCard — raw последней ревизии (GET
+/rules/{id}/revisions?limit=1) + структурная логика из POST
+/rules/validate (action/proto/адреса/порты/classtype/priority/rev) и
+ошибки разбора; строка кликабельна (clickable). Проверки: build/vet,
+store/httpapi тесты ok, npm build чисто, yaml ok.
+
+**Следующий шаг после 76**: приоритет 1E закрыт по коду (п.1 редактор+
+проверка, п.2 скачивание, п.3 матрица). Дальше: перекат .28+.67 при
+включении стенда (миграции 000012+000013, proto чанка 75 — обе
+стороны, сборка сервер+агент+фронт) + живой e2E плана 1B и «Проверить
+на агенте»; свободные хвосты: /config_profiles/{id}/validate,
+история версий профилей (/versions, diff, rollback по спеке).
 
 **Следующий шаг после 64**: рендер профиля (resolve parent-цепочки +
 подстановка переменных {{var}} — решить синтаксис) и интеграция с
@@ -1620,7 +1631,8 @@ managed-файле (245 правил).
 | 72 | Валидация правил (1E п.1, server): POST /rules/validate — разбор internal/rules без записи, структурная логика + построчные ошибки; OpenAPI ParsedRule/LineError. Стенд выключен — живой чек отложен | 823268c |
 | 73 | Ручная ревизия правила (1E п.1, server): POST /rules/{id}/revisions {raw} — валидация парсером + контроль sid, AddRevision (msg/category обновляются, тюнинг не трогается, идемпотентно по sha256); OpenAPI. Стенд выключен — живой чек отложен | 047b2c4 |
 | 74 | UI редактора правила (1E п.1): RuleEditor в «Правилах» вместо prompt'а — raw последней ревизии, «Проверить» (логика+ошибки), «Сохранить ревизию». npm build чисто. Стенд выключен — живой чек отложен | 379ba45 |
-| 75 | Проверка правила suricata -T через агента (1E п.1): proto DeployRulesTask.validate_only, агент validateRulesOnly (temp-окружение, без записи), POST /rules/validate_agent, UI «Проверить на агенте», OpenAPI + protocol.md. Стенд выключен — e2e отложен | (этот коммит) |
+| 75 | Проверка правила suricata -T через агента (1E п.1): proto DeployRulesTask.validate_only, агент validateRulesOnly (temp-окружение, без записи), POST /rules/validate_agent, UI «Проверить на агенте», OpenAPI + protocol.md. Стенд выключен — e2e отложен | 6ebae2a |
+| 76 | Матрица «правила × инстансы» с карточкой логики (1E п.3): MatrixRule.ID в store+openapi, UI — клик по строке раскрывает raw+логику (revisions + /rules/validate). npm build чисто. Стенд выключен — живой чек отложен | (этот коммит) |
 | 63 | OpenAPI под факт чанков 54–62: /config_versions*, /instances/{id}/config/current+history, /clusters/{id}/capabilities, схемы ConfigVersion/ConfigDeploy/CapabilitiesSet. Перекатан .28, health ok | (этот коммит) |
 | 62 | SetCapabilitiesTask: живое применение capability без рестарта (агент applyCapabilities под mu; сервер push после PUT). Код, e2e после переката | (этот коммит) |
 | 61 | UI capability хоста: HostCapsPanel в «Конфигурациях» (GET/PUT /hosts/{id}/capabilities, чекбоксы каталога, apiPut). Перекат .28 прерван зависанием ВМ | (этот коммит) |

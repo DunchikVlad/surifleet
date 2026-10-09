@@ -249,7 +249,7 @@ export interface Agent {
 export interface LogEntry { ts: string; level: string; message: string }
 
 export interface MatrixInstance { instance_id: string; name?: string; hostname?: string }
-export interface MatrixRule { sid: number; msg?: string; status?: string }
+export interface MatrixRule { id?: string; sid: number; msg?: string; status?: string }
 export interface MatrixCell { sid: number; instance_id: string; status: string }
 export interface RulesMatrix {
   instances?: MatrixInstance[];

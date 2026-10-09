@@ -1,10 +1,67 @@
 import React from "react";
 import {
-  apiGet, MatrixInstance, MatrixRule, RulesMatrix,
+  apiGet, apiPost, MatrixInstance, MatrixRule, RulesMatrix,
 } from "../api";
 import { Badge, ErrorBox } from "../components";
 
 const LIMIT = 50;
+
+// ParsedRuleMini / логика правила для карточки матрицы (чанк 76) —
+// тот же источник, что и в редакторе: raw последней ревизии +
+// POST /rules/validate.
+interface ParsedMini {
+  action?: string;
+  protocol?: string;
+  src_addr?: string;
+  src_port?: string;
+  direction?: string;
+  dst_addr?: string;
+  dst_port?: string;
+  sid?: number;
+  rev?: number;
+  msg?: string;
+  classtype?: string;
+  priority?: number;
+}
+
+// RuleLogicCard — карточка логики правила: raw + структурный разбор.
+function RuleLogicCard({ ruleID }: { ruleID: string }) {
+  const [raw, setRaw] = React.useState("");
+  const [parsed, setParsed] = React.useState<ParsedMini | null>(null);
+  const [errors, setErrors] = React.useState<string[]>([]);
+  const [err, setErr] = React.useState<unknown>(null);
+
+  React.useEffect(() => {
+    (async () => {
+      try {
+        const d = await apiGet<{ items?: { raw: string }[] }>(`/rules/${ruleID}/revisions?limit=1`);
+        const text = d.items?.[0]?.raw ?? "";
+        setRaw(text);
+        if (!text.trim()) { setErrors(["ревизий нет"]); return; }
+        const v = await apiPost<{ ok: boolean; rules?: ParsedMini[]; errors?: { line: number; reason: string }[] }>(
+          "/rules/validate", { rules: text });
+        setParsed(v.rules?.[0] ?? null);
+        setErrors((v.errors || []).map(e => `строка ${e.line}: ${e.reason}`));
+      } catch (e) { setErr(e); }
+    })();
+  }, [ruleID]);
+
+  if (err) return <ErrorBox error={err} />;
+  return (
+    <div style={{ padding: "0.5em" }}>
+      {errors.length > 0 && <p className="muted">ошибки разбора: {errors.join("; ")}</p>}
+      {parsed && (
+        <p>
+          <b>{parsed.action}</b> {parsed.protocol} {parsed.src_addr}:{parsed.src_port}{" "}
+          {parsed.direction} {parsed.dst_addr}:{parsed.dst_port}
+          {" · "}classtype: {parsed.classtype || "—"}
+          {parsed.priority ? ` · prio ${parsed.priority}` : ""}{" · "}rev: {parsed.rev ?? 1}
+        </p>
+      )}
+      <pre style={{ maxHeight: "10em", overflow: "auto", margin: 0 }}>{raw || "…"}</pre>
+    </div>
+  );
+}
 
 const LEGEND: { st: string; label: string }[] = [
   { st: "loaded", label: "loaded — загружено движком" },
@@ -23,6 +80,8 @@ export default function Matrix({ active }: { active: boolean }) {
   const [sid, setSid] = React.useState("");
   const [err, setErr] = React.useState<unknown>(null);
   const [loaded, setLoaded] = React.useState(false);
+  // Раскрытая строка — карточка логики правила (чанк 76).
+  const [expanded, setExpanded] = React.useState<number | null>(null);
 
   // Фильтры в ref, чтобы load(append) не пересоздавался на каждый ввод.
   const filters = React.useRef({ cellStatus, sid });
@@ -135,22 +194,35 @@ export default function Matrix({ active }: { active: boolean }) {
             </thead>
             <tbody>
               {rules.map(r => (
-                <tr key={r.sid}>
-                  <td className="mx-sid">{r.sid}</td>
-                  <td className="mx-msg" title={r.msg || ""}>{r.msg || ""}</td>
-                  <td><Badge status={r.status} /></td>
-                  {instances.map(i => {
-                    const st = cells[r.sid + "|" + i.instance_id] || "none";
-                    return (
-                      <td key={i.instance_id} className="mx">
-                        <i
-                          className={`mx-cell mx-${st}`}
-                          title={`sid ${r.sid} · ${i.hostname}: ${st === "none" ? "—" : st}`}
-                        />
+                <React.Fragment key={r.sid}>
+                  <tr
+                    className="clickable"
+                    title="клик — карточка логики правила"
+                    onClick={() => setExpanded(prev => (prev === r.sid ? null : r.sid))}
+                  >
+                    <td className="mx-sid">{r.sid}</td>
+                    <td className="mx-msg" title={r.msg || ""}>{r.msg || ""}</td>
+                    <td><Badge status={r.status} /></td>
+                    {instances.map(i => {
+                      const st = cells[r.sid + "|" + i.instance_id] || "none";
+                      return (
+                        <td key={i.instance_id} className="mx">
+                          <i
+                            className={`mx-cell mx-${st}`}
+                            title={`sid ${r.sid} · ${i.hostname}: ${st === "none" ? "—" : st}`}
+                          />
+                        </td>
+                      );
+                    })}
+                  </tr>
+                  {expanded === r.sid && r.id && (
+                    <tr>
+                      <td colSpan={3 + instances.length}>
+                        <RuleLogicCard ruleID={r.id} />
                       </td>
-                    );
-                  })}
-                </tr>
+                    </tr>
+                  )}
+                </React.Fragment>
               ))}
             </tbody>
           </table>

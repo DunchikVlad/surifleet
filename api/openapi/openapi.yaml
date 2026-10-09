@@ -3666,6 +3666,7 @@ components:
           items:
             type: object
             properties:
+              id: {type: string, format: uuid, description: id правила — для карточки логики}
               sid: {type: integer, format: int64}
               msg: {type: string}
               status: {type: string}

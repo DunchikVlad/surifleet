@@ -7,6 +7,12 @@
 
 ### Added
 
+- Чанк 76 (2026-10-09): матрица «правила × инстансы» с карточкой
+  логики (1E п.3) — MatrixRulesPage отдаёт id правила (openapi
+  RulesMatrix.rules[].id); UI: клик по строке раскрывает RuleLogicCard
+  (raw последней ревизии + логика из POST /rules/validate + ошибки).
+  (server, ui, api)
+
 - Чанк 75 (2026-10-09): проверка правила suricata -T через агента
   (1E п.1) — proto: DeployRulesTask.validate_only (поле 8, добавочное);
   агент: validateRulesOnly — кандидат в temp-каталог, копия suricata.yaml
