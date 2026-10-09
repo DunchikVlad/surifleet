@@ -7,6 +7,12 @@
 
 ### Added
 
+- Чанк 77 (2026-10-09): валидация профиля конфигурации по спеке —
+  POST /config_profiles/{id}/validate (config.write): рендер → версия →
+  задача deploy_config validate_only; цель по умолчанию — canary
+  (первый инстанс org); 202 + profile_id, аудит
+  config_profiles.validate. (server)
+
 - Чанк 76 (2026-10-09): матрица «правила × инстансы» с карточкой
   логики (1E п.3) — MatrixRulesPage отдаёт id правила (openapi
   RulesMatrix.rules[].id); UI: клик по строке раскрывает RuleLogicCard

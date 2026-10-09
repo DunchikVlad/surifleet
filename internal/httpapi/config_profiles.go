@@ -396,3 +396,94 @@ func (h *handlers) renderTarget(r *http.Request, inst store.Instance) (cfgrender
 	t.ClusterName = cluster.Name
 	return t, nil
 }
+
+// validateConfigProfile — POST /config_profiles/{id}/validate
+// (config.write): асинхронная валидация отрендеренного профиля suricata -T
+// на агенте (чанк 77). Без instance_id в теле цель — canary-инстанс
+// (первый инстанс организации). Результат задачи — GET /tasks/{task_id}
+// и история применений инстанса (validated).
+func (h *handlers) validateConfigProfile(w http.ResponseWriter, r *http.Request) {
+	orgID, ok := h.resolveOrgID(w, r)
+	if !ok {
+		return
+	}
+	id, ok := pathUUID(w, chi.URLParam(r, "id"), "id")
+	if !ok {
+		return
+	}
+	var in struct {
+		InstanceID string `json:"instance_id"`
+	}
+	if !decodeJSON(w, r, &in) {
+		return
+	}
+	p, err := h.d.Store.ConfigProfiles.Get(r.Context(), id)
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	if p.OrganizationID != orgID {
+		writeError(w, http.StatusNotFound, CodeNotFound, "ресурс не найден", nil)
+		return
+	}
+	if !h.profileScopeExists(w, r, p.ScopeType, p.ScopeID) {
+		return
+	}
+
+	instID := uuid.Nil
+	if in.InstanceID != "" {
+		instID, err = uuid.Parse(in.InstanceID)
+		if err != nil {
+			writeValidation(w, fieldErrors{"instance_id": "UUID"})
+			return
+		}
+	} else {
+		// canary по умолчанию — первый инстанс организации.
+		ids, err := h.d.Store.Instances.IDsForOrg(r.Context(), orgID, nil)
+		if err != nil {
+			writeStoreError(w, err)
+			return
+		}
+		if len(ids) == 0 {
+			writeError(w, http.StatusBadRequest, CodeValidation, "в организации нет инстансов для валидации", nil)
+			return
+		}
+		instID = ids[0]
+	}
+	inst, err := h.d.Store.Instances.Get(r.Context(), instID)
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	if !h.instanceAllowed(w, r, inst.HostID) { // scoping (чанк 43)
+		return
+	}
+
+	yml, _, err := h.renderProfile(r, id, inst)
+	if err != nil {
+		writeRenderError(w, err)
+		return
+	}
+	note := "validate профиля " + p.Name + " v" + strconv.Itoa(p.Version) + " на " + inst.Name
+	cv, _, err := h.storeConfigVersion(r.Context(), orgID, "", yml, note)
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	taskID, agentID, err := h.dispatchDeployConfigTask(r.Context(), cv, inst, true)
+	if errors.Is(err, errAgentOffline) {
+		writeError(w, http.StatusConflict, CodeConflict, errAgentOffline.Error(), nil)
+		return
+	}
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	objType := "config_profile"
+	h.audit(r, identityFrom(r.Context()), "config_profiles.validate", &objType, &p.ID, "success",
+		"validate_only "+cv.Version+" на "+inst.Name+" (задача "+taskID+")")
+	writeJSON(w, http.StatusAccepted, map[string]any{
+		"task_id": taskID, "config_version_id": cv.ID, "version": cv.Version,
+		"instance_id": instID, "agent_id": agentID, "profile_id": p.ID,
+	})
+}
