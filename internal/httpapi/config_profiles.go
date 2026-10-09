@@ -5,6 +5,7 @@
 package httpapi
 
 import (
+	"errors"
 	"net/http"
 	"strconv"
 	"strings"
@@ -12,6 +13,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 
+	"github.com/surifleet/surifleet/internal/cfgrender"
 	"github.com/surifleet/surifleet/internal/store"
 )
 
@@ -208,4 +210,107 @@ func (h *handlers) deleteConfigProfile(w http.ResponseWriter, r *http.Request) {
 	objType := "config_profile"
 	h.audit(r, identityFrom(r.Context()), "config_profiles.delete", &objType, &id, "success", "")
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// renderConfigProfile — GET /config_profiles/{id}/render?target=<instance_id>
+// (config.read): отрендерить итоговый suricata.yaml для цели — цепочка
+// наследования (store.Chain, root→tip) мержится, подставляются {{var}}
+// (internal/cfgrender; синтаксис и источники значений — в доке пакета).
+func (h *handlers) renderConfigProfile(w http.ResponseWriter, r *http.Request) {
+	orgID, ok := h.resolveOrgID(w, r)
+	if !ok {
+		return
+	}
+	id, ok := pathUUID(w, chi.URLParam(r, "id"), "id")
+	if !ok {
+		return
+	}
+	targetParam := r.URL.Query().Get("target")
+	targetID, err := uuid.Parse(targetParam)
+	if targetParam == "" || err != nil {
+		writeValidation(w, fieldErrors{"target": "обязательный UUID инстанса"})
+		return
+	}
+	p, err := h.d.Store.ConfigProfiles.Get(r.Context(), id)
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	if p.OrganizationID != orgID {
+		writeError(w, http.StatusNotFound, CodeNotFound, "ресурс не найден", nil)
+		return
+	}
+	if !h.profileScopeExists(w, r, p.ScopeType, p.ScopeID) {
+		return
+	}
+	inst, err := h.d.Store.Instances.Get(r.Context(), targetID)
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	if !h.instanceAllowed(w, r, inst.HostID) { // scoping (чанк 43)
+		return
+	}
+
+	chainStore, err := h.d.Store.ConfigProfiles.Chain(r.Context(), id)
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	facts, err := h.renderTarget(r, inst)
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	chain := make([]cfgrender.Profile, len(chainStore))
+	for i, cp := range chainStore {
+		chain[i] = cfgrender.Profile{ID: cp.ID.String(), Name: cp.Name, ScopeType: cp.ScopeType, Content: cp.ContentYAML}
+	}
+	yml, sources, err := cfgrender.Render(chain, facts)
+	if err != nil {
+		var uv *cfgrender.UnknownVarsError
+		if errors.As(err, &uv) {
+			writeError(w, http.StatusBadRequest, CodeValidation,
+				"неизвестные переменные профиля", map[string]any{"variables": uv.Names})
+			return
+		}
+		writeError(w, http.StatusBadRequest, CodeValidation, err.Error(), nil)
+		return
+	}
+	objType := "config_profile"
+	h.audit(r, identityFrom(r.Context()), "config_profiles.render", &objType, &p.ID, "success",
+		"цель "+inst.Name+" ("+strconv.Itoa(len(chain))+" профилей в цепочке)")
+	writeJSON(w, http.StatusOK, map[string]any{"rendered_yaml": yml, "sources": sources})
+}
+
+// renderTarget — факты об инстансе-цели для встроенных переменных
+// (instance.*/host.*/cluster.*): инстанс, его хост и кластер хоста.
+func (h *handlers) renderTarget(r *http.Request, inst store.Instance) (cfgrender.Target, error) {
+	ctx := r.Context()
+	t := cfgrender.Target{
+		InstanceID:   inst.ID.String(),
+		InstanceName: inst.Name,
+		ConfigPath:   inst.ConfigPath,
+		RulesDir:     inst.RulesDir,
+		LogDir:       inst.LogDir,
+	}
+	if len(inst.CaptureInterfaces) > 0 {
+		t.Interface = inst.CaptureInterfaces[0]
+	}
+	host, err := h.d.Store.Hosts.Get(ctx, inst.HostID)
+	if err != nil {
+		return t, err
+	}
+	t.HostID = host.ID.String()
+	t.Hostname = host.Hostname
+	if len(host.IPAddresses) > 0 {
+		t.HostIP = host.IPAddresses[0]
+	}
+	cluster, err := h.d.Store.Clusters.Get(ctx, host.ClusterID)
+	if err != nil {
+		return t, err
+	}
+	t.ClusterID = cluster.ID.String()
+	t.ClusterName = cluster.Name
+	return t, nil
 }

@@ -63,6 +63,8 @@ func writeStoreError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusConflict, CodeConflict, "запись конфликтует с существующей (уникальность)", details)
 	case errors.Is(err, store.ErrForeignKey):
 		writeError(w, http.StatusBadRequest, CodeValidation, "родительская запись не существует", nil)
+	case errors.Is(err, store.ErrCycle):
+		writeError(w, http.StatusConflict, CodeConflict, "цикл в цепочке наследования (parent_id)", nil)
 	default:
 		errLog.Error("внутренняя ошибка store", "err", err)
 		writeError(w, http.StatusInternalServerError, CodeInternal, "внутренняя ошибка сервера", nil)

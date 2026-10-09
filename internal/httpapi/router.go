@@ -214,6 +214,7 @@ func NewRouter(d Deps) http.Handler {
 				r.With(h.requirePerm(PermConfigRead)).Get("/", h.getConfigProfile)
 				r.With(h.requirePerm(PermConfigWrite)).Patch("/", h.updateConfigProfile)
 				r.With(h.requirePerm(PermConfigWrite)).Delete("/", h.deleteConfigProfile)
+				r.With(h.requirePerm(PermConfigRead)).Get("/render", h.renderConfigProfile)
 			})
 		})
 

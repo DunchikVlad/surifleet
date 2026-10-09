@@ -285,9 +285,35 @@ List (keyset + фильтр scope)/Update (смена content_yaml → version+1
 Delete (дочерние → parent_id NULL). API по спеке openapi: GET/POST
 /config_profiles + GET/PATCH/DELETE /{id} (config.read/write; scope_id
 проверяется по типу с scoping, аудит config_profiles.*). Не сделано:
-рендер шаблона с переменными (наследование содержимого по parent_id),
-история версий, POST /render|/validate, UI. Проверки: build/vet/test
+история версий, POST /validate, UI. Проверки: build/vet/test
 зелёные.
+
+Чанк 65 ГОТОВ (2026-10-09, этот коммит; стенд выключен — живой e2e
+отложен до переката вместе с миграцией 000012): рендер профилей
+конфигурации. **Зафиксирован синтаксис переменных**: `{{имя}}` (в YAML
+обязательны в кавычках — без них `{{...}}` парсится как flow-map);
+значения: top-level `vars:` профилей цепочки (мерж root→tip, в вывод не
+попадает) + встроенные факты цели `instance.*`/`host.*`/`cluster.*`
+(id/name/config_path/rules_dir/log_dir/interface/hostname/ip); строгий
+режим — неизвестная переменная = ошибка рендера со списком имён.
+Пакет `internal/cfgrender` (чистая функция): parse yaml.v3 каждого
+звена, изъятие vars, deep-мерж цепочки (map рекурсивно, массивы/скаляры
+перекрываются, explicit null удаляет ключ), подстановка (полный
+плейсхолдер строки → типизированное значение, встроенный → строка).
+Store: `ConfigProfilesRepo.Chain` (root→tip по parent_id, контроль цикла
+→ ErrCycle → 409, звенья из чужой org → 404) + ErrCycle в errors.go.
+API: GET /config_profiles/{id}/render?target=<instance_id> (config.read,
+scoping профиля и инстанса, аудит config_profiles.render, ответ
+RenderResult по спеке — spec требует GET, бриф говорил POST: реализовано
+по спеке). Юнит-тесты рендера: 8 кейсов (мерж, null-удаление, vars,
+встроенные, типизация, строгий режим, буквальные скобки). Проверки:
+build/vet зелёные, go test ./internal/... 17 ok (единственный FAIL —
+известный не-блокер samlauth на NTFS).
+
+**Следующий шаг после 65**: интеграция с deploy_config — деплой
+отрендеренного профиля на инстанс (эндпоинт + OpenAPI); затем волновой
+деплой конфигов через оркестратор; UI профилей; перекат .28 (миграция
+000012 + живой e2E рендера).
 
 **Следующий шаг после 64**: рендер профиля (resolve parent-цепочки +
 подстановка переменных {{var}} — решить синтаксис) и интеграция с
@@ -1461,6 +1487,7 @@ managed-файле (245 правил).
 | Чанк | Содержание | Коммит |
 |---|---|---|
 | 64 | Профили конфигураций, фундамент: миграция 000012 config_profiles (parent_id self-ref, version), ConfigProfilesRepo CRUD, API /config_profiles по спеке (scoping, аудит). Рендер переменных — следующие чанки | f39ac54 |
+| 65 | Рендер профилей: internal/cfgrender (deep-мерж цепочки + {{var}} — vars: профилей + встроенные instance./host./cluster., строгий режим), store Chain + ErrCycle, GET /config_profiles/{id}/render?target= (RenderResult по спеке), юнит-тесты рендера. Стенд выключен — e2e отложен | (этот коммит) |
 | 63 | OpenAPI под факт чанков 54–62: /config_versions*, /instances/{id}/config/current+history, /clusters/{id}/capabilities, схемы ConfigVersion/ConfigDeploy/CapabilitiesSet. Перекатан .28, health ok | (этот коммит) |
 | 62 | SetCapabilitiesTask: живое применение capability без рестарта (агент applyCapabilities под mu; сервер push после PUT). Код, e2e после переката | (этот коммит) |
 | 61 | UI capability хоста: HostCapsPanel в «Конфигурациях» (GET/PUT /hosts/{id}/capabilities, чекбоксы каталога, apiPut). Перекат .28 прерван зависанием ВМ | (этот коммит) |

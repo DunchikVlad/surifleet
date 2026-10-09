@@ -125,6 +125,38 @@ func (r *ConfigProfilesRepo) Update(ctx context.Context, id uuid.UUID, name, des
 	return p, nil
 }
 
+// Chain — цепочка наследования профиля от корня к самому профилю
+// (root→tip; рендер мержит в этом порядке, чанк 65). Родители читаются
+// по parent_id; все звенья обязаны принадлежать той же организации —
+// иначе ErrNotFound (защита от утечки между оргами). Цикл parent_id →
+// ErrCycle (ручные правки БД; FK-циклов создать нельзя, но страхуемся).
+func (r *ConfigProfilesRepo) Chain(ctx context.Context, id uuid.UUID) ([]ConfigProfile, error) {
+	const maxDepth = 16
+	chain := []ConfigProfile{}
+	seen := map[uuid.UUID]bool{}
+	cur := id
+	for i := 0; i < maxDepth; i++ {
+		if seen[cur] {
+			return nil, ErrCycle
+		}
+		seen[cur] = true
+		p, err := r.Get(ctx, cur)
+		if err != nil {
+			return nil, err
+		}
+		if len(chain) > 0 && p.OrganizationID != chain[0].OrganizationID {
+			// родитель из другой орги — не показываем
+			return nil, ErrNotFound
+		}
+		chain = append([]ConfigProfile{p}, chain...) // root→tip
+		if p.ParentID == nil {
+			return chain, nil
+		}
+		cur = *p.ParentID
+	}
+	return nil, ErrCycle // глубже maxDepth — фактически цикл
+}
+
 // Delete — удалить профиль. Дочерние профили остаются (parent_id → NULL
 	// по ON DELETE SET NULL).
 func (r *ConfigProfilesRepo) Delete(ctx context.Context, id uuid.UUID) error {

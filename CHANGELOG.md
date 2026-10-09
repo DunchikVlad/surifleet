@@ -7,6 +7,18 @@
 
 ### Added
 
+- Чанк 65 (2026-10-09): рендер профилей конфигурации —
+  deep-мерж цепочки наследования + подстановка переменных
+  `{{var}}`. Новый пакет `internal/cfgrender` (чистая функция,
+  строгий режим: неизвестные переменные → ошибка со списком;
+  значения — top-level `vars:` профилей цепочки и встроенные
+  факты цели instance.*/host.*/cluster.*; полное совпадение строки
+  с плейсхолдером → типизированное значение). Store:
+  ConfigProfilesRepo.Chain (root→tip, ErrCycle) + ErrCycle → 409.
+  API: GET /config_profiles/{id}/render?target=<instance_id>
+  (config.read, RenderResult по спеке). Юнит-тесты рендера.
+  Стенд выключен — живой e2e отложен до переката. (server, api)
+
 - Чанк 63 (2026-10-09): OpenAPI приведён под факт чанков 54–62 —
   /config_versions (list/create/get/content/deploy 202+validate_only),
   /instances/{id}/config/current (X-Config-Sha256), /instances/{id}/
