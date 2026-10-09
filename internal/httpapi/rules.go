@@ -476,3 +476,28 @@ func (h *handlers) listRuleRevisions(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, page[store.RuleRevision]{Items: items, NextCursor: next})
 }
+
+// validateRules — POST /rules/validate (rules.read): серверная валидация
+// текста правил парсером internal/rules без записи в репозиторий (чанк 72,
+// приоритет 1E п.1) — основа кнопки «Проверить» редактора: структурная
+// логика (Parsed) + список ошибок построчно. Проверка suricata -T через
+// агента — следующие чанки.
+func (h *handlers) validateRules(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Rules string `json:"rules"`
+	}
+	if !decodeJSON(w, r, &in) {
+		return
+	}
+	if strings.TrimSpace(in.Rules) == "" {
+		writeValidation(w, fieldErrors{"rules": "обязательное поле (текст правила)"})
+		return
+	}
+	res := rules.ParseReader(strings.NewReader(in.Rules), 50)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":          len(res.Errors) == 0 && len(res.Rules) > 0,
+		"total_lines": res.TotalLines,
+		"rules":       res.Rules,
+		"errors":      res.Errors,
+	})
+}

@@ -799,6 +799,35 @@ paths:
         '204': {description: Удалено}
         default: {$ref: '#/components/responses/Error'}
 
+  /rules/validate:
+    post:
+      operationId: validate_rules
+      tags: [rules]
+      summary: Валидация текста правил парсером (без записи)
+      description: "Требуется право: rules.read. Для кнопки «Проверить» редактора: структурная логика (action/proto/адреса/порты/sid/msg/…) + построчные ошибки. Проверка suricata -T через агента — отдельно."
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [rules]
+              properties:
+                rules: {type: string, description: Одно или несколько правил (построчно)}
+      responses:
+        '200':
+          description: Результат разбора
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: {type: boolean}
+                  total_lines: {type: integer}
+                  rules: {type: array, items: {$ref: '#/components/schemas/ParsedRule'}}
+                  errors: {type: array, items: {$ref: '#/components/schemas/LineError'}}
+        default: {$ref: '#/components/responses/Error'}
+
   /rules/import:
     post:
       operationId: import_rules
@@ -3117,6 +3146,31 @@ components:
           items: {$ref: '#/components/schemas/DiscoveredInstance'}
 
     # ------ Правила, фиды, IOC ------
+
+    ParsedRule:
+      type: object
+      description: Структурный разбор одной правила (internal/rules)
+      properties:
+        action: {type: string}
+        protocol: {type: string}
+        src_addr: {type: string}
+        src_port: {type: string}
+        direction: {type: string}
+        dst_addr: {type: string}
+        dst_port: {type: string}
+        sid: {type: integer, format: int64}
+        rev: {type: integer}
+        msg: {type: string}
+        classtype: {type: string}
+        priority: {type: integer}
+        reference: {type: array, items: {type: string}}
+        metadata: {type: array, items: {type: string}}
+
+    LineError:
+      type: object
+      properties:
+        line: {type: integer}
+        reason: {type: string}
 
     Rule:
       type: object

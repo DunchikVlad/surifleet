@@ -7,6 +7,12 @@
 
 ### Added
 
+- Чанк 72 (2026-10-09): валидация правил (1E п.1, server) — POST
+  /rules/validate (rules.read): разбор парсером internal/rules без
+  записи в репозиторий; ответ ok/total_lines/rules[] (структурная
+  логика) + errors[] (построчно, лимит 50). OpenAPI: путь
+  /rules/validate, схемы ParsedRule/LineError. (server, api)
+
 - Чанк 71 (2026-10-09): скачивание ruleset'ов (1E п.2) — GET
   /rulesets/{id}/download (rules.read): content-addressed блоб .rules
   (тот же, что у агентам при деплое), отдача attachment + ETag по

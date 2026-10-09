@@ -384,12 +384,22 @@ batch_size) → POST /config_versions/{id}/deploy_wave; результат —
 «Ruleset'ы» (fetch с токеном → blob → a[download]). Проверки: go
 build/vet, yaml ok (103 paths), npm build чисто.
 
-**Следующий шаг после 71**: приоритет 1E, пункт 1 — редактор правил с
-логикой и проверкой (вкладка «Правила»: структурный разбор
-internal/rules + raw-режим, отображение логики, кнопка «Проверить» —
-валидация парсером server-side и suricata -T через агента); далее
-пункт 3 — матрица «правила × инстансы» с карточкой логики; перекат .28
-(миграции 000012+000013) и живой e2E плана 1B при включении стенда.
+Чанк 72 ГОТОВ (2026-10-09, этот коммит; стенд выключен — живой чек
+отложен): приоритет 1E п.1, серверная половина — POST /rules/validate
+(rules.read): валидация текста правил парсером internal/rules без записи
+в репозиторий — основа кнопки «Проверить» редактора. Ответ: ok,
+total_lines, rules[] (структурная логика Parsed: action/proto/адреса/
+порты/sid/rev/msg/classtype/priority/reference/metadata), errors[]
+(построчные LineError, лимит 50). OpenAPI: путь /rules/validate +
+схемы ParsedRule/LineError (104 paths). Проверки: build/vet, yaml ok,
+тесты rules/httpapi ok (парсер покрыт parser_test.go).
+
+**Следующий шаг после 72**: 1E п.1 дальше — UI редактора правил
+(вкладка «Правила»: структурные поля + raw-режим, кнопка «Проверить»
+через /rules/validate с показом логики, затем проверка suricata -T
+через агента — флаг validate_only в DeployRulesTask или отдельная
+задача, решить на месте); далее 1E п.3 — матрица с карточкой логики;
+перекат .28 и живой e2E при включении стенда.
 
 **Следующий шаг после 64**: рендер профиля (resolve parent-цепочки +
 подстановка переменных {{var}} — решить синтаксис) и интеграция с
@@ -1569,7 +1579,8 @@ managed-файле (245 правил).
 | 68 | API волнового деплоя конфигов: POST /config_versions/{id}/deploy_wave (targeting+canary/batch, kind=config, оркестратор, аудит); OpenAPI deploy_wave + Deployment.kind/config_version_id. Стенд выключен — e2e отложен | 9601260 |
 | 69 | UI профилей конфигурации: ProfilesPanel в «Конфигурациях» (список, создание, preview рендера с цепочкой, деплой профиля). npm build чисто. Стенд выключен — живой UI-чек отложен | e84bef5 |
 | 70 | UI доводка 1B: parent_id в форме профиля (наследование цепочки), волновой деплой из UI (кнопка «волна», таргетинг all/specific + canary/батч). npm build чисто. Стенд выключен — живой чек отложен | ffa5c2f |
-| 71 | Скачивание ruleset'ов (1E п.2): GET /rulesets/{id}/download (attachment+ETag, блоб как у агентов), кнопка «скачать» в UI, OpenAPI. Стенд выключен — живой чек отложен | (этот коммит) |
+| 71 | Скачивание ruleset'ов (1E п.2): GET /rulesets/{id}/download (attachment+ETag, блоб как у агентов), кнопка «скачать» в UI, OpenAPI. Стенд выключен — живой чек отложен | e5e077d |
+| 72 | Валидация правил (1E п.1, server): POST /rules/validate — разбор internal/rules без записи, структурная логика + построчные ошибки; OpenAPI ParsedRule/LineError. Стенд выключен — живой чек отложен | (этот коммит) |
 | 63 | OpenAPI под факт чанков 54–62: /config_versions*, /instances/{id}/config/current+history, /clusters/{id}/capabilities, схемы ConfigVersion/ConfigDeploy/CapabilitiesSet. Перекатан .28, health ok | (этот коммит) |
 | 62 | SetCapabilitiesTask: живое применение capability без рестарта (агент applyCapabilities под mu; сервер push после PUT). Код, e2e после переката | (этот коммит) |
 | 61 | UI capability хоста: HostCapsPanel в «Конфигурациях» (GET/PUT /hosts/{id}/capabilities, чекбоксы каталога, apiPut). Перекат .28 прерван зависанием ВМ | (этот коммит) |

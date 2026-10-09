@@ -226,6 +226,7 @@ func NewRouter(d Deps) http.Handler {
 			r.With(h.requirePerm(PermRulesWrite)).Post("/import", h.importRules)
 			r.With(h.requirePerm(PermRulesRead)).Post("/export", h.exportRules)
 			r.With(h.requirePerm(PermRulesWrite)).Post("/bulk", h.bulkRules)
+			r.With(h.requirePerm(PermRulesRead)).Post("/validate", h.validateRules)
 			r.With(h.requirePerm(PermRulesWrite)).Post("/{id}/clone", h.cloneRule)
 			r.Route("/{id}", func(r chi.Router) {
 				r.With(h.requirePerm(PermRulesRead)).Get("/", h.getRule)
