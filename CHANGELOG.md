@@ -7,6 +7,12 @@
 
 ### Added
 
+- Чанк 71 (2026-10-09): скачивание ruleset'ов (1E п.2) — GET
+  /rulesets/{id}/download (rules.read): content-addressed блоб .rules
+  (тот же, что у агентам при деплое), отдача attachment + ETag по
+  образцу POST /rules/export. OpenAPI: путь /rulesets/{id}/download.
+  UI: кнопка «скачать» у версии во вкладке «Ruleset'ы». (server, ui, api)
+
 - Чанк 70 (2026-10-09): UI доводка 1B — parent_id в форме профиля
   (наследование цепочки кластер→хост→инстанс), волновой деплой из UI:
   кнопка «волна» у версии + настройки (таргетинг all_clusters/

@@ -28,6 +28,23 @@ export default function Rulesets({ active }: { active: boolean }) {
   const toggleExpand = (id: string) => setExpanded(prev => (prev === id ? null : id));
   const [sort, setSort] = React.useState<SortState>({ key: "created_at", dir: -1 });
 
+  // download — скачивание версии ruleset'а файлом .rules (чанк 71):
+  // сырое скачивание через fetch (Content-Disposition attachment).
+  const download = async (v: Ruleset) => {
+    try {
+      const base = import.meta.env.VITE_API_BASE ?? "/api/v1";
+      const r = await fetch(`${base}/rulesets/${v.id}/download`, {
+        headers: { Authorization: "Bearer " + (localStorage.getItem("surifleet_token") || "") },
+      });
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(await r.blob());
+      a.download = `surifleet-ruleset-${v.version}.rules`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    } catch (e) { setErr(e); }
+  };
+
   const load = React.useCallback(async () => {
     try {
       const d = await apiGet<Page<Ruleset>>("/rulesets?limit=50");
@@ -103,6 +120,7 @@ export default function Rulesets({ active }: { active: boolean }) {
               <SortTh label="Правил" k="rule_count" sort={sort} onSort={setSort} />
               <th>SHA-256</th>
               <SortTh label="Создан" k="created_at" sort={sort} onSort={setSort} />
+              <th></th>
             </tr>
           </thead>
           <tbody>
@@ -121,10 +139,16 @@ export default function Rulesets({ active }: { active: boolean }) {
                   <td>{v.rule_count}</td>
                   <td className="muted">{(v.sha256 || "").slice(0, 16)}…</td>
                   <td className="muted">{fmtTime(v.created_at)}</td>
+                  <td>
+                    <button className="btn" title="скачать .rules"
+                      onClick={(e) => { e.stopPropagation(); download(v); }}>
+                      скачать
+                    </button>
+                  </td>
                 </tr>
                 {expanded === v.id && (
                   <tr>
-                    <td colSpan={5}>
+                    <td colSpan={6}>
                       <RulesetRules id={v.id} version={v.version} />
                     </td>
                   </tr>

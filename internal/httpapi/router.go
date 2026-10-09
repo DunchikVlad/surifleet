@@ -240,6 +240,7 @@ func NewRouter(d Deps) http.Handler {
 			r.With(h.requirePerm(PermRulesWrite)).Post("/", h.buildRuleset)
 			r.With(h.requirePerm(PermRulesRead)).Get("/{id}", h.getRuleset)
 			r.With(h.requirePerm(PermRulesRead)).Get("/{id}/rules", h.getRulesetRules)
+			r.With(h.requirePerm(PermRulesRead)).Get("/{id}/download", h.downloadRuleset)
 		})
 
 		r.Route("/iocs", func(r chi.Router) {

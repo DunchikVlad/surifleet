@@ -1357,6 +1357,22 @@ paths:
               schema: {$ref: '#/components/schemas/RulesetVersionDetail'}
         default: {$ref: '#/components/responses/Error'}
 
+  /rulesets/{id}/download:
+    parameters:
+      - {$ref: '#/components/parameters/PathId'}
+    get:
+      operationId: download_ruleset
+      tags: [rulesets]
+      summary: Скачать версию ruleset'а файлом .rules
+      description: "Требуется право: rules.read. Тот же content-addressed блоб, что уходит агентам при деплое; attachment + ETag."
+      responses:
+        '200':
+          description: Файл .rules
+          content:
+            text/plain:
+              schema: {type: string, format: binary}
+        default: {$ref: '#/components/responses/Error'}
+
   /rulesets/{id}/rules:
     parameters:
       - {$ref: '#/components/parameters/PathId'}

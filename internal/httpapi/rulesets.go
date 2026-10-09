@@ -345,3 +345,33 @@ func uuidStrings(ss []string) ([]uuid.UUID, string) {
 	}
 	return ids, ""
 }
+
+// downloadRuleset — GET /rulesets/{id}/download (rules.read): скачивание
+// версии ruleset'а файлом .rules (чанк 71, приоритет 1E, согласовано
+// 09.10). Контент — тот же content-addressed блоб, что уходит агентам
+// при деплое (rulesets/<sha256>.rules); отдача — attachment + ETag.
+func (h *handlers) downloadRuleset(w http.ResponseWriter, r *http.Request) {
+	orgID, ok := h.resolveOrgID(w, r)
+	if !ok {
+		return
+	}
+	id, ok := pathUUID(w, chi.URLParam(r, "id"), "id")
+	if !ok {
+		return
+	}
+	v, err := h.d.Store.Rulesets.Get(r.Context(), id)
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	if v.OrganizationID != orgID {
+		writeError(w, http.StatusNotFound, CodeNotFound, "ресурс не найден", nil)
+		return
+	}
+	body, err := h.d.Blob.Get(r.Context(), v.S3Key)
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	attach(w, "surifleet-ruleset-"+v.Version+".rules", "text/plain; charset=utf-8", body)
+}
