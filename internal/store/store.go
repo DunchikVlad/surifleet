@@ -25,6 +25,7 @@ type Store struct {
 	Iocs                 *IocsRepo
 	Feeds                *FeedsRepo
 	Rulesets             *RulesetsRepo
+	AutoRulesets         *AutoRulesetsRepo
 	Deployments          *DeploymentsRepo
 	DesiredState         *DesiredStateRepo
 	ActualState          *ActualStateRepo
@@ -78,6 +79,7 @@ func Connect(ctx context.Context, dsn string) (*Store, error) {
 	s.Iocs = &IocsRepo{pool: pool}
 	s.Feeds = &FeedsRepo{pool: pool}
 	s.Rulesets = &RulesetsRepo{pool: pool}
+	s.AutoRulesets = &AutoRulesetsRepo{pool: pool}
 	s.Deployments = &DeploymentsRepo{pool: pool}
 	s.DesiredState = &DesiredStateRepo{pool: pool}
 	s.ActualState = &ActualStateRepo{pool: pool}

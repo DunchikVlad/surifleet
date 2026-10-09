@@ -1610,6 +1610,104 @@ paths:
         '204': {description: Удалено}
         default: {$ref: '#/components/responses/Error'}
 
+  /auto_rulesets:
+    get:
+      operationId: list_auto_rulesets
+      tags: [rulesets]
+      summary: Авто-обновляемые ruleset'ы (список)
+      description: "Требуется право: rules.read"
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items: {type: array, items: {$ref: '#/components/schemas/AutoRuleset'}}
+        default: {$ref: '#/components/responses/Error'}
+    post:
+      operationId: create_auto_ruleset
+      tags: [rulesets]
+      summary: Создать авто-ruleset (состав по origin + exclude_sids + таргетинг)
+      description: "Требуется право: rules.write"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/AutoRulesetInput'}
+      responses:
+        '201':
+          description: Создано
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/AutoRuleset'}
+        default: {$ref: '#/components/responses/Error'}
+
+  /auto_rulesets/{id}:
+    parameters:
+      - {$ref: '#/components/parameters/PathId'}
+    get:
+      operationId: get_auto_ruleset
+      tags: [rulesets]
+      summary: Определение авто-ruleset'а
+      description: "Требуется право: rules.read"
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/AutoRuleset'}
+        default: {$ref: '#/components/responses/Error'}
+    patch:
+      operationId: update_auto_ruleset
+      tags: [rulesets]
+      summary: Изменить определение
+      description: "Требуется право: rules.write"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/AutoRulesetInput'}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/AutoRuleset'}
+        default: {$ref: '#/components/responses/Error'}
+    delete:
+      operationId: delete_auto_ruleset
+      tags: [rulesets]
+      summary: Удалить авто-ruleset
+      description: "Требуется право: rules.write"
+      responses:
+        '204': {description: Удалено}
+        default: {$ref: '#/components/responses/Error'}
+
+  /auto_rulesets/{id}/rebuild:
+    parameters:
+      - {$ref: '#/components/parameters/PathId'}
+    post:
+      operationId: rebuild_auto_ruleset
+      tags: [rulesets]
+      summary: Пересобрать и развернуть сейчас
+      description: "Требуется право: rules.write. Новая версия ruleset + волновой деплой на таргетинг; exclude_sids не попадают в набор."
+      responses:
+        '200':
+          description: Результат пересборки
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  skipped: {type: boolean}
+                  ruleset_version: {type: string}
+                  ruleset_version_id: {type: string, format: uuid}
+                  deployment_id: {type: string, format: uuid}
+                  instances: {type: integer}
+        default: {$ref: '#/components/responses/Error'}
+
   /rulesets:
     get:
       operationId: list_rulesets
@@ -3875,6 +3973,45 @@ components:
         paused_at: {type: string, format: date-time, nullable: true}
         finished_at: {type: string, format: date-time, nullable: true}
         created_at: {type: string, format: date-time}
+
+    AutoRuleset:
+      type: object
+      properties:
+        id: {type: string, format: uuid}
+        name: {type: string}
+        description: {type: string, nullable: true}
+        enabled: {type: boolean}
+        include_suriupdate: {type: boolean}
+        include_ioc: {type: boolean}
+        include_manual: {type: boolean}
+        include_feeds: {type: boolean}
+        include_tags: {type: array, items: {type: string}}
+        include_categories: {type: array, items: {type: string}}
+        exclude_sids: {type: array, items: {type: integer, format: int64}, description: 'Запрет на деплой: sid не попадают в набор'}
+        targeting: {$ref: '#/components/schemas/Targeting'}
+        batch_size: {type: integer}
+        canary_size: {type: integer}
+        last_built_at: {type: string, format: date-time, nullable: true}
+        last_ruleset_version_id: {type: string, format: uuid, nullable: true}
+        last_deployment_id: {type: string, format: uuid, nullable: true}
+
+    AutoRulesetInput:
+      type: object
+      required: [name, targeting]
+      properties:
+        name: {type: string}
+        description: {type: string}
+        enabled: {type: boolean, default: true}
+        include_suriupdate: {type: boolean, default: true}
+        include_ioc: {type: boolean, default: true}
+        include_manual: {type: boolean, default: true}
+        include_feeds: {type: boolean, default: false}
+        include_tags: {type: array, items: {type: string}}
+        include_categories: {type: array, items: {type: string}}
+        exclude_sids: {type: array, items: {type: integer, format: int64}}
+        targeting: {$ref: '#/components/schemas/Targeting'}
+        batch_size: {type: integer, default: 50}
+        canary_size: {type: integer, default: 1}
 
     DeploymentProgress:
       type: object

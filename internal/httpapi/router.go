@@ -257,6 +257,17 @@ func NewRouter(d Deps) http.Handler {
 			})
 		})
 
+		r.Route("/auto_rulesets", func(r chi.Router) {
+			r.With(h.requirePerm(PermRulesRead)).Get("/", h.listAutoRulesets)
+			r.With(h.requirePerm(PermRulesWrite)).Post("/", h.createAutoRuleset)
+			r.Route("/{id}", func(r chi.Router) {
+				r.With(h.requirePerm(PermRulesRead)).Get("/", h.getAutoRuleset)
+				r.With(h.requirePerm(PermRulesWrite)).Patch("/", h.updateAutoRuleset)
+				r.With(h.requirePerm(PermRulesWrite)).Delete("/", h.deleteAutoRuleset)
+				r.With(h.requirePerm(PermRulesWrite)).Post("/rebuild", h.rebuildAutoRuleset)
+			})
+		})
+
 		r.Route("/rulesets", func(r chi.Router) {
 			r.With(h.requirePerm(PermRulesRead)).Get("/", h.listRulesets)
 			r.With(h.requirePerm(PermRulesWrite)).Post("/", h.buildRuleset)

@@ -41,6 +41,7 @@ import (
 	"github.com/surifleet/surifleet/internal/orchestrator"
 	"github.com/surifleet/surifleet/internal/pki"
 	"github.com/surifleet/surifleet/internal/samlauth"
+	"github.com/surifleet/surifleet/internal/autoruleset"
 	"github.com/surifleet/surifleet/internal/store"
 	"github.com/surifleet/surifleet/internal/suriupdate"
 )
@@ -171,6 +172,7 @@ func main() {
 	hubSrv.OnTaskResult = func(ctx context.Context, agentID uuid.UUID, res *agentv1.TaskResult) {
 		orch.HandleTaskResult(ctx, agentID, res)
 		suriupdate.HandleResult(ctx, log, db, blobStore, agentID, res)
+		autoruleset.HandleSuriupdateResult(ctx, log, db, blobStore, orch, agentID, res)
 	}
 	hubSrv.OnAgentOnline = orch.DispatchPending
 	if err := orch.Recover(ctx); err != nil {
