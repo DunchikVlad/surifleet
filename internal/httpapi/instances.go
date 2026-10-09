@@ -54,10 +54,15 @@ func (h *handlers) listInstances(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, page[instanceView]{Items: views, NextCursor: next})
 }
 
-// instanceView — инстанс + IP агента его хоста (чанк 78).
+// instanceView — инстанс + IP агента его хоста (чанк 78) + состояние
+// systemd-сервисов из heartbeat (чанк 80: service_state/service_pid —
+// suricata, agent_pid — процесс агента).
 type instanceView struct {
 	store.Instance
-	AgentIP string `json:"agent_ip,omitempty"`
+	AgentIP      string `json:"agent_ip,omitempty"`
+	ServiceState string `json:"service_state,omitempty"`
+	ServicePID   int32  `json:"service_pid,omitempty"`
+	AgentPID     int64  `json:"agent_pid,omitempty"`
 }
 
 // createInstance — POST /api/v1/instances (ручное добавление; обычно инстансы
@@ -117,6 +122,13 @@ func (h *handlers) getInstance(w http.ResponseWriter, r *http.Request) {
 		if ip, ok := h.d.Hub.AgentIP(agent.ID); ok {
 			v.AgentIP = ip
 		}
+		if apid, ok := h.d.Hub.AgentServicePID(r.Context(), agent.ID); ok {
+			v.AgentPID = apid
+		}
+	}
+	if st, pid, ok := h.d.Hub.InstanceServiceState(r.Context(), inst.ID); ok {
+		v.ServiceState = st
+		v.ServicePID = pid
 	}
 	writeJSON(w, http.StatusOK, v)
 }

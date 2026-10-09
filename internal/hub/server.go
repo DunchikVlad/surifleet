@@ -347,6 +347,16 @@ func (s *Server) handleMessage(ctx context.Context, log *slog.Logger, agentID uu
 				log.Error("instance_svc в Redis", "instance_id", iid, "err", err)
 			}
 		}
+		// PID процесса агента (чанк 80) — отдельный ключ с тем же TTL.
+		if hb.GetAgentPid() > 0 {
+			aval, _ := json.Marshal(map[string]any{
+				"pid": hb.GetAgentPid(),
+				"at":  time.Now().UTC().Format(time.RFC3339),
+			})
+			if err := s.rdb.Set(ctx, agentSvcKey(agentID), aval, presenceTTL).Err(); err != nil {
+				log.Error("agent_svc в Redis", "agent_id", agentID, "err", err)
+			}
+		}
 
 	case *agentv1.AgentMessage_DiscoveryReport:
 		s.handleDiscoveryReport(ctx, log, agentID, p.DiscoveryReport)
@@ -376,6 +386,41 @@ func presenceKey(agentID uuid.UUID) string { return "stream:" + agentID.String()
 
 // instanceSvcKey — ключ статуса сервиса инстанса (heartbeat → Redis, TTL 120 с).
 func instanceSvcKey(instanceID uuid.UUID) string { return "instance_svc:" + instanceID.String() }
+
+// agentSvcKey — ключ PID процесса агента (heartbeat → Redis, TTL 120 с).
+func agentSvcKey(agentID uuid.UUID) string { return "agent_svc:" + agentID.String() }
+
+// InstanceServiceState — последний статус systemd-сервиса инстанса из
+// heartbeat (state, pid); ok=false — данных нет (TTL протух или не было).
+func (s *Server) InstanceServiceState(ctx context.Context, instanceID uuid.UUID) (state string, pid int32, ok bool) {
+	raw, err := s.rdb.Get(ctx, instanceSvcKey(instanceID)).Bytes()
+	if err != nil {
+		return "", 0, false
+	}
+	var v struct {
+		State string `json:"state"`
+		PID   int32  `json:"pid"`
+	}
+	if err := json.Unmarshal(raw, &v); err != nil {
+		return "", 0, false
+	}
+	return v.State, v.PID, true
+}
+
+// AgentServicePID — PID процесса агента из heartbeat; ok=false — нет данных.
+func (s *Server) AgentServicePID(ctx context.Context, agentID uuid.UUID) (int64, bool) {
+	raw, err := s.rdb.Get(ctx, agentSvcKey(agentID)).Bytes()
+	if err != nil {
+		return 0, false
+	}
+	var v struct {
+		PID int64 `json:"pid"`
+	}
+	if err := json.Unmarshal(raw, &v); err != nil {
+		return 0, false
+	}
+	return v.PID, true
+}
 
 // handleDiscoveryReport сохраняет DiscoveryReport агента в hosts.discovery
 // (jsonb) + discovered_at. Хост находится по agent_id (агент своего host_id

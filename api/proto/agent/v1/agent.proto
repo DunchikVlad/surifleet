@@ -147,6 +147,7 @@ message Heartbeat {
   ResourceSummary resources = 5;            // сводка ресурсов хоста
   int64 clock_offset_ms = 6;                // оценка смещения часов агента относительно сервера
   repeated InstanceServiceStatus instances = 7; // статус сервиса каждого инстанса
+  int64 agent_pid = 8;                      // PID процесса агента (MainPID surifleet-agent; чанк 80)
 }
 
 // ResourceSummary — сводка ресурсов хоста.

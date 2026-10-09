@@ -7,6 +7,14 @@
 
 ### Added
 
+- Чанк 80 (2026-10-09): Systemd unit и PID'ы в «Параметрах» инстанса —
+  Heartbeat.agent_pid (добавочное поле proto); статусы сервисов в
+  heartbeat теперь с реальными instance_id (маппинг через
+  bound_instances.json — раньше сервер их отбрасывал); Redis agent_svc,
+  GET /instances/{id} → service_state/service_pid/agent_pid; UI:
+  «Сервис Suricata» и «Сервис агента» с pid. Живой e2E: pid совпал с
+  systemctl MainPID. (proto, agent, server, ui)
+
 - Чанк 79 (2026-10-09): IP агента в «Параметрах» инстанса (GET
   /instances/{id} → agent_ip + строка в InstanceDetail); фиксы по живому
   e2E: IDsForOrg(nil) → []uuid.UUID{} («NOT x = ANY(NULL)» ломал canary-

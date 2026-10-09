@@ -487,10 +487,26 @@ suricata -T во временном окружении, чанк 75) → **compl
 Негативные провалы рендера (отсутствие заголовка) история зафиксировала
 корректно как validation_failed.
 
-**Следующий шаг после 79**: хвосты по спеке: история версий профилей
+Чанк 80 ГОТОВ (2026-10-09, этот коммит; **живой e2E пройден**):
+Systemd unit и PID'ы в «Параметрах» инстанса. Proto: Heartbeat.agent_pid=8
+(добавочное). Агент (session.go): heartbeat заполняет AgentPid
+(os.Getpid) и — главное — статусы сервисов теперь с РЕАЛЬНЫМИ
+instance_id: маппинг discovery-юнитов → серверные id через
+bound_instances.json (loadBoundInstances; раньше id был пустым и сервер
+статусы отбрасывал — закрыт хвост «после confirm нужна доставка
+instance_id агенту»). Хаб: ключ agent_svc:{agent_id} в Redis (TTL 120 с),
+методы InstanceServiceState/AgentServicePID. API: GET /instances/{id}
+отдаёт service_state/service_pid (suricata) и agent_pid. UI InstanceDetail:
+строки «Сервис Suricata» (active, pid) и «Сервис агента» (pid).
+Перекат .28+.67 (proto). **Живой e2E**: деталь инстанса — agent_ip
+192.168.31.67, service active pid 2103 (точное совпадение с MainPID
+suricata.service), agent_pid 3073 (собственный pid процесса; MainPID
+юнита 3071 — обёртка start-agent.sh, ожидаемо).
+
+**Следующий шаг после 80**: хвосты по спеке: история версий профилей
 (/versions, diff, rollback — миграция 000014 config_profile_versions);
 UI-кнопка «validate» в ProfilesPanel (эндпоинт готов, чанк 77);
-push origin (main на 12 коммитов впереди — по команде).
+push origin (main на 14 коммитов впереди — по команде).
 
 **Следующий шаг после 64**: рендер профиля (resolve parent-цепочки +
 подстановка переменных {{var}} — решить синтаксис) и интеграция с
@@ -1678,7 +1694,8 @@ managed-файле (245 правил).
 | 76 | Матрица «правила × инстансы» с карточкой логики (1E п.3): MatrixRule.ID в store+openapi, UI — клик по строке раскрывает raw+логику (revisions + /rules/validate). npm build чисто. Стенд выключен — живой чек отложен | d0377c1 |
 | 77 | Валидация профиля по спеке: POST /config_profiles/{id}/validate — рендер → версия → deploy_config validate_only, canary по умолчанию (первый инстанс org), аудит config_profiles.validate. Стенд выключен — живой чек отложен | a7a0e0d |
 | 78 | IP агента в «Инстансах»: хаб хранит remote-addr стрима (agentIPs, снятие при offline/свипере), GET /instances → agent_ip, колонка в UI. Стенд выключен — живой чек отложен | 4b68244 |
-| 79 | IP агента в «Параметрах» инстанса (GET /instances/{id} + UI); фиксы по живому e2E: IDsForOrg nil→[] (canary 400), рендер терял «%YAML 1.1» (suricata-заголовок восстанавливается). Перекат .28+.67, миграции 13, e2E 1B+1E пройден, compliance in_sync 1/1 | (этот коммит) |
+| 79 | IP агента в «Параметрах» инстанса (GET /instances/{id} + UI); фиксы по живому e2E: IDsForOrg nil→[] (canary 400), рендер терял «%YAML 1.1» (suricata-заголовок восстанавливается). Перекат .28+.67, миграции 13, e2E 1B+1E пройден, compliance in_sync 1/1 | 701f7fe |
+| 80 | Systemd unit + PID в «Параметрах»: Heartbeat.agent_pid, статусы сервисов с реальными instance_id (bound_instances.json), Redis agent_svc, GET /instances/{id} → service_state/service_pid/agent_pid, UI. Живой e2E: active pid 2103 = MainPID, agent_pid 3073 | (этот коммит) |
 | 63 | OpenAPI под факт чанков 54–62: /config_versions*, /instances/{id}/config/current+history, /clusters/{id}/capabilities, схемы ConfigVersion/ConfigDeploy/CapabilitiesSet. Перекатан .28, health ok | (этот коммит) |
 | 62 | SetCapabilitiesTask: живое применение capability без рестарта (агент applyCapabilities под mu; сервер push после PUT). Код, e2e после переката | (этот коммит) |
 | 61 | UI capability хоста: HostCapsPanel в «Конфигурациях» (GET/PUT /hosts/{id}/capabilities, чекбоксы каталога, apiPut). Перекат .28 прерван зависанием ВМ | (этот коммит) |

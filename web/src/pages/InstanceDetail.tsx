@@ -76,6 +76,8 @@ export default function InstanceDetail({ id, onBack }: { id: string; onBack: () 
               <tr><th>Каталог правил</th><td className="muted">{inst.rules_dir || "—"}</td></tr>
               <tr><th>Интерфейсы</th><td>{(inst.capture_interfaces || []).join(", ") || "—"}</td></tr>
               <tr><th>Systemd unit</th><td className="muted">{inst.systemd_unit || "—"}</td></tr>
+              <tr><th>Сервис Suricata</th><td>{inst.service_state || "—"}{inst.service_pid ? ` (pid ${inst.service_pid})` : ""}</td></tr>
+              <tr><th>Сервис агента</th><td>surifleet-agent{inst.agent_pid ? ` (pid ${inst.agent_pid})` : ""}</td></tr>
             </tbody>
           </table>
         </div>

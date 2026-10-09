@@ -171,10 +171,18 @@ func runSession(ctx context.Context, cfg *config.AgentConfig, id *identity, leve
 					surVer = rep.GetBinary().GetVersion()
 					if inst := rep.GetInstances(); len(inst) > 0 {
 						diskPath = inst[0].GetLogDir()
+						// Серверные instance_id — из привязок HelloAck
+						// (чанк 80): без них сервер статусы отбрасывает.
+						idByPath := map[string]string{}
+						if bs, berr := loadBoundInstances(cfg.DataDir); berr == nil {
+							for _, b := range bs {
+								idByPath[b.ConfigPath] = b.InstanceID
+							}
+						}
 						for _, in := range inst {
 							if st, pid := unitStatus(in.GetSystemdUnit()); st != "" {
 								svcStatuses = append(svcStatuses, &agentv1.InstanceServiceStatus{
-									InstanceId: "", // серверный id появится после confirm (chunk 10+)
+									InstanceId: idByPath[in.GetConfigPath()], // "" — сервер пропустит
 									State:      normalizeUnitState(st),
 									Pid:        pid,
 								})
@@ -190,6 +198,7 @@ func runSession(ctx context.Context, cfg *config.AgentConfig, id *identity, leve
 					Resources:       sampler.sample(diskPath),
 					ClockOffsetMs:   clockOffsetMs.Load(),
 					Instances:       svcStatuses,
+					AgentPid:        int64(os.Getpid()),
 				}}}
 				if err := send(hb); err != nil {
 					log.Warn("heartbeat не отправлен", "err", err)
@@ -389,17 +398,33 @@ var osHostname = func() (string, error) { return os.Hostname() }
 // saveBoundInstances сохраняет привязку агент→инстансы из HelloAck в
 // data_dir/bound_instances.json (атомарно): источник instance_id для
 // компонентов агента вне задач деплоя.
-func saveBoundInstances(dataDir string, bindings []*agentv1.InstanceBinding) error {
-	type binding struct {
-		InstanceID string `json:"instance_id"`
-		Name       string `json:"name"`
-		ConfigPath string `json:"config_path"`
-		RulesDir   string `json:"rules_dir"`
-		LogDir     string `json:"log_dir"`
+// boundInstance — запись data_dir/bound_instances.json (сохранение — ниже).
+type boundInstance struct {
+	InstanceID string `json:"instance_id"`
+	Name       string `json:"name"`
+	ConfigPath string `json:"config_path"`
+	RulesDir   string `json:"rules_dir"`
+	LogDir     string `json:"log_dir"`
+}
+
+// loadBoundInstances читает привязки ( bound_instances.json );
+// файла нет — пустой список (инстансы ещё не подтверждены).
+func loadBoundInstances(dataDir string) ([]boundInstance, error) {
+	raw, err := os.ReadFile(filepath.Join(dataDir, "bound_instances.json"))
+	if err != nil {
+		return nil, err
 	}
-	out := make([]binding, 0, len(bindings))
+	var out []boundInstance
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func saveBoundInstances(dataDir string, bindings []*agentv1.InstanceBinding) error {
+	out := make([]boundInstance, 0, len(bindings))
 	for _, b := range bindings {
-		out = append(out, binding{
+		out = append(out, boundInstance{
 			InstanceID: b.GetInstanceId(),
 			Name:       b.GetName(),
 			ConfigPath: b.GetConfigPath(),

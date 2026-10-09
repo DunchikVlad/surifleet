@@ -178,6 +178,9 @@ export interface Instance {
   capture_interfaces?: string[];
   systemd_unit?: string;
   agent_ip?: string; // IP текущего подключения агента хоста (чанк 78)
+  service_state?: string; // статус systemd-сервиса suricata (heartbeat, чанк 80)
+  service_pid?: number;   // PID сервиса suricata
+  agent_pid?: number;     // PID процесса агента
   updated_at?: string;
 }
 

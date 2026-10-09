@@ -993,6 +993,7 @@ type Heartbeat struct {
 	Resources       *ResourceSummary         `protobuf:"bytes,5,opt,name=resources,proto3" json:"resources,omitempty"`                                    // сводка ресурсов хоста
 	ClockOffsetMs   int64                    `protobuf:"varint,6,opt,name=clock_offset_ms,json=clockOffsetMs,proto3" json:"clock_offset_ms,omitempty"`    // оценка смещения часов агента относительно сервера
 	Instances       []*InstanceServiceStatus `protobuf:"bytes,7,rep,name=instances,proto3" json:"instances,omitempty"`                                    // статус сервиса каждого инстанса
+	AgentPid        int64                    `protobuf:"varint,8,opt,name=agent_pid,json=agentPid,proto3" json:"agent_pid,omitempty"`                     // PID процесса агента (MainPID surifleet-agent; чанк 80)
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
 }
@@ -1074,6 +1075,13 @@ func (x *Heartbeat) GetInstances() []*InstanceServiceStatus {
 		return x.Instances
 	}
 	return nil
+}
+
+func (x *Heartbeat) GetAgentPid() int64 {
+	if x != nil {
+		return x.AgentPid
+	}
+	return 0
 }
 
 // ResourceSummary — сводка ресурсов хоста.
@@ -3624,7 +3632,7 @@ const file_agent_v1_agent_proto_rawDesc = "" +
 	"\x1aheartbeat_interval_seconds\x18\x05 \x01(\x05R\x18heartbeatIntervalSeconds\x12A\n" +
 	"\x1dstate_report_interval_seconds\x18\x06 \x01(\x05R\x1astateReportIntervalSeconds\x128\n" +
 	"\x18metrics_interval_seconds\x18\a \x01(\x05R\x16metricsIntervalSeconds\x12\"\n" +
-	"\fcapabilities\x18\b \x03(\tR\fcapabilities\"\xbd\x02\n" +
+	"\fcapabilities\x18\b \x03(\tR\fcapabilities\"\xda\x02\n" +
 	"\tHeartbeat\x12\x19\n" +
 	"\bagent_id\x18\x01 \x01(\tR\aagentId\x12%\n" +
 	"\x0euptime_seconds\x18\x02 \x01(\x03R\ruptimeSeconds\x12#\n" +
@@ -3632,7 +3640,8 @@ const file_agent_v1_agent_proto_rawDesc = "" +
 	"\x10suricata_version\x18\x04 \x01(\tR\x0fsuricataVersion\x127\n" +
 	"\tresources\x18\x05 \x01(\v2\x19.agent.v1.ResourceSummaryR\tresources\x12&\n" +
 	"\x0fclock_offset_ms\x18\x06 \x01(\x03R\rclockOffsetMs\x12=\n" +
-	"\tinstances\x18\a \x03(\v2\x1f.agent.v1.InstanceServiceStatusR\tinstances\"{\n" +
+	"\tinstances\x18\a \x03(\v2\x1f.agent.v1.InstanceServiceStatusR\tinstances\x12\x1b\n" +
+	"\tagent_pid\x18\b \x01(\x03R\bagentPid\"{\n" +
 	"\x0fResourceSummary\x12\x1f\n" +
 	"\vcpu_percent\x18\x01 \x01(\x01R\n" +
 	"cpuPercent\x12\x1b\n" +
