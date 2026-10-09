@@ -95,6 +95,19 @@ func runSession(ctx context.Context, cfg *config.AgentConfig, id *identity, leve
 		"capabilities", ack.GetConfig().GetCapabilities())
 	applyLogLevel(levelVar, ack.GetLogLevel(), log)
 
+	// SIEM-конфиг с сервера (чанк 89, пр. 2): приоритет над agent.yaml.
+	// Эффективная конфигурация — shared (атомик): SIEM-цикл перечитывает
+	// каждый тик, ConfigPush меняет на лету без рестарта.
+	var siemCfg atomic.Value // хранит siemSettings
+	localSiem := siemSettings{Addr: cfg.SiemAddr, Protocol: cfg.SiemProtocol, Format: cfg.SiemFormat}
+	if sc := ack.GetConfig().GetSiem(); sc != nil {
+		siemCfg.Store(siemFromProto(sc))
+		log.Info("SIEM: конфигурация с сервера (HelloAck)",
+			"addr", sc.GetAddr(), "protocol", sc.GetProtocol(), "format", sc.GetFormat())
+	} else {
+		siemCfg.Store(localSiem) // сервер не задаёт — локальный agent.yaml
+	}
+
 	// Привязка к зарегистрированным инстансам (chunk 12c): сервер сообщает
 	// instance_id при подключении — агент знает их до первой задачи.
 	// Сохраняем в data_dir/bound_instances.json для остальных компонентов.
@@ -295,54 +308,69 @@ func runSession(ctx context.Context, cfg *config.AgentConfig, id *identity, leve
 	}()
 
 	// Пересылка EVE-алертов в SIEM (чанк 45, п. 5.4): tail eve.json →
-	// alert-события → syslog (UDP/TCP, CEF/JSON). Выкл., если siem_addr
-	// не задан в конфиге агента.
-	if cfg.SiemAddr != "" {
-		protocol := cfg.SiemProtocol
-		if protocol == "" {
-			protocol = "udp"
-		}
-		format := cfg.SiemFormat
-		if format == "" {
-			format = "cef"
-		}
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			t := time.NewTicker(5 * time.Second)
-			defer t.Stop()
-			var fwd *siemForwarder
-			for {
-				select {
-				case <-hbCtx.Done():
-					return
-				case <-t.C:
-					if fwd == nil {
-						var diskPath string
-						if rep := disc.Load(); rep != nil {
-							if inst := rep.GetInstances(); len(inst) > 0 {
-								diskPath = inst[0].GetLogDir()
-							}
-						}
-						if diskPath == "" {
-							continue
-						}
-						fwd = newSIEMForwarder(strings.TrimRight(diskPath, "/")+"/eve.json",
-							cfg.SiemAddr, protocol, format)
-						log.Info("SIEM: пересылка EVE-алертов включена",
-							"addr", cfg.SiemAddr, "protocol", protocol, "format", format)
-					}
-					sent, err := fwd.forwardOnce()
-					if err != nil {
-						log.Warn("SIEM: отправка", "err", err)
-					}
-					if sent > 0 {
-						log.Debug("SIEM: переслано алертов", "count", sent)
-					}
+	// alert-события → syslog (UDP/TCP, CEF/JSON). Эффективная конфигурация —
+	// shared siemCfg (чанк 89): серверная (HelloAck/ConfigPush) приоритетнее
+	// agent.yaml; пустой addr — пересылка выключена. Смена конфига
+	// применяется без рестарта (forwarder пересоздаётся, offset сохраняется).
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		t := time.NewTicker(5 * time.Second)
+		defer t.Stop()
+		var fwd *siemForwarder
+		var fwdCfg siemSettings // конфигурация текущего forwarder'а
+		// makeFwd — новый forwarder по текущему discovery (log_dir первого
+		// инстанса); nil — пути ещё нет (discovery не завершён) или пересылка
+		// выключена (пустой addr).
+		makeFwd := func(s siemSettings) *siemForwarder {
+			if s.Addr == "" {
+				return nil
+			}
+			var diskPath string
+			if rep := disc.Load(); rep != nil {
+				if inst := rep.GetInstances(); len(inst) > 0 {
+					diskPath = inst[0].GetLogDir()
 				}
 			}
-		}()
-	}
+			if diskPath == "" {
+				return nil
+			}
+			return newSIEMForwarder(strings.TrimRight(diskPath, "/")+"/eve.json",
+				s.addr(), s.protocol(), s.format())
+		}
+		for {
+			select {
+			case <-hbCtx.Done():
+				return
+			case <-t.C:
+				want, _ := siemCfg.Load().(siemSettings)
+				if fwdCfg != want {
+					// Конфиг изменился (включая первое включение): пересоздать
+					// forwarder, сохранив offset — алерты не пересылаются повторно.
+					old := fwd
+					fwd = makeFwd(want)
+					if fwd != nil && old != nil {
+						fwd.offset = old.offset
+					}
+					if fwdCfg.Addr != "" || want.Addr != "" {
+						log.Info("SIEM: конфигурация применена",
+							"addr", want.Addr, "protocol", want.protocol(), "format", want.format())
+					}
+					fwdCfg = want
+				}
+				if fwd == nil {
+					continue
+				}
+				sent, err := fwd.forwardOnce()
+				if err != nil {
+					log.Warn("SIEM: отправка", "err", err)
+				}
+				if sent > 0 {
+					log.Debug("SIEM: переслано алертов", "count", sent)
+				}
+			}
+		}
+	}()
 
 	// Приём серверных сообщений до разрыва.
 	for {
@@ -354,12 +382,41 @@ func runSession(ctx context.Context, cfg *config.AgentConfig, id *identity, leve
 			}
 			return fmt.Errorf("разрыв стрима: %w", err)
 		}
-		handleServerMessage(msg, exec, levelVar, log)
+		handleServerMessage(msg, exec, levelVar, &siemCfg, log)
 	}
 }
 
+// siemSettings — эффективная SIEM-конфигурация агента (чанк 89):
+// значения как в agent.yaml (пустые protocol/format → udp/cef на месте).
+type siemSettings struct {
+	Addr     string
+	Protocol string
+	Format   string
+}
+
+func (s siemSettings) addr() string { return s.Addr }
+
+func (s siemSettings) protocol() string {
+	if s.Protocol == "" {
+		return "udp"
+	}
+	return s.Protocol
+}
+
+func (s siemSettings) format() string {
+	if s.Format == "" {
+		return "cef"
+	}
+	return s.Format
+}
+
+// siemFromProto — серверная SIEM-конфигурация из proto (HelloAck/ConfigPush).
+func siemFromProto(sc *agentv1.SiemConfig) siemSettings {
+	return siemSettings{Addr: sc.GetAddr(), Protocol: sc.GetProtocol(), Format: sc.GetFormat()}
+}
+
 // handleServerMessage — разбор одного серверного сообщения.
-func handleServerMessage(msg *agentv1.ServerMessage, exec *taskExecutor, levelVar *slog.LevelVar, log *slog.Logger) {
+func handleServerMessage(msg *agentv1.ServerMessage, exec *taskExecutor, levelVar *slog.LevelVar, siemCfg *atomic.Value, log *slog.Logger) {
 	switch p := msg.GetPayload().(type) {
 	case *agentv1.ServerMessage_Task:
 		exec.handle(p.Task)
@@ -368,7 +425,15 @@ func handleServerMessage(msg *agentv1.ServerMessage, exec *taskExecutor, levelVa
 		applyLogLevel(levelVar, p.LogLevelChange.GetLevel(), log)
 
 	case *agentv1.ServerMessage_ConfigPush:
-		log.Info("ConfigPush", "config", p.ConfigPush.GetConfig())
+		cfg := p.ConfigPush.GetConfig()
+		log.Info("ConfigPush", "config", cfg)
+		// SIEM-конфиг с сервера (чанк 89): применяется на лету — SIEM-цикл
+		// перечитывает shared-значение каждый тик (5 с).
+		if sc := cfg.GetSiem(); sc != nil {
+			siemCfg.Store(siemFromProto(sc))
+			log.Info("SIEM: конфигурация с сервера (ConfigPush)",
+				"addr", sc.GetAddr(), "protocol", sc.GetProtocol(), "format", sc.GetFormat())
+		}
 		// TODO(chunk 10+): применение интервалов/ротации на лету.
 
 	case *agentv1.ServerMessage_TaskCancel:

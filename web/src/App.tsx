@@ -19,11 +19,13 @@ import Audit from "./pages/Audit";
 import Metrics from "./pages/Metrics";
 import Configs from "./pages/Configs";
 import Sso from "./pages/Sso";
+import Notifications from "./pages/Notifications";
 
 type TabName =
   | "overview" | "instances" | "rules" | "rulesets"
   | "deployments" | "logs" | "matrix" | "iocs" | "feeds"
-  | "users" | "roles" | "tokens" | "audit" | "metrics" | "configs" | "sso";
+  | "users" | "roles" | "tokens" | "audit" | "metrics" | "configs" | "sso"
+  | "notifications";
 
 // perm — разрешение для показа вкладки (ТЗ: UI скрывает недоступное;
 // авторизация всё равно на backend). Пусто — видна всем.
@@ -39,6 +41,7 @@ const TABS: { name: TabName; label: string; perm?: string }[] = [
   { name: "iocs", label: "IOC" },
   { name: "feeds", label: "Фиды" },
   { name: "configs", label: "Конфигурации", perm: "config.read" },
+  { name: "notifications", label: "Уведомления", perm: "notifications.read" },
   { name: "users", label: "Пользователи", perm: "users.read" },
   { name: "roles", label: "Роли", perm: "roles.read" },
   { name: "tokens", label: "Токены", perm: "tokens.read" },
@@ -64,6 +67,7 @@ const PAGES: Record<TabName, React.ComponentType<{ active: boolean }>> = {
   roles: Roles,
   tokens: Tokens,
   sso: Sso,
+  notifications: Notifications,
   audit: Audit,
 };
 

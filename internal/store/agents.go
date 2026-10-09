@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"time"
 
 	"github.com/google/uuid"
@@ -76,6 +77,130 @@ func (r *AgentsRepo) List(ctx context.Context) ([]AgentListItem, error) {
 			return nil, translate(err)
 		}
 		out = append(out, it)
+	}
+	return out, translate(rows.Err())
+}
+
+// CountByStatus — число агентов по статусам (дашборд флота, чанк 86).
+func (r *AgentsRepo) CountByStatus(ctx context.Context) (map[string]int, error) {
+	rows, err := r.pool.Query(ctx, `SELECT status, count(*) FROM agents GROUP BY status`)
+	if err != nil {
+		return nil, translate(err)
+	}
+	defer rows.Close()
+	out := map[string]int{}
+	for rows.Next() {
+		var st string
+		var n int
+		if err := rows.Scan(&st, &n); err != nil {
+			return nil, translate(err)
+		}
+		out[st] = n
+	}
+	return out, translate(rows.Err())
+}
+
+// CountByStatusForCluster — число агентов по статусам в кластере
+// (дашборд кластера, чанк 87).
+func (r *AgentsRepo) CountByStatusForCluster(ctx context.Context, clusterID uuid.UUID) (map[string]int, error) {
+	rows, err := r.pool.Query(ctx,
+		`SELECT a.status, count(*) FROM agents a
+		 JOIN hosts h ON h.id = a.host_id
+		 WHERE h.cluster_id = $1 GROUP BY a.status`, clusterID)
+	if err != nil {
+		return nil, translate(err)
+	}
+	defer rows.Close()
+	out := map[string]int{}
+	for rows.Next() {
+		var st string
+		var n int
+		if err := rows.Scan(&st, &n); err != nil {
+			return nil, translate(err)
+		}
+		out[st] = n
+	}
+	return out, translate(rows.Err())
+}
+
+// HostAgentStatus — строка дашборда кластера (чанк 87): хост + статус
+// его агента + число инстансов + compliance-статусы инстансов хоста.
+type HostAgentStatus struct {
+	HostID       uuid.UUID      `json:"host_id"`
+	Hostname     string         `json:"hostname"`
+	AgentID      *uuid.UUID     `json:"agent_id"`
+	AgentStatus  *string        `json:"agent_status"`
+	LastSeenAt   *time.Time     `json:"last_seen_at"`
+	Instances    int            `json:"instances"`
+	ByCompliance map[string]int `json:"by_compliance,omitempty"`
+}
+
+// HostsWithAgentStatus — хосты кластера с агентами и числом инстансов
+// (дашборд кластера, чанк 87). Агент может отсутствовать (NULL) —
+// онбординг не пройден.
+func (r *AgentsRepo) HostsWithAgentStatus(ctx context.Context, clusterID uuid.UUID) ([]HostAgentStatus, error) {
+	rows, err := r.pool.Query(ctx,
+		`SELECT h.id, h.hostname, a.id, a.status, a.last_seen_at,
+		        (SELECT count(*) FROM instances i WHERE i.host_id = h.id) AS inst_n,
+		        (SELECT COALESCE(jsonb_object_agg(st, n), '{}'::jsonb) FROM
+		          (SELECT COALESCE(c.status, 'pending') AS st, count(*) AS n
+		           FROM instances i
+		           LEFT JOIN instance_compliance c ON c.instance_id = i.id
+		           WHERE i.host_id = h.id GROUP BY 1) s) AS by_comp
+		 FROM hosts h
+		 LEFT JOIN agents a ON a.host_id = h.id
+		 WHERE h.cluster_id = $1
+		 ORDER BY h.hostname`, clusterID)
+	if err != nil {
+		return nil, translate(err)
+	}
+	defer rows.Close()
+	out := []HostAgentStatus{}
+	for rows.Next() {
+		var h HostAgentStatus
+		var byComp []byte
+		if err := rows.Scan(&h.HostID, &h.Hostname, &h.AgentID, &h.AgentStatus, &h.LastSeenAt, &h.Instances, &byComp); err != nil {
+			return nil, translate(err)
+		}
+		if len(byComp) > 0 {
+			_ = json.Unmarshal(byComp, &h.ByCompliance)
+		}
+		out = append(out, h)
+	}
+	return out, translate(rows.Err())
+}
+
+// OfflineAgentBrief — краткая карточка offline-агента для дашборда
+// (чанк 86): hostname + кластер + фактическое время последнего heartbeat.
+type OfflineAgentBrief struct {
+	AgentID    uuid.UUID  `json:"agent_id"`
+	Hostname   string     `json:"hostname"`
+	Cluster    string     `json:"cluster"`
+	LastSeenAt *time.Time `json:"last_seen_at"`
+}
+
+// ListOffline — offline-агенты, давно не виденные первыми (лимит —
+// разумный максимум для дашборда).
+func (r *AgentsRepo) ListOffline(ctx context.Context, limit int) ([]OfflineAgentBrief, error) {
+	rows, err := r.pool.Query(ctx,
+		`SELECT a.id, h.hostname, c.name, a.last_seen_at
+		 FROM agents a
+		 JOIN hosts h ON h.id = a.host_id
+		 JOIN clusters c ON c.id = h.cluster_id
+		 WHERE a.status <> 'online'
+		 ORDER BY a.last_seen_at ASC NULLS FIRST
+		 LIMIT $1`, limit)
+	if err != nil {
+		return nil, translate(err)
+	}
+	defer rows.Close()
+	out := []OfflineAgentBrief{}
+	for rows.Next() {
+		var b OfflineAgentBrief
+		if err := rows.Scan(&b.AgentID, &b.Hostname, &b.Cluster, &b.LastSeenAt); err != nil {
+			return nil, translate(err)
+		}
+		out = append(out, b)
 	}
 	return out, translate(rows.Err())
 }

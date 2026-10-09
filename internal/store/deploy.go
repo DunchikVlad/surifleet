@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -180,6 +181,28 @@ func (r *DeploymentsRepo) List(ctx context.Context, orgID uuid.UUID, status stri
 		next = &c
 	}
 	return items, next, nil
+}
+
+// CountByStatusSince — число деплоев организации по статусам,
+// созданных после since (дашборд флота «за 24 ч», чанк 86).
+func (r *DeploymentsRepo) CountByStatusSince(ctx context.Context, orgID uuid.UUID, since time.Time) (map[string]int, error) {
+	rows, err := r.pool.Query(ctx,
+		`SELECT status, count(*) FROM deployments
+		 WHERE organization_id = $1 AND created_at >= $2 GROUP BY status`, orgID, since)
+	if err != nil {
+		return nil, translate(err)
+	}
+	defer rows.Close()
+	out := map[string]int{}
+	for rows.Next() {
+		var st string
+		var n int
+		if err := rows.Scan(&st, &n); err != nil {
+			return nil, translate(err)
+		}
+		out[st] = n
+	}
+	return out, translate(rows.Err())
 }
 
 // ListActive — деплои в незавершённых статусах (для восстановления оркестратора

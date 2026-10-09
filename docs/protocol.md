@@ -59,11 +59,11 @@
 
 | Сообщение | Ключевые поля |
 |---|---|
-| `HelloAck` | `session_id`, `server_version`, интервалы (heartbeat 30 / state_report 300 / metrics 60 с), `log_level`, `config` (AgentConfig) |
+| `HelloAck` | `session_id`, `server_version`, интервалы (heartbeat 30 / state_report 300 / metrics 60 с), `log_level`, `config` (AgentConfig: capabilities, siem — чанк 89) |
 | `Task` | `task_id` (UUID), `deadline`, `type` — oneof из 7 типов задач (ниже) |
 | `TaskCancel` | `task_id`, `reason` |
 | `LogLevelChange` | `level` (debug/info/warn/error) — на лету, без рестарта |
-| `ConfigPush` | `config` (AgentConfig; нулевые поля — «не менять») |
+| `ConfigPush` | `config` (AgentConfig; нулевые поля — «не менять»; `siem` — чанк 89: пересылка EVE-алертов addr/protocol/format, пустой addr — выкл) |
 
 Типы задач (`Task.type`):
 

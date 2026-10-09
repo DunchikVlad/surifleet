@@ -14,6 +14,108 @@
   POST /instances/{id}/suricata_update(+sources), UI-панель на вкладке
   «Правила». Живой e2E: et/open, 51907 импортировано, поиск ET ok.
   (proto, agent, server, ui, api)
+- Чанк 89 (2026-10-10): SIEM-конфиг через ConfigPush (пр. 2, закрыт
+  полностью; п. 5.4 ТЗ) — миграция 000017 siem_configs (host|cluster
+  scope, CHECK одной колонки, частичные уникальные индексы); proto
+  BREAKING-safe: AgentConfig.siem=9 (SiemConfig addr/protocol/format —
+  добавочное поле в конец, wire-совместимость сохранена; регенерация
+  protoc 36.2 локально, плагины .tools/bin). Агент: эффективная
+  SIEM-конфигурация shared (atomic) — серверная из HelloAck/ConfigPush
+  приоритетнее agent.yaml, смена применяется без рестарта (forwarder
+  пересоздаётся, offset eve.json сохраняется), пустой addr — выкл;
+  3 юнит-теста. Хаб: hostSiemConfig (host→cluster) в HelloAck +
+  PushSiemConfig (ConfigPush в очередь стрима). API: GET/PUT/DELETE
+  /hosts/{id}/siem и /clusters/{id}/siem (hosts.read/write, scoping,
+  аудит hosts.siem_*/clusters.siem_*; PUT → push агенту/агентам
+  кластера, счётчик pushed). Store SiemConfigsRepo (ForHost
+  host-level wins, upsert'ы). OpenAPI: пути + схемы SiemConfig*;
+  docs/protocol.md. Проверки: build/vet/test (store/httpapi/hub/agent/
+  orchestrator) зелёные, yaml ok. Живой e2e — при перекате .28+.67
+  (миграция 17, обе стороны proto новые). (proto, server, agent, db,
+  api, docs)
+
+- Чанк 88 (2026-10-10): дашборд хоста (план 1C, срез 3 — серия
+  дашбордов закрыта) — GET /hosts/{id}/dashboard (fleet.read, scoping):
+  карточка хоста (кластер/IP/OS), агент (статус, версия, agent_ip,
+  виден, срок сертификата; null при непройденном онбординге), инстансы
+  (InstancesRepo.ListWithCompliance — LEFT JOIN instance_compliance) с
+  живым состоянием systemd-сервиса из heartbeat (чанк 80:
+  service_state/pid). OpenAPI: путь + схема HostDashboard. UI «Обзор»:
+  хост в таблице кластера стал кнопкой → HostDashPanel (агент, инстансы
+  с бейджами compliance/сервиса, автoобновление 15 с). Проверки:
+  build/vet/test зелёные, yaml ok, npm build чисто. (server, ui, api)
+
+- Чанк 87 (2026-10-10): дашборд кластера (план 1C, срез 2) — GET
+  /clusters/{id}/dashboard (fleet.read, scoping чанка 43): кластер,
+  агенты по статусам (AgentsRepo.CountByStatusForCluster), инстансы по
+  compliance (Summary с фильтром кластера), хосты с агентами
+  (AgentsRepo.HostsWithAgentStatus — hostname, статус агента,
+  last_seen_at, число инстансов, compliance-разбивка jsonb_object_agg).
+  OpenAPI: путь + схема ClusterDashboard. UI «Обзор»: селектор кластера
+  + ClusterDashPanel (карточки агенты/инстансы, таблица хостов с
+  бейджами статусов). Проверки: build/vet/test зелёные, yaml ok,
+  npm build чисто. (server, ui, api)
+
+- Чанк 86 (2026-10-10): дашборд флота одним экраном (план 1C, срез 1;
+  п. 5.4 ТЗ) — GET /fleet/dashboard (fleet.read): агенты по статусам
+  (AgentsRepo.CountByStatus), инстансы по compliance (существующая
+  Summary), деплои за 24 ч по статусам
+  (DeploymentsRepo.CountByStatusSince), топ-10 offline-агентов
+  (AgentsRepo.ListOffline с hostname/кластером/last_seen_at). OpenAPI:
+  путь + схема FleetDashboard. UI «Обзор»: блок «Агенты» (карточки
+  online/offline/degraded/...), строка offline-агентов (хост, кластер,
+  когда виден), сводка «Деплои за 24 ч». Проверки: build/vet/test
+  (store/httpapi) зелёные, yaml ok, npm build чисто. (server, ui, api)
+
+- Чанк 85 (2026-10-10): UI каналов уведомлений — вкладка «Уведомления»
+  (perm notifications.read): список каналов (тип/куда/статус), создание
+  (webhook url | telegram bot_token+chat_id, подсказки форматов),
+  переименование, вкл/выкл, удаление, кнопка «Тест» (POST
+  /notification_channels/{id}/test — живая проверка). npm build чисто.
+  (ui)
+
+- Чанк 84 (2026-10-10): движок уведомлений с дедупликацией (пр. 2,
+  п. 7 ТЗ) — миграция 000016 notification_deliveries (PK
+  (channel_id, fingerprint), атомарный upsert TryDelivery: повтор в
+  окне 10 мин подавляется даже при конкурентных эмиттерах;
+  FailDelivery → last_error); internal/notify Engine (Emit: включённые
+  каналы org → дедуп → Sender, ошибка канала не блокирует остальные;
+  EmitAsync fire-and-forget для горячих путей; ChannelStore-интерфейс
+  для тестов; 6 юнит-тестов: fan-out, дедуп, изоляция ошибок,
+  store-ошибка, nil-движок, fingerprint). Хаб: OnAgentStatus —
+  публикация переходов (разрыв стрима → offline, свипер → offline,
+  heartbeat-revive → online); cmd/server: emitAgentStatusEvent
+  (резолв agent→host→cluster→org, severity critical/info, текст с
+  hostname/кластером). Проверки: build/vet/test (notify/store/httpapi/
+  hub/orchestrator) зелёные. Живой e2e — при перекате (миграция 16).
+  (server, db)
+
+- Чанк 83 (2026-10-09): каналы уведомлений webhook/Telegram (пр. 2
+  roadmap, п. 5.5 ТЗ) — миграция 000015 notification_channels (config
+  jsonb по типу, UNIQUE(org, name)); internal/notify (синхронный
+  Sender: webhook POST JSON с headers, Telegram Bot API sendMessage,
+  таймаут 10 с, базовый URL инжектируем для тестов; 6 юнит-тестов
+  httptest); store NotificationChannelsRepo (CRUD, keyset; Public()
+  обнуляет bot_token — writeOnly по образцу SSO client_secret);
+  API /notification_channels (CRUD + POST /{id}/test — живая проверка
+  200|502, аудит notification_channels.*), права notifications.read/
+  write в каталоге; OpenAPI: пути + схемы NotificationChannel*;
+  cmd/server: Deps.Notify. Движок событий с дедупликацией и UI —
+  следующие чанки. Проверки: build/vet/test (store/httpapi/notify)
+  зелёные, yaml ok. (server, db, api)
+
+- Чанк 82 (2026-10-09): история версий профилей конфигурации — миграция
+  000014 config_profile_versions (снимок content_yaml на create/update,
+  created_by, бэкфилл текущих версий); store ListVersions/GetVersion/
+  Rollback (tx, откат = новая версия с содержимым целевой);
+  internal/textdiff (unified diff на LCS без новых зависимостей, юнит-
+  тесты); API по спеке: GET /config_profiles/{id}/versions (keyset по
+  версии), GET .../versions/diff?from&to (контекст 3), POST
+  .../rollback (аудит config_profiles.rollback); UI: «история» в
+  ProfilesPanel — список версий, diff выбранных, кнопка «откатить
+  сюда». Проверки: build/vet/test (store/httpapi/textdiff) зелёные,
+  npm build чисто; живой e2E — при перекате .28 (миграция 14).
+  (server, db, ui)
 
 - Чанк 81 (2026-10-09): UI — кнопка «Валидация» в ProfilesPanel
   (POST /config_profiles/{id}/validate: suricata -T рендера на canary-

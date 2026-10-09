@@ -89,6 +89,10 @@ type Server struct {
 	OnTaskResult func(ctx context.Context, agentID uuid.UUID, res *agentv1.TaskResult)
 	// OnAgentOnline — подписчик подключения агента (подхват pending-задач).
 	OnAgentOnline func(ctx context.Context, agentID uuid.UUID)
+	// OnAgentStatus — подписчик смен статусов online/offline (чанк 84,
+	// движок уведомлений): вызывается при переходах (разрыв стрима →
+	// offline, свипер → offline, heartbeat-revive → online). nil — выкл.
+	OnAgentStatus func(ctx context.Context, agentID uuid.UUID, status string)
 }
 
 // NewServer собирает Hub.
@@ -112,6 +116,13 @@ func (s *Server) AgentIP(agentID uuid.UUID) (string, bool) {
 		return "", false
 	}
 	return v.(string), true
+}
+
+// emitStatus — уведомить подписчика смены статуса (чанк 84; nil-безопасно).
+func (s *Server) emitStatus(ctx context.Context, agentID uuid.UUID, status string) {
+	if s.OnAgentStatus != nil {
+		s.OnAgentStatus(ctx, agentID, status)
+	}
 }
 
 // Channel — основной стрим агента (см. контракт agent.proto).
@@ -204,6 +215,7 @@ func (s *Server) Channel(stream grpc.BidiStreamingServer[agentv1.AgentMessage, a
 		}
 		// Агент офлайн — compliance инстансов хоста больше недостоверен (stale).
 		s.recomputeHostCompliance(bgCtx, log, agentID, false)
+		s.emitStatus(bgCtx, agentID, "offline")
 		log.Info("агент отключился")
 	}()
 
@@ -211,6 +223,7 @@ func (s *Server) Channel(stream grpc.BidiStreamingServer[agentv1.AgentMessage, a
 	// включённые capability хоста: host → cluster → дефолт monitoring).
 	caps := s.hostCapabilities(ctx, log, agentID)
 	bindings := s.instanceBindings(ctx, log, agentID)
+	siem := s.hostSiemConfig(ctx, log, agentID) // чанк 89: nil — agent.yaml
 	if err := stream.Send(&agentv1.ServerMessage{
 		MsgId:  uuid.New().String(),
 		Seq:    1,
@@ -222,7 +235,7 @@ func (s *Server) Channel(stream grpc.BidiStreamingServer[agentv1.AgentMessage, a
 			StateReportIntervalSeconds: 300,
 			MetricsIntervalSeconds:     60,
 			LogLevel:                   "info",
-			Config:                     &agentv1.AgentConfig{LogLevel: "info", Capabilities: caps},
+			Config:                     &agentv1.AgentConfig{LogLevel: "info", Capabilities: caps, Siem: siem},
 			BoundInstances:             bindings,
 		}},
 	}); err != nil {
@@ -319,6 +332,7 @@ func (s *Server) handleMessage(ctx context.Context, log *slog.Logger, agentID uu
 					// Свипер успел погасить агента, но стрим жив — вернули online.
 					log.Warn("агент снова online: heartbeat возобновился")
 					s.recomputeHostCompliance(ctx, log, agentID, true)
+					s.emitStatus(ctx, agentID, "online")
 				}
 			}
 		}
@@ -555,6 +569,7 @@ func (s *Server) SweepOfflineAgents(ctx context.Context, offlineAfter time.Durat
 		s.log.Warn("агент помечен offline: heartbeat-timeout",
 			"agent_id", id, "offline_after", offlineAfter.String())
 		s.recomputeHostCompliance(ctx, s.log, id, false)
+		s.emitStatus(ctx, id, "offline")
 	}
 	return len(ids), nil
 }

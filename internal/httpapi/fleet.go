@@ -140,6 +140,245 @@ func (h *handlers) getInstanceState(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, view)
 }
 
+// --- GET /api/v1/hosts/{id}/dashboard (дашборд хоста, чанк 88) ---
+
+// hostDashboardInstance — инстанс в дашборде хоста: compliance +
+// живое состояние systemd-сервиса из heartbeat (чанк 80).
+type hostDashboardInstance struct {
+	store.InstanceComplianceView
+	ServiceState string `json:"service_state,omitempty"`
+	ServicePID   int32  `json:"service_pid,omitempty"`
+}
+
+// hostDashboardView — ответ GET /hosts/{id}/dashboard: хост, его агент
+// (статус/версии/виден), инстансы с compliance и состоянием сервисов.
+type hostDashboardView struct {
+	Host struct {
+		ID          uuid.UUID `json:"id"`
+		Hostname    string    `json:"hostname"`
+		IPAddresses []string  `json:"ip_addresses"`
+		OS          *string   `json:"os"`
+		ClusterID   uuid.UUID `json:"cluster_id"`
+		ClusterName string    `json:"cluster_name"`
+	} `json:"host"`
+	Agent *struct {
+		ID            uuid.UUID  `json:"id"`
+		Status        string     `json:"status"`
+		AgentVersion  *string    `json:"agent_version"`
+		LastSeenAt    *time.Time `json:"last_seen_at"`
+		CertExpiresAt *time.Time `json:"cert_expires_at"`
+		AgentIP       string     `json:"agent_ip,omitempty"`
+	} `json:"agent"`
+	Instances []hostDashboardInstance `json:"instances"`
+}
+
+// getHostDashboard — GET /api/v1/hosts/{id}/dashboard (fleet.read,
+// чанк 88, план 1C срез 3): дашборд хоста — карточка агента,
+// инстансы с compliance и живым состоянием сервисов (heartbeat,
+// чанк 80). Агент может отсутствовать (онбординг не пройден) → null.
+func (h *handlers) getHostDashboard(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathUUID(w, chi.URLParam(r, "id"), "id")
+	if !ok {
+		return
+	}
+	host, err := h.d.Store.Hosts.Get(r.Context(), id)
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	if !h.clusterAllowed(w, r, host.ClusterID) { // scoping (чанк 43)
+		return
+	}
+	ctx := r.Context()
+	var view hostDashboardView
+	view.Host.ID = host.ID
+	view.Host.Hostname = host.Hostname
+	view.Host.IPAddresses = host.IPAddresses
+	view.Host.OS = host.OS
+	view.Host.ClusterID = host.ClusterID
+	if cluster, err := h.d.Store.Clusters.Get(ctx, host.ClusterID); err == nil {
+		view.Host.ClusterName = cluster.Name
+	}
+
+	// Агент хоста (1:1) — может отсутствовать (онбординг не пройден).
+	if agent, err := h.d.Store.Agents.GetByHostID(ctx, nil, host.ID); err == nil {
+		view.Agent = &struct {
+			ID            uuid.UUID  `json:"id"`
+			Status        string     `json:"status"`
+			AgentVersion  *string    `json:"agent_version"`
+			LastSeenAt    *time.Time `json:"last_seen_at"`
+			CertExpiresAt *time.Time `json:"cert_expires_at"`
+			AgentIP       string     `json:"agent_ip,omitempty"`
+		}{
+			ID: agent.ID, Status: agent.Status, AgentVersion: agent.AgentVersion,
+			LastSeenAt: agent.LastSeenAt, CertExpiresAt: agent.CertExpiresAt,
+		}
+		if ip, ok := h.d.Hub.AgentIP(agent.ID); ok {
+			view.Agent.AgentIP = ip
+		}
+	} else if !errors.Is(err, store.ErrNotFound) {
+		writeStoreError(w, err)
+		return
+	}
+
+	insts, err := h.d.Store.Instances.ListWithCompliance(ctx, host.ID)
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	view.Instances = make([]hostDashboardInstance, len(insts))
+	for i, inst := range insts {
+		v := hostDashboardInstance{InstanceComplianceView: inst}
+		if st, pid, ok := h.d.Hub.InstanceServiceState(ctx, inst.ID); ok {
+			v.ServiceState = st
+			v.ServicePID = pid
+		}
+		view.Instances[i] = v
+	}
+
+	writeJSON(w, http.StatusOK, view)
+}
+
+// --- GET /api/v1/clusters/{id}/dashboard (дашборд кластера, чанк 87) ---
+
+// clusterDashboardView — ответ GET /clusters/{id}/dashboard: те же
+// блоки, что у дашборда флота, но в рамках кластера + построчная
+// разбивка по хостам (агент/инстансы/compliance).
+type clusterDashboardView struct {
+	Cluster struct {
+		ID   uuid.UUID `json:"id"`
+		Name string    `json:"name"`
+	} `json:"cluster"`
+	Agents struct {
+		Total    int            `json:"total"`
+		ByStatus map[string]int `json:"by_status"`
+	} `json:"agents"`
+	Instances struct {
+		Total    int            `json:"total"`
+		ByStatus map[string]int `json:"by_status"`
+	} `json:"instances"`
+	Hosts []store.HostAgentStatus `json:"hosts"`
+}
+
+// getClusterDashboard — GET /api/v1/clusters/{id}/dashboard (fleet.read,
+// чанк 87, план 1C срез 2): сводка по кластеру — агенты по статусам,
+// инстансы по compliance, хосты с агентами.
+func (h *handlers) getClusterDashboard(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathUUID(w, chi.URLParam(r, "id"), "id")
+	if !ok {
+		return
+	}
+	if !h.clusterAllowed(w, r, id) { // scoping: вне scope → 404 (чанк 43)
+		return
+	}
+	cluster, err := h.d.Store.Clusters.Get(r.Context(), id)
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	ctx := r.Context()
+	var view clusterDashboardView
+	view.Cluster.ID = cluster.ID
+	view.Cluster.Name = cluster.Name
+
+	agentStatuses, err := h.d.Store.Agents.CountByStatusForCluster(ctx, id)
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	view.Agents.ByStatus = agentStatuses
+	for _, n := range agentStatuses {
+		view.Agents.Total += n
+	}
+
+	summary, err := h.d.Store.Compliance.Summary(ctx, id)
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	view.Instances.Total = summary.TotalInstances
+	view.Instances.ByStatus = summary.ByStatus
+
+	hosts, err := h.d.Store.Agents.HostsWithAgentStatus(ctx, id)
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	view.Hosts = hosts
+
+	writeJSON(w, http.StatusOK, view)
+}
+
+// --- GET /api/v1/fleet/dashboard (дашборд флота, чанк 86) ---
+
+// fleetDashboardView — ответ GET /fleet/dashboard: сводка флота «одним
+// экраном» — агенты по статусам, инстансы по compliance, активность
+// деплоев за 24 ч, список offline-агентов (топ-10).
+type fleetDashboardView struct {
+	Agents struct {
+		Total    int            `json:"total"`
+		ByStatus map[string]int `json:"by_status"`
+	} `json:"agents"`
+	Instances struct {
+		Total    int            `json:"total"`
+		ByStatus map[string]int `json:"by_status"`
+	} `json:"instances"`
+	Deployments24h struct {
+		Total    int            `json:"total"`
+		ByStatus map[string]int `json:"by_status"`
+	} `json:"deployments_24h"`
+	OfflineAgents []store.OfflineAgentBrief `json:"offline_agents"`
+}
+
+// getFleetDashboard — GET /api/v1/fleet/dashboard (fleet.read, чанк 86,
+// план 1C): агрегированная сводка флота. Первый срез дашбордов
+// флот/кластер/хост (п. 5.4 ТЗ).
+func (h *handlers) getFleetDashboard(w http.ResponseWriter, r *http.Request) {
+	orgID, ok := h.resolveOrgID(w, r)
+	if !ok {
+		return
+	}
+	ctx := r.Context()
+	var view fleetDashboardView
+
+	agentStatuses, err := h.d.Store.Agents.CountByStatus(ctx)
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	view.Agents.ByStatus = agentStatuses
+	for _, n := range agentStatuses {
+		view.Agents.Total += n
+	}
+
+	summary, err := h.d.Store.Compliance.Summary(ctx, uuid.Nil)
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	view.Instances.Total = summary.TotalInstances
+	view.Instances.ByStatus = summary.ByStatus
+
+	depStatuses, err := h.d.Store.Deployments.CountByStatusSince(ctx, orgID, time.Now().Add(-24*time.Hour))
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	view.Deployments24h.ByStatus = depStatuses
+	for _, n := range depStatuses {
+		view.Deployments24h.Total += n
+	}
+
+	offline, err := h.d.Store.Agents.ListOffline(ctx, 10)
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	view.OfflineAgents = offline
+
+	writeJSON(w, http.StatusOK, view)
+}
+
 // --- GET /api/v1/fleet/compliance (openapi FleetCompliance) ---
 
 type fleetComplianceView struct {

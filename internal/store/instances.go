@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -132,6 +133,43 @@ func (r *InstancesRepo) Delete(ctx context.Context, id uuid.UUID) error {
 // clusterID != uuid.Nil — фильтр ?cluster_id= (через join с hosts).
 func (r *InstancesRepo) List(ctx context.Context, hostID, clusterID, cursor uuid.UUID, limit int) ([]Instance, *string, error) {
 	return r.ListScoped(ctx, hostID, clusterID, nil, cursor, limit)
+}
+
+// InstanceComplianceView — инстанс хоста со статусом compliance
+// (дашборд хоста, чанк 88). Без строки compliance — статус pending.
+type InstanceComplianceView struct {
+	ID                  uuid.UUID  `json:"id"`
+	Name                string     `json:"name"`
+	SuricataVersion     *string    `json:"suricata_version"`
+	SystemdUnit         *string    `json:"systemd_unit"`
+	ComplianceStatus    string     `json:"compliance_status"`
+	ComplianceUpdatedAt *time.Time `json:"compliance_updated_at"`
+}
+
+// ListWithCompliance — инстансы хоста с текущим статусом compliance
+// (дашборд хоста, чанк 88), по имени.
+func (r *InstancesRepo) ListWithCompliance(ctx context.Context, hostID uuid.UUID) ([]InstanceComplianceView, error) {
+	rows, err := r.pool.Query(ctx,
+		`SELECT i.id, i.name, i.suricata_version, i.systemd_unit,
+		        COALESCE(c.status, 'pending'), c.updated_at
+		 FROM instances i
+		 LEFT JOIN instance_compliance c ON c.instance_id = i.id
+		 WHERE i.host_id = $1
+		 ORDER BY i.name`, hostID)
+	if err != nil {
+		return nil, translate(err)
+	}
+	defer rows.Close()
+	out := []InstanceComplianceView{}
+	for rows.Next() {
+		var v InstanceComplianceView
+		if err := rows.Scan(&v.ID, &v.Name, &v.SuricataVersion, &v.SystemdUnit,
+			&v.ComplianceStatus, &v.ComplianceUpdatedAt); err != nil {
+			return nil, translate(err)
+		}
+		out = append(out, v)
+	}
+	return out, translate(rows.Err())
 }
 
 // ListScoped — List + scoping по кластерам (чанк 43): allowedClusters != nil

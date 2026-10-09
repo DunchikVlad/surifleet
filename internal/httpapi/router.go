@@ -16,6 +16,7 @@ import (
 	"github.com/surifleet/surifleet/internal/chlogs"
 	"github.com/surifleet/surifleet/internal/feedsync"
 	"github.com/surifleet/surifleet/internal/hub"
+	"github.com/surifleet/surifleet/internal/notify"
 	"github.com/surifleet/surifleet/internal/oidc"
 	"github.com/surifleet/surifleet/internal/orchestrator"
 	"github.com/surifleet/surifleet/internal/samlauth"
@@ -52,6 +53,10 @@ type Deps struct {
 	OIDC *oidc.Service
 	// SAML — SAML 2.0 SSO (chunk 41; nil — SAML-эндпоинты возвращают 503).
 	SAML *samlauth.Service
+
+	// Notify — отправка уведомлений в каналы webhook/telegram (chunk 83;
+	// nil — POST /notification_channels/{id}/test возвращает 503).
+	Notify *notify.Sender
 
 	// PingDB проверяет живость PostgreSQL для /health (nil — проверка выкл.).
 	PingDB func(ctx context.Context) error
@@ -177,6 +182,10 @@ func NewRouter(d Deps) http.Handler {
 				r.With(h.requirePerm(PermHostsWrite)).Post("/join_tokens", h.createJoinToken)
 				r.With(h.requirePerm(PermHostsRead)).Get("/capabilities", h.getClusterCapabilities)
 				r.With(h.requirePerm(PermHostsWrite)).Put("/capabilities", h.setClusterCapabilities)
+				r.With(h.requirePerm(PermFleetRead)).Get("/dashboard", h.getClusterDashboard)
+				r.With(h.requirePerm(PermHostsRead)).Get("/siem", h.getClusterSiem)
+				r.With(h.requirePerm(PermHostsWrite)).Put("/siem", h.putClusterSiem)
+				r.With(h.requirePerm(PermHostsWrite)).Delete("/siem", h.deleteClusterSiem)
 			})
 		})
 
@@ -189,8 +198,12 @@ func NewRouter(d Deps) http.Handler {
 				r.With(h.requirePerm(PermHostsWrite)).Delete("/", h.deleteHost)
 				r.With(h.requirePerm(PermHostsRead)).Get("/discovery", h.getDiscovery)
 				r.With(h.requirePerm(PermHostsWrite)).Post("/confirm_discovery", h.confirmDiscovery)
-			r.With(h.requirePerm(PermHostsRead)).Get("/capabilities", h.getHostCapabilities)
-			r.With(h.requirePerm(PermHostsWrite)).Put("/capabilities", h.setHostCapabilities)
+				r.With(h.requirePerm(PermHostsRead)).Get("/capabilities", h.getHostCapabilities)
+				r.With(h.requirePerm(PermHostsWrite)).Put("/capabilities", h.setHostCapabilities)
+				r.With(h.requirePerm(PermFleetRead)).Get("/dashboard", h.getHostDashboard)
+				r.With(h.requirePerm(PermHostsRead)).Get("/siem", h.getHostSiem)
+				r.With(h.requirePerm(PermHostsWrite)).Put("/siem", h.putHostSiem)
+				r.With(h.requirePerm(PermHostsWrite)).Delete("/siem", h.deleteHostSiem)
 			})
 		})
 
@@ -220,6 +233,9 @@ func NewRouter(d Deps) http.Handler {
 				r.With(h.requirePerm(PermConfigRead)).Get("/render", h.renderConfigProfile)
 				r.With(h.requirePerm(PermConfigWrite)).Post("/deploy", h.deployConfigProfile)
 				r.With(h.requirePerm(PermConfigWrite)).Post("/validate", h.validateConfigProfile)
+				r.With(h.requirePerm(PermConfigRead)).Get("/versions", h.listConfigProfileVersions)
+				r.With(h.requirePerm(PermConfigRead)).Get("/versions/diff", h.diffConfigProfileVersions)
+				r.With(h.requirePerm(PermConfigWrite)).Post("/rollback", h.rollbackConfigProfile)
 			})
 		})
 
@@ -273,6 +289,17 @@ func NewRouter(d Deps) http.Handler {
 			})
 		})
 
+		r.Route("/notification_channels", func(r chi.Router) {
+			r.With(h.requirePerm(PermNotificationsRead)).Get("/", h.listNotificationChannels)
+			r.With(h.requirePerm(PermNotificationsWrite)).Post("/", h.createNotificationChannel)
+			r.Route("/{id}", func(r chi.Router) {
+				r.With(h.requirePerm(PermNotificationsRead)).Get("/", h.getNotificationChannel)
+				r.With(h.requirePerm(PermNotificationsWrite)).Patch("/", h.updateNotificationChannel)
+				r.With(h.requirePerm(PermNotificationsWrite)).Delete("/", h.deleteNotificationChannel)
+				r.With(h.requirePerm(PermNotificationsWrite)).Post("/test", h.testNotificationChannel)
+			})
+		})
+
 		r.Route("/deployments", func(r chi.Router) {
 			r.With(h.requirePerm(PermRulesRead)).Get("/", h.listDeployments)
 			r.With(h.requirePerm(PermRulesDeploy)).Post("/", h.createDeployment)
@@ -286,6 +313,7 @@ func NewRouter(d Deps) http.Handler {
 		})
 
 		r.With(h.requirePerm(PermFleetRead)).Get("/fleet/compliance", h.getFleetCompliance)
+		r.With(h.requirePerm(PermFleetRead)).Get("/fleet/dashboard", h.getFleetDashboard)
 
 		r.With(h.requirePerm(PermFleetRead)).Get("/matrix/rules", h.getRulesMatrix)
 
