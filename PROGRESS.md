@@ -722,8 +722,22 @@ sources: 26 шт, et/open enabled=True; поиск «ET SCAN» в общем с�
 sid 2030692. Нюанс: enabled-sources у suricata-update 8 лежат не в
 /etc/suricata/update.yaml (файла нет) — CLI отдаёт корректно.
 
-**Следующий шаг после 82**: хвосты по спеке: история версий профилей
-(/versions, diff, rollback — миграция 000014 config_profile_versions).
+**Мердж 2026-10-10 (Kimi Code)**: другой агент запушил в origin чанки
+82–89 (история версий профилей 000014, каналы уведомлений 000015,
+движок дедупликации 000016, UI уведомлений, дашборды флот/кластер/хост
+1C, SIEM-конфиг через ConfigPush 000017). Слито с локальным чанком 82
+(suricata-update — перенумерован в **90** во избежание коллизии):
+конфликты — PROGRESS/CHANGELOG (объединены обе истории) и agent.pb.go
+(перегенерирован из смёрженного proto: SiemConfig=9 у них +
+SuricataUpdate у нас). Сборка/тесты зелёные. Перекат .28+.67:
+миграции → version 17. **Живой смоук пройден**: /fleet/dashboard 200
+(agents online 1, deploys 24h 5), /config_profiles/{id}/versions 200,
+/notification_channels 200, suricata_update sources (et/open enabled),
+compliance in_sync 1/1. Push origin выполнен (включая мердж-коммит).
+
+**Следующий шаг после мерджа**: живой e2E чужих чанков глубже (дашборды
+UI, тест уведомлений, SIEM-применение на агенте); хвосты: живая проверка
+rollback профилей /versions/diff на стенде.
 ✅ ЗАКРЫТО чанком 82.
 
 **Следующий шаг после 64**: рендер профиля (resolve parent-цепочки +
