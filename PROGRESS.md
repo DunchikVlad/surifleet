@@ -530,10 +530,34 @@ getProfileScoped (org + scoping). UI ProfilesPanel: кнопка «истори�
 store/httpapi/textdiff ok (feedsync/pki/agent-UDP падают как и раньше
 — sandbox сети/прав, не связано), npm build чисто.
 
-**Следующий шаг после 82**: ~~перекат .28 (миграция 000014), живой e2E~~
-(по команде пользователя 09.10: на тестовую среду не катим, работаем
-кодом). Далее по roadmap: дашборды флот/кластер/хост (1C), уведомления
-webhook+Telegram, SIEM-конфиг через ConfigPush (пр. 2).
+Чанк 84 ГОТОВ (2026-10-10, этот коммит; без переката — стенд не
+трогаем): движок уведомлений с дедупликацией (пр. 2; п. 7 ТЗ
+«уведомления с дедупликацией и эскалацией»). Миграция 000016
+notification_deliveries: PK (channel_id, fingerprint) —
+fingerprint = «type:object_id» (agent.offline:<agent_id>).
+Store: ListEnabled (включённые каналы org), TryDelivery — атомарный
+INSERT..ON CONFLICT..WHERE last_sent_at < now()-window: повтор события
+в окне 10 мин подавляется, гонка эмиттеров безопасна (фиксация ДО
+отправки — потеря при падении приемлема против дублей), FailDelivery →
+last_error. internal/notify Engine: Emit (org → каналы → дедуп →
+Sender; ошибка канала не блокирует остальные; возврат числа отправок),
+EmitAsync (fire-and-forget для стримов — отдельный ctx), логгер
+nil-безопасен (регрессия первого прогона: nil *slog.Logger вешал
+тест), ChannelStore-интерфейс для юнит-тестов без БД (6 тестов:
+fan-out на 2 канала, дедуп повтора, изоляция ошибки канала +
+last_error, store-ошибка нефатальна, nil-движок, fingerprint). Хаб:
+OnAgentStatus — колбэк смен статусов; emitStatus в трёх точках:
+разрыв стрима → offline, свипер heartbeat-timeout → offline,
+heartbeat-revive → online. cmd/server: notify.NewEngine (окно 10 мин,
+таймаут 15 с) + emitAgentStatusEvent — резолв agent→host→cluster→org,
+событие agent.offline (severity critical) / agent.online (info),
+текст с hostname и кластером. Проверки: build/vet зелёные, go test
+notify/store/httpapi/hub/orchestrator ok. Живой e2e — при перекате
+(миграция 000016). UI-вкладка «Уведомления» — следующий чанк.
+
+**Следующий шаг после 84**: UI каналов уведомлений (вкладка с CRUD +
+кнопка «Тест») — чанк 85; далее дашборды флот/кластер/хост (1C),
+SIEM-конфиг через ConfigPush (пр. 2).
 
 Чанк 83 ГОТОВ (2026-10-09, этот коммит; без переката — по команде
 пользователя стенд не трогаем): каналы уведомлений webhook/Telegram
@@ -1757,6 +1781,7 @@ managed-файле (245 правил).
 | 81 | UI: кнопка «Валидация» в ProfilesPanel (POST /config_profiles/{id}/validate, canary по умолчанию). npm build чисто | (этот коммит) |
 | 82 | История версий профилей: миграция 000014 config_profile_versions (+бэкфилл), store снимки в tx Create/Update + ListVersions/GetVersion/Rollback, internal/textdiff (unified diff, юнит-тесты), API /versions + /versions/diff + /rollback по спеке, UI «история» с diff и откатом. Стенд выключен — e2e при перекате .28 | 90c9527 |
 | 83 | Каналы уведомлений webhook/Telegram (пр. 2): миграция 000015, internal/notify (Sender + 6 юнит-тестов), store CRUD + Public (bot_token writeOnly), API /notification_channels + POST /{id}/test, права notifications.*, OpenAPI. Движок дедупликации и UI — следующие чанки | (этот коммит) |
+| 84 | Движок уведомлений с дедупликацией (пр. 2): миграция 000016 notification_deliveries, TryDelivery атомарный upsert (окно 10 мин), notify Engine (Emit/EmitAsync, ChannelStore-интерфейс, 6 юнит-тестов), хаб OnAgentStatus (offline стрим/свипер, online revive), cmd/server emitAgentStatusEvent. UI — следующий чанк | (этот коммит) |
 | 63 | OpenAPI под факт чанков 54–62: /config_versions*, /instances/{id}/config/current+history, /clusters/{id}/capabilities, схемы ConfigVersion/ConfigDeploy/CapabilitiesSet. Перекатан .28, health ok | (этот коммит) |
 | 62 | SetCapabilitiesTask: живое применение capability без рестарта (агент applyCapabilities под mu; сервер push после PUT). Код, e2e после переката | (этот коммит) |
 | 61 | UI capability хоста: HostCapsPanel в «Конфигурациях» (GET/PUT /hosts/{id}/capabilities, чекбоксы каталога, apiPut). Перекат .28 прерван зависанием ВМ | (этот коммит) |

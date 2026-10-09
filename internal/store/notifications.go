@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"time"
 
 	"github.com/google/uuid"
@@ -142,5 +143,62 @@ func (r *NotificationChannelsRepo) Update(ctx context.Context, id uuid.UUID, nam
 // Delete — жёсткое удаление канала.
 func (r *NotificationChannelsRepo) Delete(ctx context.Context, id uuid.UUID) error {
 	_, err := r.pool.Exec(ctx, `DELETE FROM notification_channels WHERE id = $1`, id)
+	return translate(err)
+}
+
+// ListEnabled — все включённые каналы организации (движок уведомлений,
+// чанк 84). Порядок детерминирован (по id).
+func (r *NotificationChannelsRepo) ListEnabled(ctx context.Context, orgID uuid.UUID) ([]NotificationChannel, error) {
+	rows, err := r.pool.Query(ctx,
+		`SELECT `+notificationChannelColumns+` FROM notification_channels
+		 WHERE organization_id = $1 AND enabled ORDER BY id`, orgID)
+	if err != nil {
+		return nil, translate(err)
+	}
+	defer rows.Close()
+	items := []NotificationChannel{}
+	for rows.Next() {
+		var c NotificationChannel
+		if err := rows.Scan(&c.ID, &c.OrganizationID, &c.Name, &c.Type, &c.Config, &c.Enabled, &c.CreatedAt, &c.UpdatedAt); err != nil {
+			return nil, translate(err)
+		}
+		items = append(items, c)
+	}
+	return items, translate(rows.Err())
+}
+
+// TryDelivery — атомарная попытка отправки события fingerprint в канал с
+// дедупликацией (чанк 84): если последняя отправка была в пределах
+// window — возвращает false (подавить); иначе фиксирует отправку
+// (upsert: last_sent_at=now(), send_count++, last_error=NULL) и
+// возвращает true. Фиксация ДО фактической отправки — при гонке двух
+// эмиттеров второй подавляется (атомарность INSERT .. ON CONFLICT
+// гарантирует PG; потерянное при падении отправителя уведомление —
+// приемлемая цена против дублей).
+func (r *NotificationChannelsRepo) TryDelivery(ctx context.Context, channelID uuid.UUID, fingerprint string, window time.Duration) (bool, error) {
+	var ok bool
+	err := r.pool.QueryRow(ctx,
+		`INSERT INTO notification_deliveries (channel_id, fingerprint, last_sent_at)
+		 VALUES ($1, $2, now())
+		 ON CONFLICT (channel_id, fingerprint) DO UPDATE
+		   SET last_sent_at = now(), send_count = notification_deliveries.send_count + 1,
+		       last_error = NULL
+		   WHERE notification_deliveries.last_sent_at < now() - $3::interval
+		 RETURNING true`, channelID, fingerprint, window.String()).Scan(&ok)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return false, nil // в окне дедупликации — подавлено
+		}
+		return false, translate(err)
+	}
+	return true, nil
+}
+
+// FailDelivery — фиксация ошибки отправки (last_error; last_sent_at не
+// трогаем — дедуп-окно уже открыто TryDelivery).
+func (r *NotificationChannelsRepo) FailDelivery(ctx context.Context, channelID uuid.UUID, fingerprint, errText string) error {
+	_, err := r.pool.Exec(ctx,
+		`UPDATE notification_deliveries SET last_error = $3
+		 WHERE channel_id = $1 AND fingerprint = $2`, channelID, fingerprint, errText)
 	return translate(err)
 }

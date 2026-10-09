@@ -7,6 +7,22 @@
 
 ### Added
 
+- Чанк 84 (2026-10-10): движок уведомлений с дедупликацией (пр. 2,
+  п. 7 ТЗ) — миграция 000016 notification_deliveries (PK
+  (channel_id, fingerprint), атомарный upsert TryDelivery: повтор в
+  окне 10 мин подавляется даже при конкурентных эмиттерах;
+  FailDelivery → last_error); internal/notify Engine (Emit: включённые
+  каналы org → дедуп → Sender, ошибка канала не блокирует остальные;
+  EmitAsync fire-and-forget для горячих путей; ChannelStore-интерфейс
+  для тестов; 6 юнит-тестов: fan-out, дедуп, изоляция ошибок,
+  store-ошибка, nil-движок, fingerprint). Хаб: OnAgentStatus —
+  публикация переходов (разрыв стрима → offline, свипер → offline,
+  heartbeat-revive → online); cmd/server: emitAgentStatusEvent
+  (резолв agent→host→cluster→org, severity critical/info, текст с
+  hostname/кластером). Проверки: build/vet/test (notify/store/httpapi/
+  hub/orchestrator) зелёные. Живой e2e — при перекате (миграция 16).
+  (server, db)
+
 - Чанк 83 (2026-10-09): каналы уведомлений webhook/Telegram (пр. 2
   roadmap, п. 5.5 ТЗ) — миграция 000015 notification_channels (config
   jsonb по типу, UNIQUE(org, name)); internal/notify (синхронный

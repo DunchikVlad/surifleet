@@ -171,6 +171,13 @@ func main() {
 		log.Error("восстановление оркестратора", "err", err)
 	}
 
+	// Движок уведомлений (чанк 84): переходы online/offline агентов →
+	// каналы webhook/telegram с дедупликацией (окно 10 мин).
+	notifEngine := notify.NewEngine(db, notify.NewSender(), log)
+	hubSrv.OnAgentStatus = func(_ context.Context, agentID uuid.UUID, status string) {
+		emitAgentStatusEvent(notifEngine, db, log, agentID, status)
+	}
+
 	// Break-glass администратор (чанк 28): в token-режиме гарантируем
 	// локального админа вне SSO — иначе войти в систему некому.
 	if cfg.AuthMode == "token" {
@@ -349,6 +356,50 @@ func samlSPKeyDir(cfg *config.ServerConfig) string {
 		return ""
 	}
 	return filepath.Join(cfg.CADir, "saml-sp")
+}
+
+// emitAgentStatusEvent — событие смены статуса агента → движок
+// уведомлений (чанк 84). Резолвит agent → host → cluster → org и шлёт
+// асинхронно (fire-and-forget: дедуп и отправка в фоне, стрим не
+// блокируется). Ошибки резолва — только лог.
+func emitAgentStatusEvent(engine *notify.Engine, db *store.Store, log *slog.Logger, agentID uuid.UUID, status string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	agent, err := db.Agents.GetByID(ctx, agentID)
+	if err != nil {
+		log.Error("notify: резолв агента", "agent_id", agentID, "err", err)
+		return
+	}
+	host, err := db.Hosts.Get(ctx, agent.HostID)
+	if err != nil {
+		log.Error("notify: резолв хоста", "host_id", agent.HostID, "err", err)
+		return
+	}
+	cluster, err := db.Clusters.Get(ctx, host.ClusterID)
+	if err != nil {
+		log.Error("notify: резолв кластера", "cluster_id", host.ClusterID, "err", err)
+		return
+	}
+	hostname := host.Hostname
+	if hostname == "" {
+		hostname = agentID.String()[:8]
+	}
+	ev := notify.Event{
+		Type:     "agent." + status,
+		ObjectID: agentID,
+		Title:    "SuriFleet: агент " + status,
+		Text:     "Агент " + hostname + " (" + cluster.Name + ") перешёл в статус " + status + ".",
+		Fields: map[string]any{
+			"agent_id": agentID.String(), "host_id": host.ID.String(), "hostname": hostname,
+			"cluster_id": cluster.ID.String(), "cluster": cluster.Name, "status": status,
+		},
+	}
+	if status == "offline" {
+		ev.Severity = "critical"
+	} else {
+		ev.Severity = "info"
+	}
+	engine.EmitAsync(cluster.OrganizationID, ev)
 }
 
 // shutdownHTTP мягко останавливает HTTP-сервер с таймаутом.
