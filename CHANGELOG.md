@@ -7,6 +7,17 @@
 
 ### Added
 
+- Чанк 88 (2026-10-10): дашборд хоста (план 1C, срез 3 — серия
+  дашбордов закрыта) — GET /hosts/{id}/dashboard (fleet.read, scoping):
+  карточка хоста (кластер/IP/OS), агент (статус, версия, agent_ip,
+  виден, срок сертификата; null при непройденном онбординге), инстансы
+  (InstancesRepo.ListWithCompliance — LEFT JOIN instance_compliance) с
+  живым состоянием systemd-сервиса из heartbeat (чанк 80:
+  service_state/pid). OpenAPI: путь + схема HostDashboard. UI «Обзор»:
+  хост в таблице кластера стал кнопкой → HostDashPanel (агент, инстансы
+  с бейджами compliance/сервиса, автoобновление 15 с). Проверки:
+  build/vet/test зелёные, yaml ok, npm build чисто. (server, ui, api)
+
 - Чанк 87 (2026-10-10): дашборд кластера (план 1C, срез 2) — GET
   /clusters/{id}/dashboard (fleet.read, scoping чанка 43): кластер,
   агенты по статусам (AgentsRepo.CountByStatusForCluster), инстансы по

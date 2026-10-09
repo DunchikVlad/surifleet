@@ -597,6 +597,22 @@ paths:
               schema: {$ref: '#/components/schemas/CapabilitiesView'}
         default: {$ref: '#/components/responses/Error'}
 
+  /hosts/{id}/dashboard:
+    parameters:
+      - {$ref: '#/components/parameters/PathId'}
+    get:
+      operationId: get_host_dashboard
+      tags: [fleet]
+      summary: Дашборд хоста (агент, инстансы с compliance и состоянием сервисов)
+      description: "Требуется право: fleet.read. План 1C (чанк 88): карточка агента (статус/версии/IP/виден), инстансы с compliance-статусом и живым состоянием systemd-сервиса из heartbeat."
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/HostDashboard'}
+        default: {$ref: '#/components/responses/Error'}
+
   /hosts/{id}/discovery:
     parameters:
       - {$ref: '#/components/parameters/PathId'}
@@ -3822,6 +3838,44 @@ components:
               last_seen_at: {type: string, format: date-time, nullable: true}
               instances: {type: integer}
               by_compliance: {type: object, additionalProperties: {type: integer}}
+
+    HostDashboard:
+      type: object
+      description: Дашборд хоста (чанк 88, план 1C)
+      properties:
+        host:
+          type: object
+          properties:
+            id: {type: string, format: uuid}
+            hostname: {type: string}
+            ip_addresses: {type: array, items: {type: string}}
+            os: {type: string, nullable: true}
+            cluster_id: {type: string, format: uuid}
+            cluster_name: {type: string}
+        agent:
+          type: object
+          nullable: true
+          description: Агент хоста (1:1); null — онбординг не пройден
+          properties:
+            id: {type: string, format: uuid}
+            status: {type: string, description: 'online | offline | degraded | updating | error'}
+            agent_version: {type: string, nullable: true}
+            last_seen_at: {type: string, format: date-time, nullable: true}
+            cert_expires_at: {type: string, format: date-time, nullable: true}
+            agent_ip: {type: string, description: 'IP текущего подключения (online)'}
+        instances:
+          type: array
+          items:
+            type: object
+            properties:
+              id: {type: string, format: uuid}
+              name: {type: string}
+              suricata_version: {type: string, nullable: true}
+              systemd_unit: {type: string, nullable: true}
+              compliance_status: {type: string, enum: [in_sync, pending, partial, drift, stale]}
+              compliance_updated_at: {type: string, format: date-time, nullable: true}
+              service_state: {type: string, description: 'Состояние systemd-сервиса Suricata из heartbeat (active и т.п.)'}
+              service_pid: {type: integer, description: 'PID сервиса Suricata из heartbeat'}
         next_cursor: {type: string, nullable: true}
 
     FailedRule:

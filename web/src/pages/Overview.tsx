@@ -49,21 +49,117 @@ interface ClusterRef { id: string; name: string }
 const agentBadge = (s?: string | null) =>
   !s ? "badge-info" : s === "online" ? "badge-ok" : s === "offline" || s === "error" ? "badge-err" : "badge-warn";
 
-// ClusterDashPanel — дашборд выбранного кластера (чанк 87): те же
-// карточки, что у флота, + таблица хостов.
-function ClusterDashPanel({ clusterID }: { clusterID: string }) {
-  const [d, setD] = React.useState<ClusterDashboard | null>(null);
+// complianceBadge — CSS-класс бейджа compliance-статуса инстанса.
+const complianceBadge = (s: string) =>
+  s === "in_sync" ? "badge-ok" : s === "drift" || s === "stale" ? "badge-err" : s === "pending" ? "badge-warn" : "badge-info";
+
+// HostDashboard — ответ GET /hosts/{id}/dashboard (чанк 88).
+interface HostDashboard {
+  host: {
+    id: string; hostname: string; ip_addresses: string[]; os?: string | null;
+    cluster_id: string; cluster_name: string;
+  };
+  agent?: {
+    id: string; status: string; agent_version?: string | null;
+    last_seen_at?: string | null; cert_expires_at?: string | null; agent_ip?: string;
+  } | null;
+  instances: {
+    id: string; name: string; suricata_version?: string | null; systemd_unit?: string | null;
+    compliance_status: string; compliance_updated_at?: string | null;
+    service_state?: string; service_pid?: number;
+  }[];
+}
+
+// HostDashPanel — дашборд хоста (чанк 88): карточка агента и таблица
+// инстансов с compliance и живым состоянием сервисов.
+function HostDashPanel({ hostID, onClose }: { hostID: string; onClose: () => void }) {
+  const [d, setD] = React.useState<HostDashboard | null>(null);
   const [err, setErr] = React.useState<unknown>(null);
 
   const load = React.useCallback(async () => {
-    if (!clusterID) { setD(null); return; }
+    if (!hostID) return;
+    try {
+      setD(await apiGet<HostDashboard>(`/hosts/${hostID}/dashboard`));
+      setErr(null);
+    } catch (e) { setErr(e); }
+  }, [hostID]);
+
+  React.useEffect(() => { load(); }, [load]);
+  useInterval(load, 15000, !!hostID);
+
+  if (err) return <ErrorBox error={err} />;
+  if (!d) return <p className="muted">загрузка…</p>;
+
+  return (
+    <div className="panel">
+      <h3>
+        Хост «{d.host.hostname}»{" "}
+        <button className="btn" onClick={onClose}>закрыть</button>
+      </h3>
+      <p className="muted">
+        Кластер {d.host.cluster_name}
+        {d.host.ip_addresses.length > 0 && " · IP: " + d.host.ip_addresses.join(", ")}
+        {d.host.os && " · " + d.host.os}
+      </p>
+      {d.agent ? (
+        <p>
+          Агент: <span className={agentBadge(d.agent.status)}>{d.agent.status}</span>{" "}
+          <span className="muted">
+            {d.agent.agent_version && "v" + d.agent.agent_version + " · "}
+            {d.agent.agent_ip && "IP " + d.agent.agent_ip + " · "}
+            виден {d.agent.last_seen_at ? fmtTime(d.agent.last_seen_at) : "ни разу"}
+            {d.agent.cert_expires_at && " · серт. до " + fmtTime(d.agent.cert_expires_at)}
+          </span>
+        </p>
+      ) : (
+        <p className="muted">Агент не зарегистрирован — онбординг не пройден.</p>
+      )}
+      {d.instances.length > 0 ? (
+        <table>
+          <thead><tr><th>Инстанс</th><th>Suricata</th><th>Compliance</th><th>Сервис</th></tr></thead>
+          <tbody>
+            {d.instances.map(i => (
+              <tr key={i.id}>
+                <td><b>{i.name}</b>{i.systemd_unit && <span className="muted"> ({i.systemd_unit})</span>}</td>
+                <td className="muted">{i.suricata_version || "—"}</td>
+                <td>
+                  <span className={complianceBadge(i.compliance_status)}>{i.compliance_status}</span>{" "}
+                  {i.compliance_updated_at && <span className="muted">{fmtTime(i.compliance_updated_at)}</span>}
+                </td>
+                <td>
+                  {i.service_state
+                    ? <span className={i.service_state === "active" ? "badge-ok" : "badge-err"}>{i.service_state}</span>
+                    : <span className="muted">—</span>}
+                  {i.service_pid ? <span className="muted"> pid {i.service_pid}</span> : null}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      ) : (
+        <p className="muted">Инстансов нет.</p>
+      )}
+    </div>
+  );
+}
+
+// ClusterDashPanel — дашборд выбранного кластера (чанк 87): те же
+// карточки, что у флота, + таблица хостов; клик по хосту раскрывает
+// дашборд хоста (чанк 88).
+function ClusterDashPanel({ clusterID }: { clusterID: string }) {
+  const [d, setD] = React.useState<ClusterDashboard | null>(null);
+  const [err, setErr] = React.useState<unknown>(null);
+  const [hostID, setHostID] = React.useState("");
+
+  const load = React.useCallback(async () => {
+    if (!clusterID) { setD(null); setHostID(""); return; }
     try {
       setD(await apiGet<ClusterDashboard>(`/clusters/${clusterID}/dashboard`));
       setErr(null);
     } catch (e) { setErr(e); setD(null); }
   }, [clusterID]);
 
-  React.useEffect(() => { load(); }, [load]);
+  React.useEffect(() => { setHostID(""); load(); }, [load]);
   useInterval(load, 15000, !!clusterID);
 
   if (!clusterID) return null;
@@ -89,7 +185,11 @@ function ClusterDashPanel({ clusterID }: { clusterID: string }) {
           <tbody>
             {d.hosts.map(h => (
               <tr key={h.host_id}>
-                <td><b>{h.hostname}</b></td>
+                <td>
+                  <button className="btn" title="дашборд хоста" onClick={() => setHostID(hostID === h.host_id ? "" : h.host_id)}>
+                    {h.hostname}
+                  </button>
+                </td>
                 <td>{h.agent_status
                   ? <span className={agentBadge(h.agent_status)}>{h.agent_status}</span>
                   : <span className="muted">нет агента</span>}</td>
@@ -105,6 +205,7 @@ function ClusterDashPanel({ clusterID }: { clusterID: string }) {
           </tbody>
         </table>
       )}
+      {hostID && <HostDashPanel hostID={hostID} onClose={() => setHostID("")} />}
     </div>
   );
 }
