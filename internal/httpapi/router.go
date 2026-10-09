@@ -183,6 +183,9 @@ func NewRouter(d Deps) http.Handler {
 				r.With(h.requirePerm(PermHostsRead)).Get("/capabilities", h.getClusterCapabilities)
 				r.With(h.requirePerm(PermHostsWrite)).Put("/capabilities", h.setClusterCapabilities)
 				r.With(h.requirePerm(PermFleetRead)).Get("/dashboard", h.getClusterDashboard)
+				r.With(h.requirePerm(PermHostsRead)).Get("/siem", h.getClusterSiem)
+				r.With(h.requirePerm(PermHostsWrite)).Put("/siem", h.putClusterSiem)
+				r.With(h.requirePerm(PermHostsWrite)).Delete("/siem", h.deleteClusterSiem)
 			})
 		})
 
@@ -198,6 +201,9 @@ func NewRouter(d Deps) http.Handler {
 				r.With(h.requirePerm(PermHostsRead)).Get("/capabilities", h.getHostCapabilities)
 				r.With(h.requirePerm(PermHostsWrite)).Put("/capabilities", h.setHostCapabilities)
 				r.With(h.requirePerm(PermFleetRead)).Get("/dashboard", h.getHostDashboard)
+				r.With(h.requirePerm(PermHostsRead)).Get("/siem", h.getHostSiem)
+				r.With(h.requirePerm(PermHostsWrite)).Put("/siem", h.putHostSiem)
+				r.With(h.requirePerm(PermHostsWrite)).Delete("/siem", h.deleteHostSiem)
 			})
 		})
 

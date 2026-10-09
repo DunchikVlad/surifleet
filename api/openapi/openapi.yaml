@@ -613,6 +613,112 @@ paths:
               schema: {$ref: '#/components/schemas/HostDashboard'}
         default: {$ref: '#/components/responses/Error'}
 
+  /hosts/{id}/siem:
+    parameters:
+      - {$ref: '#/components/parameters/PathId'}
+    get:
+      operationId: get_host_siem
+      tags: [hosts]
+      summary: SIEM-конфигурация хоста (собственная + эффективная)
+      description: "Требуется право: hosts.read. Эффективная — host-level или унаследованная от кластера; none — сервер SIEM не задаёт (агент на agent.yaml)."
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/SiemConfigView'}
+        default: {$ref: '#/components/responses/Error'}
+    put:
+      operationId: put_host_siem
+      tags: [hosts]
+      summary: Установить SIEM-конфигурацию хоста (upsert + ConfigPush агенту)
+      description: "Требуется право: hosts.write. Подключённый агент получает ConfigPush мгновенно; офлайн — в HelloAck. Пустой addr — явное выключение пересылки."
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/SiemConfigInput'}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  config: {$ref: '#/components/schemas/SiemConfig'}
+                  pushed: {type: boolean, description: ConfigPush поставлен в очередь стрима агента}
+        default: {$ref: '#/components/responses/Error'}
+    delete:
+      operationId: delete_host_siem
+      tags: [hosts]
+      summary: Удалить host-level SIEM-конфигурацию (возврат к кластерной/agent.yaml)
+      description: "Требуется право: hosts.write. Эффективная конфигурация (если осталась кластерная) пушится агенту. 404, если записи не было."
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  deleted: {type: boolean}
+                  pushed: {type: boolean}
+        default: {$ref: '#/components/responses/Error'}
+
+  /clusters/{id}/siem:
+    parameters:
+      - {$ref: '#/components/parameters/PathId'}
+    get:
+      operationId: get_cluster_siem
+      tags: [hosts]
+      summary: SIEM-конфигурация кластера
+      description: "Требуется право: hosts.read."
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/SiemConfigView'}
+        default: {$ref: '#/components/responses/Error'}
+    put:
+      operationId: put_cluster_siem
+      tags: [hosts]
+      summary: Установить SIEM-конфигурацию кластера (upsert + ConfigPush агентам кластера)
+      description: "Требуется право: hosts.write. Host-level записи приоритетнее — их агенты получают свою эффективную конфигурацию."
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/SiemConfigInput'}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  config: {$ref: '#/components/schemas/SiemConfig'}
+                  pushed: {type: integer, description: Скольким агентам ConfigPush поставлен в очередь}
+        default: {$ref: '#/components/responses/Error'}
+    delete:
+      operationId: delete_cluster_siem
+      tags: [hosts]
+      summary: Удалить cluster-level SIEM-конфигурацию
+      description: "Требуется право: hosts.write. 404, если записи не было."
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  deleted: {type: boolean}
+                  pushed: {type: integer}
+        default: {$ref: '#/components/responses/Error'}
+
   /hosts/{id}/discovery:
     parameters:
       - {$ref: '#/components/parameters/PathId'}
@@ -3876,6 +3982,34 @@ components:
               compliance_updated_at: {type: string, format: date-time, nullable: true}
               service_state: {type: string, description: 'Состояние systemd-сервиса Suricata из heartbeat (active и т.п.)'}
               service_pid: {type: integer, description: 'PID сервиса Suricata из heartbeat'}
+
+    SiemConfig:
+      type: object
+      description: Запись SIEM-конфигурации (миграция 000017, чанк 89); ровно один из host_id/cluster_id
+      properties:
+        id: {type: string, format: uuid}
+        host_id: {type: string, format: uuid, nullable: true}
+        cluster_id: {type: string, format: uuid, nullable: true}
+        addr: {type: string, description: 'host:port приёмника syslog; пустой — пересылка выключена'}
+        protocol: {type: string, enum: [udp, tcp]}
+        format: {type: string, enum: [cef, json]}
+        updated_by: {type: string, format: uuid, nullable: true}
+        updated_at: {type: string, format: date-time}
+
+    SiemConfigInput:
+      type: object
+      properties:
+        addr: {type: string, description: 'host:port (например, siem.local:514); пустой — явное выключение пересылки'}
+        protocol: {type: string, enum: [udp, tcp], default: udp}
+        format: {type: string, enum: [cef, json], default: cef}
+
+    SiemConfigView:
+      type: object
+      properties:
+        scope: {type: string, enum: [host, cluster]}
+        own: {$ref: '#/components/schemas/SiemConfig', nullable: true, description: Запись этого scope (null — нет)}
+        effective: {$ref: '#/components/schemas/SiemConfig', nullable: true, description: Эффективная конфигурация (host → cluster; null — сервер SIEM не задаёт)}
+        source: {type: string, enum: [host, cluster, none], description: Откуда effective-конфигурация}
         next_cursor: {type: string, nullable: true}
 
     FailedRule:

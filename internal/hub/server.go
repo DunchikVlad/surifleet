@@ -223,6 +223,7 @@ func (s *Server) Channel(stream grpc.BidiStreamingServer[agentv1.AgentMessage, a
 	// включённые capability хоста: host → cluster → дефолт monitoring).
 	caps := s.hostCapabilities(ctx, log, agentID)
 	bindings := s.instanceBindings(ctx, log, agentID)
+	siem := s.hostSiemConfig(ctx, log, agentID) // чанк 89: nil — agent.yaml
 	if err := stream.Send(&agentv1.ServerMessage{
 		MsgId:  uuid.New().String(),
 		Seq:    1,
@@ -234,7 +235,7 @@ func (s *Server) Channel(stream grpc.BidiStreamingServer[agentv1.AgentMessage, a
 			StateReportIntervalSeconds: 300,
 			MetricsIntervalSeconds:     60,
 			LogLevel:                   "info",
-			Config:                     &agentv1.AgentConfig{LogLevel: "info", Capabilities: caps},
+			Config:                     &agentv1.AgentConfig{LogLevel: "info", Capabilities: caps, Siem: siem},
 			BoundInstances:             bindings,
 		}},
 	}); err != nil {

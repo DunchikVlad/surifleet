@@ -7,6 +7,26 @@
 
 ### Added
 
+- Чанк 89 (2026-10-10): SIEM-конфиг через ConfigPush (пр. 2, закрыт
+  полностью; п. 5.4 ТЗ) — миграция 000017 siem_configs (host|cluster
+  scope, CHECK одной колонки, частичные уникальные индексы); proto
+  BREAKING-safe: AgentConfig.siem=9 (SiemConfig addr/protocol/format —
+  добавочное поле в конец, wire-совместимость сохранена; регенерация
+  protoc 36.2 локально, плагины .tools/bin). Агент: эффективная
+  SIEM-конфигурация shared (atomic) — серверная из HelloAck/ConfigPush
+  приоритетнее agent.yaml, смена применяется без рестарта (forwarder
+  пересоздаётся, offset eve.json сохраняется), пустой addr — выкл;
+  3 юнит-теста. Хаб: hostSiemConfig (host→cluster) в HelloAck +
+  PushSiemConfig (ConfigPush в очередь стрима). API: GET/PUT/DELETE
+  /hosts/{id}/siem и /clusters/{id}/siem (hosts.read/write, scoping,
+  аудит hosts.siem_*/clusters.siem_*; PUT → push агенту/агентам
+  кластера, счётчик pushed). Store SiemConfigsRepo (ForHost
+  host-level wins, upsert'ы). OpenAPI: пути + схемы SiemConfig*;
+  docs/protocol.md. Проверки: build/vet/test (store/httpapi/hub/agent/
+  orchestrator) зелёные, yaml ok. Живой e2e — при перекате .28+.67
+  (миграция 17, обе стороны proto новые). (proto, server, agent, db,
+  api, docs)
+
 - Чанк 88 (2026-10-10): дашборд хоста (план 1C, срез 3 — серия
   дашбордов закрыта) — GET /hosts/{id}/dashboard (fleet.read, scoping):
   карточка хоста (кластер/IP/OS), агент (статус, версия, agent_ip,

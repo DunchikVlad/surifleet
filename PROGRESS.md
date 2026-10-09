@@ -530,6 +530,44 @@ getProfileScoped (org + scoping). UI ProfilesPanel: кнопка «истори�
 store/httpapi/textdiff ok (feedsync/pki/agent-UDP падают как и раньше
 — sandbox сети/прав, не связано), npm build чисто.
 
+Чанк 89 ГОТОВ (2026-10-10, этот коммит; без переката — стенд не
+трогаем): SIEM-конфиг через ConfigPush — последний пункт пр. 2
+закрыт. Инфра: на этой машине не было protoc — установлен brew
+protobuf 36.2, плагины protoc-gen-go/grpc в .tools/bin (по
+gen-proto.sh); полная регенерация internal/gen (большой дифф от смены
+версий генератора, сборка/тесты зелёные до и после). Proto
+BREAKING-safe: AgentConfig.siem=9 (SiemConfig addr/protocol/format) —
+добавочное поле в КОНЕЦ сообщения (первый вариант с перенумерацией
+полей 5-8 пойман на ревью как wire-breaking и исправлен). Агент:
+siemSettings + shared atomic.Value — эффективная конфигурация
+(серверная из HelloAck/ConfigPush приоритетнее agent.yaml); SIEM-
+цикл всегда запущен, forwarder пересоздаётся при смене конфига с
+сохранением offset eve.json (без повторной пересылки алертов),
+пустой addr — выключение; handleServerMessage получил siemCfg
+параметром; 3 юнит-теста (defaults, siemFromProto, ConfigPush
+применение/выключение/не-трогание без siem). Миграция 000017
+siem_configs (host_id XOR cluster_id CHECK, частичные уникальные
+индексы, updated_by → users). Store SiemConfigsRepo: ForHost
+(host-level wins → cluster → ErrNotFound), Get*/Set*(upsert по
+частичному индексу)/Delete*, HostIDsForCluster. Хаб: hostSiemConfig
+в HelloAck.Config.siem (nil — agent.yaml), PushSiemConfig —
+ConfigPush в очередь стрима (false — офлайн, получит в HelloAck).
+API: GET/PUT/DELETE /hosts/{id}/siem и /clusters/{id}/siem
+(hosts.read/write, scoping через hostScoped/clusterScoped, валидация
+addr host:port + protocol udp|tcp + format cef|json, аудит
+hosts.siem_set/delete, clusters.siem_set/delete; PUT host → push
+агенту (pushed bool), PUT cluster → push всем агентам кластера с
+учётом host-level приоритета (pushed int)). OpenAPI: пути + схемы
+SiemConfig/SiemConfigInput/SiemConfigView; docs/protocol.md — siem в
+HelloAck/ConfigPush. Проверки: build/vet зелёные, go test
+store/httpapi/hub/agent/orchestrator ok, yaml ok. Живой e2e — при
+перекате .28+.67 (миграция 000017, обе стороны proto новые).
+
+**Следующий шаг после 89**: из оставшегося ТЗ — автооткат при
+падении сервиса после деплоя (п. 7), действия из UI (перезапуск
+сервиса/агента, повторный деплой, диагностический бандл — proto-
+типы задач уже заложены: ServiceActionTask/CollectBundleTask).
+
 Чанк 88 ГОТОВ (2026-10-10, этот коммит): дашборд хоста (план 1C,
 срез 3 — серия дашбордов флот/кластер/хост закрыта по коду). Store:
 InstancesRepo.ListWithCompliance (LEFT JOIN instance_compliance,
@@ -1859,7 +1897,8 @@ managed-файле (245 правил).
 | 85 | UI каналов уведомлений: вкладка «Уведомления» (список, создание webhook/telegram, ред., вкл/выкл, удаление, кнопка «Тест»). npm build чисто | b4a452a |
 | 86 | Дашборд флота (1C срез 1): GET /fleet/dashboard (агенты по статусам + compliance + деплои 24ч + топ-10 offline), store CountByStatus/ListOffline/CountByStatusSince, OpenAPI FleetDashboard, UI «Обзор» — блок «Агенты» + offline-строка + деплои 24ч | b80a0ae |
 | 87 | Дашборд кластера (1C срез 2): GET /clusters/{id}/dashboard (агенты/compliance/хосты кластера), store CountByStatusForCluster/HostsWithAgentStatus, OpenAPI ClusterDashboard, UI «Обзор» — селектор кластера + ClusterDashPanel (карточки + таблица хостов) | f054bcd |
-| 88 | Дашборд хоста (1C срез 3): GET /hosts/{id}/dashboard (агент + инстансы с compliance и живым service_state/pid), store ListWithCompliance, OpenAPI HostDashboard, UI HostDashPanel из таблицы кластера. Серия дашбордов флот/кластер/хост закрыта | (этот коммит) |
+| 88 | Дашборд хоста (1C срез 3): GET /hosts/{id}/dashboard (агент + инстансы с compliance и живым service_state/pid), store ListWithCompliance, OpenAPI HostDashboard, UI HostDashPanel из таблицы кластера. Серия дашбордов флот/кластер/хост закрыта | 4e03d2a |
+| 89 | SIEM-конфиг через ConfigPush (пр. 2 закрыт): proto AgentConfig.siem=9 (добавочное, wire-safe), миграция 000017 siem_configs, агент shared-конфиг без рестарта (offset сохраняется), хаб HelloAck+PushSiemConfig, API /hosts|clusters/{id}/siem + push, OpenAPI, protocol.md. Локально поднят protoc 36.2 для регенерации | (этот коммит) |
 | 63 | OpenAPI под факт чанков 54–62: /config_versions*, /instances/{id}/config/current+history, /clusters/{id}/capabilities, схемы ConfigVersion/ConfigDeploy/CapabilitiesSet. Перекатан .28, health ok | (этот коммит) |
 | 62 | SetCapabilitiesTask: живое применение capability без рестарта (агент applyCapabilities под mu; сервер push после PUT). Код, e2e после переката | (этот коммит) |
 | 61 | UI capability хоста: HostCapsPanel в «Конфигурациях» (GET/PUT /hosts/{id}/capabilities, чекбоксы каталога, apiPut). Перекат .28 прерван зависанием ВМ | (этот коммит) |

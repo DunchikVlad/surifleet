@@ -40,6 +40,7 @@ type Store struct {
 	SsoProviders         *SsoProvidersRepo
 	OidcStates           *OidcStatesRepo
 	NotificationChannels *NotificationChannelsRepo
+	SiemConfigs          *SiemConfigsRepo
 }
 
 // Connect открывает пул соединений по DSN и проверяет его ping'ом.
@@ -92,6 +93,7 @@ func Connect(ctx context.Context, dsn string) (*Store, error) {
 	s.SsoProviders = &SsoProvidersRepo{pool: pool}
 	s.OidcStates = &OidcStatesRepo{pool: pool}
 	s.NotificationChannels = &NotificationChannelsRepo{pool: pool}
+	s.SiemConfigs = &SiemConfigsRepo{pool: pool}
 	return s, nil
 }
 

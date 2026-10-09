@@ -272,6 +272,49 @@ func (s *Server) hostCapabilities(ctx context.Context, log *slog.Logger, agentID
 	return caps
 }
 
+// hostSiemConfig — серверная SIEM-конфигурация хоста агента для
+// HelloAck.Config.siem (чанк 89: host → cluster; нет записей — nil,
+// агент остаётся на локальном agent.yaml). Ошибки — только лог (не
+// блокируем сессию).
+func (s *Server) hostSiemConfig(ctx context.Context, log *slog.Logger, agentID uuid.UUID) *agentv1.SiemConfig {
+	host, err := s.db.Hosts.GetByAgentID(ctx, agentID)
+	if err != nil {
+		log.Error("siem: хост агента не найден", "err", err)
+		return nil
+	}
+	cfg, err := s.db.SiemConfigs.ForHost(ctx, host.ID, host.ClusterID)
+	if err != nil {
+		if !errors.Is(err, store.ErrNotFound) {
+			log.Error("siem: чтение конфигурации", "host_id", host.ID, "err", err)
+		}
+		return nil
+	}
+	return &agentv1.SiemConfig{Addr: cfg.Addr, Protocol: cfg.Protocol, Format: cfg.Format}
+}
+
+// PushSiemConfig — мгновенная доставка SIEM-конфигурации подключённому
+// агенту (ConfigPush, чанк 89): после PUT /hosts|clusters/{id}/siem.
+// false — агент не подключён (получит конфиг в HelloAck при reconnect).
+func (s *Server) PushSiemConfig(agentID uuid.UUID, cfg *agentv1.SiemConfig) bool {
+	v, ok := s.streams.Load(agentID)
+	if !ok {
+		return false
+	}
+	msg := &agentv1.ServerMessage{
+		MsgId:  uuid.New().String(),
+		SentAt: timestamppb.Now(),
+		Payload: &agentv1.ServerMessage_ConfigPush{ConfigPush: &agentv1.ConfigPush{
+			Config: &agentv1.AgentConfig{Siem: cfg},
+		}},
+	}
+	select {
+	case v.(*streamHandle).out <- msg:
+		return true
+	default:
+		return false
+	}
+}
+
 // instanceBindings — привязка агента к зарегистрированным инстансам Suricata
 // его хоста для HelloAck.bound_instances: агент узнаёт свои instance_id
 // сразу при подключении, не дожидаясь первой задачи. Ошибка чтения не

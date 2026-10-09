@@ -132,6 +132,20 @@ message AgentConfig {
   int32 state_report_interval_seconds = 6;  // 0 — не менять
   int32 metrics_interval_seconds = 7;       // 0 — не менять
   repeated string capabilities = 8;         // включённые capability хоста (monitoring, rules, ...); агент выполняет задачи типа deploy только при наличии соответствующей capability
+  // SIEM (чанк 89, пр. 2): куда пересылать EVE-алерты (syslog). NULL —
+  // «не менять» в ConfigPush / «сервер не задаёт» в HelloAck (агент
+  // остаётся на локальном agent.yaml siem_*). Поле добавлено в конец —
+  // wire-совместимость со старыми сторонами сохранена.
+  SiemConfig siem = 9;
+}
+
+// SiemConfig — пересылка EVE-алертов в SIEM (чанк 89). addr вида
+// host:514; protocol udp|tcp (пусто — udp); format cef|json (пусто — cef).
+// Пустой addr — выключить пересылку (явная команда «выкл»).
+message SiemConfig {
+  string addr = 1;
+  string protocol = 2;
+  string format = 3;
 }
 
 // ---------------------------------------------------------------------------
