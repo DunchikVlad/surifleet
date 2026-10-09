@@ -140,6 +140,76 @@ func (h *handlers) getInstanceState(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, view)
 }
 
+// --- GET /api/v1/fleet/dashboard (дашборд флота, чанк 86) ---
+
+// fleetDashboardView — ответ GET /fleet/dashboard: сводка флота «одним
+// экраном» — агенты по статусам, инстансы по compliance, активность
+// деплоев за 24 ч, список offline-агентов (топ-10).
+type fleetDashboardView struct {
+	Agents struct {
+		Total    int            `json:"total"`
+		ByStatus map[string]int `json:"by_status"`
+	} `json:"agents"`
+	Instances struct {
+		Total    int            `json:"total"`
+		ByStatus map[string]int `json:"by_status"`
+	} `json:"instances"`
+	Deployments24h struct {
+		Total    int            `json:"total"`
+		ByStatus map[string]int `json:"by_status"`
+	} `json:"deployments_24h"`
+	OfflineAgents []store.OfflineAgentBrief `json:"offline_agents"`
+}
+
+// getFleetDashboard — GET /api/v1/fleet/dashboard (fleet.read, чанк 86,
+// план 1C): агрегированная сводка флота. Первый срез дашбордов
+// флот/кластер/хост (п. 5.4 ТЗ).
+func (h *handlers) getFleetDashboard(w http.ResponseWriter, r *http.Request) {
+	orgID, ok := h.resolveOrgID(w, r)
+	if !ok {
+		return
+	}
+	ctx := r.Context()
+	var view fleetDashboardView
+
+	agentStatuses, err := h.d.Store.Agents.CountByStatus(ctx)
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	view.Agents.ByStatus = agentStatuses
+	for _, n := range agentStatuses {
+		view.Agents.Total += n
+	}
+
+	summary, err := h.d.Store.Compliance.Summary(ctx, uuid.Nil)
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	view.Instances.Total = summary.TotalInstances
+	view.Instances.ByStatus = summary.ByStatus
+
+	depStatuses, err := h.d.Store.Deployments.CountByStatusSince(ctx, orgID, time.Now().Add(-24*time.Hour))
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	view.Deployments24h.ByStatus = depStatuses
+	for _, n := range depStatuses {
+		view.Deployments24h.Total += n
+	}
+
+	offline, err := h.d.Store.Agents.ListOffline(ctx, 10)
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	view.OfflineAgents = offline
+
+	writeJSON(w, http.StatusOK, view)
+}
+
 // --- GET /api/v1/fleet/compliance (openapi FleetCompliance) ---
 
 type fleetComplianceView struct {

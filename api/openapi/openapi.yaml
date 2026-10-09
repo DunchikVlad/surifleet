@@ -1744,6 +1744,20 @@ paths:
               schema: {$ref: '#/components/schemas/FleetCompliance'}
         default: {$ref: '#/components/responses/Error'}
 
+  /fleet/dashboard:
+    get:
+      operationId: get_fleet_dashboard
+      tags: [fleet]
+      summary: Дашборд флота одним экраном (агенты, compliance, деплои за 24 ч, offline-агенты)
+      description: "Требуется право: fleet.read. План 1C (чанк 86): агрегированная сводка — агенты по статусам, инстансы по compliance, активность деплоев за 24 часа, топ-10 offline-агентов."
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/FleetDashboard'}
+        default: {$ref: '#/components/responses/Error'}
+
   /instances/{id}/state:
     parameters:
       - {$ref: '#/components/parameters/PathId'}
@@ -3729,6 +3743,36 @@ components:
       properties:
         summary: {$ref: '#/components/schemas/ComplianceSummary'}
         items: {type: array, items: {$ref: '#/components/schemas/ComplianceItem'}, description: Заполняется при drill-down (фильтр status)}
+
+    FleetDashboard:
+      type: object
+      description: Дашборд флота одним экраном (чанк 86, план 1C)
+      properties:
+        agents:
+          type: object
+          properties:
+            total: {type: integer}
+            by_status: {type: object, additionalProperties: {type: integer}, description: 'online | offline | degraded | updating | error → число'}
+        instances:
+          type: object
+          properties:
+            total: {type: integer}
+            by_status: {type: object, additionalProperties: {type: integer}, description: 'compliance-статусы → число'}
+        deployments_24h:
+          type: object
+          properties:
+            total: {type: integer}
+            by_status: {type: object, additionalProperties: {type: integer}, description: 'статусы деплоев за последние 24 ч → число'}
+        offline_agents:
+          type: array
+          description: Топ-10 offline-агентов (давно не виденные первыми)
+          items:
+            type: object
+            properties:
+              agent_id: {type: string, format: uuid}
+              hostname: {type: string}
+              cluster: {type: string}
+              last_seen_at: {type: string, format: date-time, nullable: true}
         next_cursor: {type: string, nullable: true}
 
     FailedRule:

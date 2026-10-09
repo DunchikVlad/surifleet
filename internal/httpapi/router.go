@@ -303,6 +303,7 @@ func NewRouter(d Deps) http.Handler {
 		})
 
 		r.With(h.requirePerm(PermFleetRead)).Get("/fleet/compliance", h.getFleetCompliance)
+		r.With(h.requirePerm(PermFleetRead)).Get("/fleet/dashboard", h.getFleetDashboard)
 
 		r.With(h.requirePerm(PermFleetRead)).Get("/matrix/rules", h.getRulesMatrix)
 

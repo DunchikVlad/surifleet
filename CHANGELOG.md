@@ -7,6 +7,17 @@
 
 ### Added
 
+- Чанк 86 (2026-10-10): дашборд флота одним экраном (план 1C, срез 1;
+  п. 5.4 ТЗ) — GET /fleet/dashboard (fleet.read): агенты по статусам
+  (AgentsRepo.CountByStatus), инстансы по compliance (существующая
+  Summary), деплои за 24 ч по статусам
+  (DeploymentsRepo.CountByStatusSince), топ-10 offline-агентов
+  (AgentsRepo.ListOffline с hostname/кластером/last_seen_at). OpenAPI:
+  путь + схема FleetDashboard. UI «Обзор»: блок «Агенты» (карточки
+  online/offline/degraded/...), строка offline-агентов (хост, кластер,
+  когда виден), сводка «Деплои за 24 ч». Проверки: build/vet/test
+  (store/httpapi) зелёные, yaml ok, npm build чисто. (server, ui, api)
+
 - Чанк 85 (2026-10-10): UI каналов уведомлений — вкладка «Уведомления»
   (perm notifications.read): список каналов (тип/куда/статус), создание
   (webhook url | telegram bot_token+chat_id, подсказки форматов),

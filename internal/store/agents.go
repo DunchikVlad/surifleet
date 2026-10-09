@@ -80,6 +80,60 @@ func (r *AgentsRepo) List(ctx context.Context) ([]AgentListItem, error) {
 	return out, translate(rows.Err())
 }
 
+// CountByStatus — число агентов по статусам (дашборд флота, чанк 86).
+func (r *AgentsRepo) CountByStatus(ctx context.Context) (map[string]int, error) {
+	rows, err := r.pool.Query(ctx, `SELECT status, count(*) FROM agents GROUP BY status`)
+	if err != nil {
+		return nil, translate(err)
+	}
+	defer rows.Close()
+	out := map[string]int{}
+	for rows.Next() {
+		var st string
+		var n int
+		if err := rows.Scan(&st, &n); err != nil {
+			return nil, translate(err)
+		}
+		out[st] = n
+	}
+	return out, translate(rows.Err())
+}
+
+// OfflineAgentBrief — краткая карточка offline-агента для дашборда
+// (чанк 86): hostname + кластер + фактическое время последнего heartbeat.
+type OfflineAgentBrief struct {
+	AgentID    uuid.UUID  `json:"agent_id"`
+	Hostname   string     `json:"hostname"`
+	Cluster    string     `json:"cluster"`
+	LastSeenAt *time.Time `json:"last_seen_at"`
+}
+
+// ListOffline — offline-агенты, давно не виденные первыми (лимит —
+// разумный максимум для дашборда).
+func (r *AgentsRepo) ListOffline(ctx context.Context, limit int) ([]OfflineAgentBrief, error) {
+	rows, err := r.pool.Query(ctx,
+		`SELECT a.id, h.hostname, c.name, a.last_seen_at
+		 FROM agents a
+		 JOIN hosts h ON h.id = a.host_id
+		 JOIN clusters c ON c.id = h.cluster_id
+		 WHERE a.status <> 'online'
+		 ORDER BY a.last_seen_at ASC NULLS FIRST
+		 LIMIT $1`, limit)
+	if err != nil {
+		return nil, translate(err)
+	}
+	defer rows.Close()
+	out := []OfflineAgentBrief{}
+	for rows.Next() {
+		var b OfflineAgentBrief
+		if err := rows.Scan(&b.AgentID, &b.Hostname, &b.Cluster, &b.LastSeenAt); err != nil {
+			return nil, translate(err)
+		}
+		out = append(out, b)
+	}
+	return out, translate(rows.Err())
+}
+
 // GetByHostID возвращает агента хоста (1:1). Нет записи → ErrNotFound.
 func (r *AgentsRepo) GetByHostID(ctx context.Context, tx pgx.Tx, hostID uuid.UUID) (Agent, error) {
 	var a Agent
