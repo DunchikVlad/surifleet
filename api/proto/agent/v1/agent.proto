@@ -281,7 +281,8 @@ message TaskResult {
     BundleResult bundle = 14;
     AgentUpdateResult agent_update = 15;
     FetchConfigResult fetch_config = 16;  // фактический suricata.yaml с сенсора
-    // 17–49 зарезервировано под результаты будущих типов задач.
+    SuricataUpdateResult suricata_update = 17;
+    // 18–49 зарезервировано под результаты будущих типов задач.
   }
 
   StateReport state_after = 20;  // снапшот actual state после изменения (если задача меняла состояние)
@@ -360,8 +361,40 @@ message Task {
     AgentUpdateTask agent_update = 15;
     SetCapabilitiesTask set_capabilities = 16;
     FetchConfigTask fetch_config = 17;  // чтение фактического suricata.yaml с сенсора
-    // 18–49 зарезервировано под будущие типы задач.
+    SuricataUpdateTask suricata_update = 18;  // suricata-update: источники/обновление (чанк 82)
+    // 19–49 зарезервировано под будущие типы задач.
   }
+}
+
+// SuricataUpdateTask — управление источниками и запуск suricata-update на
+// агенте (чанк 82). Источники — suricata-update (et/open и др.), конфиг —
+// update.yaml на сенсоре; без шагов (все списки пусты, флаги false) —
+// просто запустить обновление.
+message SuricataUpdateTask {
+  string instance_id = 1;
+  repeated string enable_sources = 2;   // enable-source <name> перед update
+  repeated string disable_sources = 3;  // disable-source <name>
+  bool list_sources = 4;                // вернуть список источников (list-sources)
+  bool no_update = 5;                   // не запускать update (только enable/disable/list)
+  bool reload = 6;                      // reload suricata после успешного update
+  string upload_url = 7;                // presigned PUT: залить итоговый suricata.rules
+  string upload_key = 8;                // ключ блоба (эхо в результат — сервер импортирует)
+}
+
+// SourceInfo — источник правил suricata-update.
+message SourceInfo {
+  string name = 1;
+  bool enabled = 2;
+  string summary = 3;  // первая строка описания из list-sources
+}
+
+// SuricataUpdateResult — итог задачи suricata-update.
+message SuricataUpdateResult {
+  string output = 1;                    // хвост вывода suricata-update
+  int32 rules_count = 2;                // правил в итоговом suricata.rules
+  repeated SourceInfo sources = 3;      // актуальный список источников
+  int64 uploaded_bytes = 4;             // размер залитого на сервер файла (0 — не заливался)
+  string upload_key = 5;                // эхо ключа блоба
 }
 
 // DeployRulesTask — доставка и применение ruleset на инстансе.

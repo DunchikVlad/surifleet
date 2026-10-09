@@ -81,6 +81,15 @@ func (s *Store) PresignGet(ctx context.Context, key string, ttl time.Duration) (
 	return u.String(), nil
 }
 
+// PresignPut — подписанный PUT URL (загрузка с агента на сервер, чанк 82).
+func (s *Store) PresignPut(ctx context.Context, key string, ttl time.Duration) (string, error) {
+	u, err := s.signer.PresignedPutObject(ctx, s.bucket, key, ttl)
+	if err != nil {
+		return "", fmt.Errorf("s3 presign put %s: %w", key, err)
+	}
+	return u.String(), nil
+}
+
 // Get читает блоб целиком (для API контента конфигураций, чанк 54).
 func (s *Store) Get(ctx context.Context, key string) ([]byte, error) {
 	obj, err := s.cli.GetObject(ctx, s.bucket, key, minio.GetObjectOptions{})

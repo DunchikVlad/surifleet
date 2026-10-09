@@ -156,6 +156,109 @@ function RuleEditor({ rule, onClose, onSaved }: {
   );
 }
 
+// SourceItem — источник suricata-update (чанк 82).
+interface SourceItem { name: string; enabled: boolean; summary?: string }
+
+// SuricataUpdatePanel — suricata-update по кнопке (чанк 82): список
+// источников сенсора (enable/disable чекбоксами), запуск обновления;
+// итоговый набор заливается агентом на сервер и импортируется в общий
+// список правил (поле import, default true).
+function SuricataUpdatePanel() {
+  const can = useCan();
+  const [instances, setInstances] = React.useState<{ id: string; name: string; hostname?: string }[]>([]);
+  const [instID, setInstID] = React.useState("");
+  const [sources, setSources] = React.useState<SourceItem[] | null>(null);
+  const [sel, setSel] = React.useState<Record<string, boolean>>({});
+  const [reload, setReload] = React.useState(false);
+  const [msg, setMsg] = React.useState("");
+  const [busy, setBusy] = React.useState(false);
+  const [err, setErr] = React.useState<unknown>(null);
+
+  React.useEffect(() => {
+    apiGet<{ items?: { id: string; name: string; hostname?: string }[] }>("/instances?limit=100")
+      .then(d => setInstances(d.items || []))
+      .catch(() => {});
+  }, []);
+
+  const loadSources = async (id?: string) => {
+    const iid = id ?? instID;
+    if (!iid) return;
+    setBusy(true);
+    try {
+      const d = await apiGet<{ items?: SourceItem[] }>(`/instances/${iid}/suricata_update/sources`);
+      const items = d.items || [];
+      setSources(items);
+      const m: Record<string, boolean> = {};
+      items.forEach(x => { m[x.name] = x.enabled; });
+      setSel(m);
+      setMsg(`${items.length} источников`);
+    } catch (e) { setErr(e); setSources(null); } finally { setBusy(false); }
+  };
+
+  const run = async () => {
+    if (!instID) { setMsg("выберите инстанс"); return; }
+    const enable = (sources || []).filter(x => sel[x.name] && !x.enabled).map(x => x.name);
+    const disable = (sources || []).filter(x => !sel[x.name] && x.enabled).map(x => x.name);
+    setBusy(true);
+    try {
+      const r = await apiPost<{ task_id: string; import: boolean }>(`/instances/${instID}/suricata_update`, {
+        enable_sources: enable, disable_sources: disable, reload,
+      });
+      setMsg(`задача ${r.task_id.slice(0, 8)}… запущена` +
+        (enable.length ? `, включаются: ${enable.join(", ")}` : "") +
+        (disable.length ? `, отключаются: ${disable.join(", ")}` : "") +
+        (r.import ? " — итоговый набор будет импортирован в общий список правил" : ""));
+      setSources(null);
+    } catch (e) { setErr(e); } finally { setBusy(false); }
+  };
+
+  return (
+    <div className="panel">
+      <h3>suricata-update (подписка на источники правил)</h3>
+      <ErrorBox error={err} />
+      {msg && <p className="muted">{msg}</p>}
+      <p className="muted">
+        Инстанс:{" "}
+        <select value={instID} onChange={e => { setInstID(e.target.value); setSources(null); setMsg(""); }}>
+          <option value="">— выбрать —</option>
+          {instances.map(i => (
+            <option key={i.id} value={i.id}>{i.hostname ? i.hostname + " · " : ""}{i.name}</option>
+          ))}
+        </select>{" "}
+        <button className="btn" disabled={busy || !instID} onClick={() => loadSources()}>
+          {busy ? "…" : "Источники"}
+        </button>
+      </p>
+      {sources && (
+        <p className="muted">
+          {sources.map(x => (
+            <label key={x.name} style={{ marginRight: "1em" }} title={x.summary || x.name}>
+              <input type="checkbox" checked={!!sel[x.name]}
+                onChange={() => setSel(prev => ({ ...prev, [x.name]: !prev[x.name] }))} />{" "}
+              {x.name}
+            </label>
+          ))}
+        </p>
+      )}
+      {can("rules.write") && (
+        <p className="muted">
+          <label>
+            <input type="checkbox" checked={reload} onChange={e => setReload(e.target.checked)} />{" "}
+            reload движка после обновления
+          </label>{" "}
+          <button className="btn primary" disabled={busy || !instID} onClick={run}>
+            Запустить suricata-update
+          </button>
+        </p>
+      )}
+      <p className="muted">
+        Снятые с публикации правила остаются в репозитории (status) — общий список правил
+        на вкладке «Правила» пополняется импортом итогового набора.
+      </p>
+    </div>
+  );
+}
+
 export default function Rules({ active }: { active: boolean }) {
   const can = useCan();
   const [items, setItems] = React.useState<Rule[]>([]);
@@ -235,6 +338,7 @@ export default function Rules({ active }: { active: boolean }) {
   return (
     <>
       <h2>Правила</h2>
+      <SuricataUpdatePanel />
       <div className="toolbar">
         <select value={status} onChange={e => { setStatus(e.target.value); setLoaded(false); }}>
           <option value="">все статусы</option>

@@ -111,6 +111,10 @@ func (e *taskExecutor) handle(task *agentv1.Task) {
 		go e.executeFetch(task, fc)
 		return
 	}
+	if su := task.GetSuricataUpdate(); su != nil {
+		go e.executeSuricataUpdate(task, su)
+		return
+	}
 	if sc := task.GetSetCapabilities(); sc != nil {
 		e.applyCapabilities(task, sc)
 		return

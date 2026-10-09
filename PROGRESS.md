@@ -512,7 +512,31 @@ canary-инстанс по умолчанию; сообщение с task_id/в�
 70–80 + фиксы по живому e2E, 11 коммитов) — синхронизация по команде
 пользователя.
 
-**Следующий шаг после 81**: хвосты по спеке: история версий профилей
+Чанк 82 ГОТОВ (2026-10-09, этот коммит; **живой e2E пройден**):
+suricata-update по кнопке + источники + импорт в общий список. Proto:
+Task.suricata_update=18, TaskResult.suricata_update=17, SuricataUpdateTask
+(instance_id, enable/disable_sources, list_sources, no_update, reload,
+upload_url/upload_key), SourceInfo, SuricataUpdateResult (output,
+rules_count, sources, uploaded_bytes). Агент (cmd/agent/update.go):
+executeSuricataUpdate — enable/disable через suricata-update CLI, список
+источников (парсер ANSI/блоков Name:/Summary:, update-sources ТОЛЬКО при
+«Source index does not exist» — иначе листинг по 2 мин; enabled — из
+list-enabled-sources, формат «  - et/open»), запуск update (10 мин),
+подсчёт правил итогового suricata.rules, заливка на presigned PUT
+(blob.PresignPut), reload. Сервер: POST /instances/{id}/suricata_update
+(202, import default true → upload_url), GET
+/instances/{id}/suricata_update/sources (синхронно 60 с), импорт по
+результату — цепочка OnTaskResult в main: internal/suriupdate
+(блоб → ParseReader → UpsertImport, source_type='file', орг через
+агент→хост→кластер). UI: панель «suricata-update» на вкладке «Правила»
+(инстанс, источники чекбоксами, reload-флаг, запуск). OpenAPI: оба пути.
+**Живой e2E**: enable et/open → update (45 МБ, 53114 правил) → заливка →
+импорт: 51907 imported / 393 updated / 814 unchanged / 1 parse_error;
+sources: 26 шт, et/open enabled=True; поиск «ET SCAN» в общем списке —
+sid 2030692. Нюанс: enabled-sources у suricata-update 8 лежат не в
+/etc/suricata/update.yaml (файла нет) — CLI отдаёт корректно.
+
+**Следующий шаг после 82**: хвосты по спеке: история версий профилей
 (/versions, diff, rollback — миграция 000014 config_profile_versions).
 
 **Следующий шаг после 64**: рендер профиля (resolve parent-цепочки +
@@ -1703,7 +1727,8 @@ managed-файле (245 правил).
 | 78 | IP агента в «Инстансах»: хаб хранит remote-addr стрима (agentIPs, снятие при offline/свипере), GET /instances → agent_ip, колонка в UI. Стенд выключен — живой чек отложен | 4b68244 |
 | 79 | IP агента в «Параметрах» инстанса (GET /instances/{id} + UI); фиксы по живому e2E: IDsForOrg nil→[] (canary 400), рендер терял «%YAML 1.1» (suricata-заголовок восстанавливается). Перекат .28+.67, миграции 13, e2E 1B+1E пройден, compliance in_sync 1/1 | 701f7fe |
 | 80 | Systemd unit + PID в «Параметрах»: Heartbeat.agent_pid, статусы сервисов с реальными instance_id (bound_instances.json), Redis agent_svc, GET /instances/{id} → service_state/service_pid/agent_pid, UI. Живой e2E: active pid 2103 = MainPID, agent_pid 3073 | fed65cc |
-| 81 | UI: кнопка «Валидация» в ProfilesPanel (POST /config_profiles/{id}/validate, canary по умолчанию). npm build чисто | (этот коммит) |
+| 81 | UI: кнопка «Валидация» в ProfilesPanel (POST /config_profiles/{id}/validate, canary по умолчанию). npm build чисто | 2e04791 |
+| 82 | suricata-update по кнопке: proto+агент (update/list/enable/disable/upload), POST /instances/{id}/suricata_update(+sources), импорт блоба в общий список (internal/suriupdate), UI-панель на «Правилах». Живой e2E: et/open включён, 51907 правил импортировано, поиск ET работает | (этот коммит) |
 | 63 | OpenAPI под факт чанков 54–62: /config_versions*, /instances/{id}/config/current+history, /clusters/{id}/capabilities, схемы ConfigVersion/ConfigDeploy/CapabilitiesSet. Перекатан .28, health ok | (этот коммит) |
 | 62 | SetCapabilitiesTask: живое применение capability без рестарта (агент applyCapabilities под mu; сервер push после PUT). Код, e2e после переката | (этот коммит) |
 | 61 | UI capability хоста: HostCapsPanel в «Конфигурациях» (GET/PUT /hosts/{id}/capabilities, чекбоксы каталога, apiPut). Перекат .28 прерван зависанием ВМ | (этот коммит) |

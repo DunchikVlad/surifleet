@@ -41,6 +41,7 @@ import (
 	"github.com/surifleet/surifleet/internal/pki"
 	"github.com/surifleet/surifleet/internal/samlauth"
 	"github.com/surifleet/surifleet/internal/store"
+	"github.com/surifleet/surifleet/internal/suriupdate"
 )
 
 // Версия и коммит сборки (переопределяются через -ldflags -X).
@@ -164,7 +165,12 @@ func main() {
 	}
 
 	orch := orchestrator.New(db, blobStore, hubSrv, log)
-	hubSrv.OnTaskResult = orch.HandleTaskResult
+	// Цепочка результатов задач: оркестратор деплоев, затем импорт
+	// suricata-update наборов в мастер-репозиторий (чанк 82).
+	hubSrv.OnTaskResult = func(ctx context.Context, agentID uuid.UUID, res *agentv1.TaskResult) {
+		orch.HandleTaskResult(ctx, agentID, res)
+		suriupdate.HandleResult(ctx, log, db, blobStore, agentID, res)
+	}
 	hubSrv.OnAgentOnline = orch.DispatchPending
 	if err := orch.Recover(ctx); err != nil {
 		log.Error("восстановление оркестратора", "err", err)

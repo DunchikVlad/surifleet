@@ -7,6 +7,14 @@
 
 ### Added
 
+- Чанк 82 (2026-10-09): suricata-update по кнопке — новая задача
+  SuricataUpdateTask (enable/disable источников, list-sources, update,
+  заливка итогового набора на presigned PUT); сервер импортирует блоб в
+  мастер-репозиторий (internal/suriupdate, цепочка OnTaskResult);
+  POST /instances/{id}/suricata_update(+sources), UI-панель на вкладке
+  «Правила». Живой e2E: et/open, 51907 импортировано, поиск ET ok.
+  (proto, agent, server, ui, api)
+
 - Чанк 81 (2026-10-09): UI — кнопка «Валидация» в ProfilesPanel
   (POST /config_profiles/{id}/validate: suricata -T рендера на canary-
   инстансе, итог в истории применений). npm build чисто. (ui)
