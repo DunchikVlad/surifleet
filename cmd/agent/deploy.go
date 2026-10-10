@@ -115,6 +115,10 @@ func (e *taskExecutor) handle(task *agentv1.Task) {
 		go e.executeServiceAction(task, sa)
 		return
 	}
+	if cb := task.GetCollectBundle(); cb != nil {
+		go e.executeCollectBundle(task, cb)
+		return
+	}
 	if su := task.GetSuricataUpdate(); su != nil {
 		go e.executeSuricataUpdate(task, su)
 		return
