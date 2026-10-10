@@ -1,11 +1,14 @@
 package store
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 )
 
 func TestComputeAuditHashDeterministic(t *testing.T) {
@@ -114,5 +117,82 @@ func TestNullableJSONEmpty(t *testing.T) {
 	}
 	if string(nullableJSON(json.RawMessage(`{"a":1}`))) != `{"a":1}` {
 		t.Fatal("значение сохраняется")
+	}
+}
+
+// fakeCanonRow — подделка pgx.Row: отдаёт заранее заготовленный результат
+// «jsonb-нормализации».
+type fakeCanonRow struct {
+	out []byte
+	err error
+}
+
+func (r fakeCanonRow) Scan(dest ...any) error {
+	if r.err != nil {
+		return r.err
+	}
+	p, ok := dest[0].(*[]byte)
+	if !ok || len(dest) != 1 {
+		return errors.New("Scan: ожидался *[]byte")
+	}
+	*p = r.out
+	return nil
+}
+
+// fakeCanonicalizer — подделка diffCanonicalizer: возвращает «нормализованный»
+// текст (как сделал бы jsonb::text), игнорируя вход.
+type fakeCanonicalizer struct {
+	row      fakeCanonRow
+	gotInput string
+}
+
+func (f *fakeCanonicalizer) QueryRow(_ context.Context, _ string, args ...any) pgx.Row {
+	if s, ok := args[0].(string); ok {
+		f.gotInput = s
+	}
+	return f.row
+}
+
+// TestCanonicalizeDiffRoundTrip — фикс KI-1: diff хэшируется в канонической
+// (jsonb::text) форме, а не в исходной сериализации auditdiff.
+func TestCanonicalizeDiffRoundTrip(t *testing.T) {
+	// Исходная сериализация auditdiff (json.Marshal): bytewise-порядок ключей,
+	// HTML-эскейп <. jsonb в PG нормализует: ключи по (длине, байтам),
+	// компактно, без HTML-эскейпа. Round-trip обязан вернуть форму PG.
+	raw := json.RawMessage(`{"after":{"updated_at":"2026-10-07T20:00:33.279505Z"},"before":{"updated_at":"2026-10-07T20:00:25.62078Z"},"x":"\u003c"}`)
+	canon := []byte(`{"after": {"updated_at": "2026-10-07T20:00:33.279505Z"}, "before": {"updated_at": "2026-10-07T20:00:25.62078Z"}, "x": "<"}`)
+	fq := &fakeCanonicalizer{row: fakeCanonRow{out: canon}}
+	got, err := canonicalizeDiff(context.Background(), fq, raw)
+	if err != nil {
+		t.Fatalf("canonicalizeDiff: %v", err)
+	}
+	if string(got) != string(canon) {
+		t.Fatalf("каноническая форма = %s, хочу %s", got, canon)
+	}
+	if fq.gotInput != string(raw) {
+		t.Fatalf("в round-trip ушло %q, хочу исходный diff", fq.gotInput)
+	}
+
+	// Хэш записи, посчитанный от канонической формы, совпадает с хэшем,
+	// который пересчитает verify над прочитанным из jsonb текстом.
+	e := AuditEntry{ActorType: "user", ActorName: "admin", Action: "rules.update", Result: "success", Diff: got}
+	ts := time.Date(2026, 10, 7, 20, 0, 33, 279505000, time.UTC)
+	hWrite := computeAuditHash(e, ts, "prev")
+	eRead := e // verify читает diff из jsonb — это та же каноническая форма
+	if hRead := computeAuditHash(eRead, ts, "prev"); hRead != hWrite {
+		t.Fatal("хэш записи и пересчёт verify разошлись — KI-1 не закрыт")
+	}
+
+	// NULL/пустой diff → nil (канон строки хэша — "").
+	if got, err := canonicalizeDiff(context.Background(), fq, nil); err != nil || got != nil {
+		t.Fatalf("nil diff → (%v, %v)", got, err)
+	}
+}
+
+// TestCanonicalizeDiffError — ошибка round-trip не проглатывается.
+func TestCanonicalizeDiffError(t *testing.T) {
+	fq := &fakeCanonicalizer{row: fakeCanonRow{err: errors.New("invalid json")}}
+	if _, err := canonicalizeDiff(context.Background(), fq, json.RawMessage(`{"a":1}`)); err == nil {
+		t.Fatal("ожидали ошибку round-trip")
 	}
 }

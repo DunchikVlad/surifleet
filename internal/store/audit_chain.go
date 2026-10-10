@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
@@ -99,6 +100,19 @@ func (r *AuditRepo) logChained(ctx context.Context, e AuditEntry) error {
 	_ = tx.QueryRow(ctx,
 		`SELECT COALESCE(hash, '') FROM audit_log
 		 ORDER BY created_at DESC, id DESC LIMIT 1`).Scan(&prevHash)
+
+	// Канонизация diff (фикс KI-1): колонка diff — jsonb, PG нормализует
+	// документ при записи (порядок ключей по длине+байтам, компактная форма,
+	// без HTML-эскейпа \u003c и т.п.), а хэш раньше считался от исходной
+	// сериализации auditdiff (json.Marshal: bytewise-порядок, HTML-эскейп) —
+	// verify читал нормализованный текст и хэш не сходился («подделка полей»).
+	// Каноническая форма — вывод jsonb::text: round-trip через БД в этой же
+	// транзакции, идемпотентно и точно совпадает с тем, что прочитает verify.
+	canonDiff, err := canonicalizeDiff(ctx, tx, e.Diff)
+	if err != nil {
+		return translate(err)
+	}
+	e.Diff = canonDiff
 
 	createdAt := time.Now().UTC()
 	h := computeAuditHash(e, createdAt, prevHash)
@@ -210,6 +224,25 @@ func (r *AuditRepo) VerifyChain(ctx context.Context, limit int) (ChainVerifyResu
 		}
 	}
 	return res, nil
+}
+
+// diffCanonicalizer — минимальный интерфейс round-trip канонизации
+// (изолирован для юнит-тестов без живой БД).
+type diffCanonicalizer interface {
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+}
+
+// canonicalizeDiff — каноническая (jsonb::text) форма diff: round-trip
+// через PostgreSQL. NULL/пустой diff → nil (в канон строки хэша идёт "").
+func canonicalizeDiff(ctx context.Context, q diffCanonicalizer, diff json.RawMessage) (json.RawMessage, error) {
+	if nullableJSON(diff) == nil {
+		return nil, nil
+	}
+	var out []byte
+	if err := q.QueryRow(ctx, `SELECT $1::jsonb::text`, string(diff)).Scan(&out); err != nil {
+		return nil, err
+	}
+	return json.RawMessage(out), nil
 }
 
 // errChainDisabled — VerifyChain при выключенной цепочке (информативно).
