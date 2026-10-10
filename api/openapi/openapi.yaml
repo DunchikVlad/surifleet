@@ -2153,6 +2153,39 @@ paths:
                           value: {type: number}
         default: {$ref: '#/components/responses/Error'}
 
+  /agents/{id}/bundle:
+    parameters:
+      - {$ref: '#/components/parameters/PathId'}
+    post:
+      operationId: collect_agent_bundle
+      tags: [agents]
+      summary: Диагностический бандл одной кнопкой (тар.gz из логов/конфигов/sysinfo хоста)
+      description: "Требуется право: agents.read. Синхронная CollectBundleTask агенту (до 120 с): агент собирает tar.gz (хвосты agent.log, suricata.log/eve.json инстансов до 1 МБ, suricata.yaml, sysinfo) и загружает в S3 по presigned PUT. Ответ — bundle_key + presigned download_url (TTL 15 мин). 409 — агент offline/не ответил; 502 — ошибка сбора на агенте."
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                include_agent_logs: {type: boolean, default: true}
+                include_suricata_logs: {type: boolean, default: true}
+                include_configs: {type: boolean, default: true}
+                include_system_info: {type: boolean, default: true}
+      responses:
+        '200':
+          description: Бандл собран и загружен
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  task_id: {type: string, format: uuid}
+                  agent_id: {type: string, format: uuid}
+                  bundle_key: {type: string}
+                  size_bytes: {type: integer, format: int64}
+                  download_url: {type: string, description: "Presigned GET (TTL 15 мин)"}
+        default: {$ref: '#/components/responses/Error'}
+
   /agents/log_level:
     put:
       operationId: set_agents_log_level

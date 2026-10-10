@@ -86,6 +86,7 @@ export default function InstanceDetail({ id, onBack }: { id: string; onBack: () 
             // Перечитать карточку: service_state/pid обновятся из heartbeat хаба.
             apiGet<Instance>(`/instances/${id}`).then(setInst).catch(() => {});
           }} />}
+          {agent && can("agents.read") && <BundleButton agentId={agent.id} />}
         </div>
       )}
 
@@ -242,6 +243,51 @@ function ServiceActions({ instanceId, onDone }: { instanceId: string; onDone: ()
       <ErrorBox error={err} />
       <div className="muted" style={{ marginTop: 4, fontSize: 12 }}>
         Требуется capability service_mgmt на хосте; restart может занять до минуты (graceful stop Suricata).
+      </div>
+    </div>
+  );
+}
+
+// BundleResult — ответ POST /agents/{id}/bundle (чанк 106).
+interface BundleResult {
+  task_id: string;
+  agent_id: string;
+  bundle_key: string;
+  size_bytes: number;
+  download_url: string;
+}
+
+// BundleButton — сбор диагностического бандла хоста одной кнопкой
+// (чанк 106, п. 7 ТЗ): tar.gz (логи агента/Suricata, конфиги, sysinfo)
+// загружается агентом в S3, ответ — presigned ссылка скачивания (TTL 15 мин).
+function BundleButton({ agentId }: { agentId: string }) {
+  const [busy, setBusy] = React.useState(false);
+  const [res, setRes] = React.useState<BundleResult | null>(null);
+  const [err, setErr] = React.useState<unknown>(null);
+
+  const run = async () => {
+    if (busy) return;
+    setBusy(true); setErr(null); setRes(null);
+    try {
+      setRes(await apiPost<BundleResult>(`/agents/${agentId}/bundle`, {}));
+    } catch (e) { setErr(e); }
+    finally { setBusy(false); }
+  };
+
+  return (
+    <div style={{ marginTop: 8 }}>
+      <button className="btn" disabled={busy} onClick={run}>
+        {busy ? "Собираю бандл…" : "Диагностический бандл"}
+      </button>
+      {res && (
+        <span>
+          {" "}<a href={res.download_url} download>Скачать tar.gz</a>{" "}
+          <span className="muted">({(res.size_bytes / 1024).toFixed(0)} КБ, ссылка на 15 мин)</span>
+        </span>
+      )}
+      <ErrorBox error={err} />
+      <div className="muted" style={{ marginTop: 4, fontSize: 12 }}>
+        Логи агента и Suricata (хвосты до 1 МБ), suricata.yaml, системная информация хоста — для тикета в поддержку.
       </div>
     </div>
   );
