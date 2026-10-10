@@ -8,8 +8,13 @@
 **Деплой 2026-10-11 ~01:30 (Kimi Work)**: pull 04b16d3..9a5a8cc (чанки
 105–108: service_action, диагностические бандлы, KI-1, watchdog конфига)
 → сборка сервер+агент+фронт → перекат .28 и .67 (health ok, агент
-online, discovery Suricata 8.0.3). Включена capability service_mgmt на
-хосте test1. e2e новых функций: service_action reload → 200 (reload с
+online, discovery Suricata 8.0.3). Включены все capabilities хоста
+test1: [config, monitoring, rules, service_mgmt, log_rotation,
+packages] (PUT /hosts/{id}/capabilities → агент применил без рестарта).
+Внимание: log_rotation и packages — из каталога known, но задач под них
+в агенте пока нет (задел на будущие чанки); рабочие гейты сейчас —
+rules/config/monitoring/service_mgmt. e2e новых функций: service_action
+reload → 200 (reload с
 53k правил ~60 с, вытолкнул зависший с 18:59 reload-джоб); бандл → 200,
 tar.gz 116 КБ в MinIO, содержимое валидно. Закрыт хвост KI-1: цепочка
 аудита пересчитана вперёд (159 записей, бэкап audit_log_backup_20261011,
