@@ -9,6 +9,8 @@ import { useCan } from "../perms";
 // редактирование версии, деплой на инстанс (deploy_config: бэкап →
 // suricata -T → рестарт; validate_only — только проверка), история
 // применений по инстансу (chanк 57) с откатом к последней applied (чанк 58).
+// Кнопка «Сохранить и обновить на сенсоре» (чанк 98) замыкает цикл
+// получить → отредактировать → обновить одним действием.
 // Весь файл под управлением (решение заказчика).
 
 interface ConfigVersion {
@@ -538,6 +540,30 @@ export default function Configs({ active }: { active: boolean }) {
     } catch (e) { setErr(e); } finally { setBusy(false); }
   };
 
+  // saveAndUpdate — цикл «получить → отредактировать → обновить на сенсоре»
+  // одной кнопкой (чанк 98): версия сохраняется и сразу деплоится на
+  // инстанс-источник (тот же, с которого загружен yaml).
+  const saveAndUpdate = async () => {
+    if (!srcInstID) { setResult("выберите инстанс-источник и загрузите с него конфиг"); return; }
+    if (!yaml.trim()) { setResult("редактор пуст — загрузите конфиг с сенсора"); return; }
+    const inst = instances.find(i => i.id === srcInstID);
+    const label = inst?.hostname || inst?.name || srcInstID;
+    setBusy(true);
+    try {
+      const body: Record<string, unknown> = { yaml, note: note.trim() || `обновление с сенсора ${label}` };
+      if (version.trim()) body.version = version.trim();
+      const v = await apiPost<ConfigVersion>("/config_versions", body);
+      const r = await apiPost<{ task_id: string; version: string }>(`/config_versions/${v.id}/deploy`, {
+        instance_id: srcInstID, validate_only: validateOnly,
+      });
+      setResult(`версия ${v.version} сохранена и отправлена на сенсор ${label} ` +
+        `(задача ${short(r.task_id)}` + (validateOnly ? ", только валидация" : "") +
+        ") — результат в истории применений");
+      setVersion(""); setNote(""); setYaml("");
+      await load();
+    } catch (e) { setErr(e); } finally { setBusy(false); }
+  };
+
   const deploy = async (id: string, target?: string) => {
     const tgt = target ?? instID;
     if (!tgt) { setResult("выберите инстанс"); return; }
@@ -583,7 +609,7 @@ export default function Configs({ active }: { active: boolean }) {
       {can("config.write") && (
         <div className="panel">
           <p>
-            Редактор «как на хосте»:{" "}
+            <b>Редактор «как на хосте»</b> — получение, редактирование и обновление конфига сенсора:{" "}
             <select value={srcInstID} onChange={e => setSrcInstID(e.target.value)}>
               <option value="">— инстанс-источник —</option>
               {instances.map(i => (
@@ -601,7 +627,13 @@ export default function Configs({ active }: { active: boolean }) {
               onChange={e => setNote(e.target.value)} style={{ minWidth: "16em" }} />{" "}
             <button className="btn primary" disabled={busy || !yaml.trim()} onClick={add}>
               Сохранить версию
+            </button>{" "}
+            <button className="btn primary" disabled={busy || !yaml.trim() || !srcInstID}
+              title="сохранить версию и сразу обновить ей сенсор-источник"
+              onClick={saveAndUpdate}>
+              Сохранить и обновить на сенсоре
             </button>
+            <span className="muted"> — версия задеплоится на инстанс-источник (с учётом чекбокса «только валидация» ниже)</span>
           </p>
           <textarea
             placeholder="# содержимое suricata.yaml (файл целиком — он будет под управлением; бэкап перед записью)"
