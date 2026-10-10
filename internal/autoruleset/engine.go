@@ -53,7 +53,7 @@ func Rebuild(ctx context.Context, log *slog.Logger, st *store.Store, b *blob.Sto
 	}
 
 	raw, err := st.Rules.SelectRawByOrigins(ctx, def.OrganizationID, origins,
-		def.IncludeTags, def.IncludeCategories, def.ExcludeSids)
+		def.IncludeTags, def.IncludeCategories, def.IncludeSources, def.ExcludeSids)
 	if err != nil {
 		return nil, fmt.Errorf("выборка правил: %w", err)
 	}
@@ -137,6 +137,42 @@ func Rebuild(ctx context.Context, log *slog.Logger, st *store.Store, b *blob.Sto
 	log.Info("auto-ruleset пересобран", "version", v.Version, "rules", len(raw),
 		"instances", len(instanceIDs), "deployment", dep.ID)
 	return &RebuildResult{Version: v, Deployment: dep.ID, Instances: len(instanceIDs)}, nil
+}
+
+// RunScheduled — пересборка по расписанию (чанк 96): включённые определения
+// с schedule_time 'HH:MM'; due, если сегодняшний момент расписания прошёл,
+// а последняя сборка была раньше его (или ни разу не была).
+func RunScheduled(ctx context.Context, log *slog.Logger, st *store.Store, b *blob.Store, orch *orchestrator.Orchestrator, now time.Time) int {
+	defs, err := st.AutoRulesets.ListScheduled(ctx)
+	if err != nil {
+		log.Error("auto: список расписаний", "err", err)
+		return 0
+	}
+	n := 0
+	for _, def := range defs {
+		if def.ScheduleTime == nil || !due(def, now) {
+			continue
+		}
+		if _, err := Rebuild(ctx, log, st, b, orch, def); err != nil {
+			log.Error("auto: пересборка по расписанию", "auto_ruleset_id", def.ID, "err", err)
+			continue
+		}
+		n++
+	}
+	return n
+}
+
+// due — момент расписания сегодня прошёл и сборка была раньше него.
+func due(def store.AutoRuleset, now time.Time) bool {
+	var hh, mm int
+	if _, err := fmt.Sscanf(*def.ScheduleTime, "%d:%d", &hh, &mm); err != nil {
+		return false
+	}
+	at := time.Date(now.Year(), now.Month(), now.Day(), hh, mm, 0, 0, now.Location())
+	if now.Before(at) {
+		return false
+	}
+	return def.LastBuiltAt == nil || def.LastBuiltAt.Before(at)
 }
 
 // HandleSuriupdateResult — триггер после успешного импорта suricata-update:

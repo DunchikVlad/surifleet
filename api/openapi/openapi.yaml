@@ -3988,6 +3988,9 @@ components:
         include_tags: {type: array, items: {type: string}}
         include_categories: {type: array, items: {type: string}}
         exclude_sids: {type: array, items: {type: integer, format: int64}, description: 'Запрет на деплой: sid не попадают в набор'}
+        include_sources: {type: array, items: {type: string}, description: 'Источники suricata-update (пусто = все)'}
+        schedule_enabled: {type: boolean}
+        schedule_time: {type: string, nullable: true, description: 'HH:MM пересборки'}
         targeting: {$ref: '#/components/schemas/Targeting'}
         batch_size: {type: integer}
         canary_size: {type: integer}
@@ -4009,6 +4012,9 @@ components:
         include_tags: {type: array, items: {type: string}}
         include_categories: {type: array, items: {type: string}}
         exclude_sids: {type: array, items: {type: integer, format: int64}}
+        include_sources: {type: array, items: {type: string}}
+        schedule_enabled: {type: boolean, default: false}
+        schedule_time: {type: string, description: 'HH:MM'}
         targeting: {$ref: '#/components/schemas/Targeting'}
         batch_size: {type: integer, default: 50}
         canary_size: {type: integer, default: 1}

@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -49,7 +50,7 @@ func (e *taskExecutor) executeSuricataUpdate(task *agentv1.Task, su *agentv1.Sur
 		return
 	}
 
-	res := &agentv1.SuricataUpdateResult{UploadKey: su.GetUploadKey()}
+	res := &agentv1.SuricataUpdateResult{UploadKey: su.GetUploadKey(), SourcesKey: su.GetSourcesKey()}
 	run := func(name string, args ...string) (string, error) {
 		ctx, cancel := context.WithTimeout(context.Background(), updateStepTimeout)
 		defer cancel()
@@ -111,6 +112,18 @@ func (e *taskExecutor) executeSuricataUpdate(task *agentv1.Task, su *agentv1.Sur
 			}
 			res.UploadedBytes = int64(len(data))
 			log.Info("итоговый набор залит на сервер", "bytes", len(data), "rules", res.RulesCount)
+		}
+		// Карта sid → источник (чанк 95): для выбора источников в авто-ruleset'ах.
+		if su.GetSourcesUrl() != "" {
+			m := buildSidSourceMap()
+			if mraw, merr := json.Marshal(m); merr == nil && len(m) > 0 {
+				if uerr := uploadFile(su.GetSourcesUrl(), mraw); uerr != nil {
+					log.Warn("заливка карты источников", "err", uerr)
+				} else {
+					res.SourcesBytes = int64(len(mraw))
+					log.Info("карта sid → источник залита", "entries", len(m), "bytes", len(mraw))
+				}
+			}
 		}
 
 		// 5. Reload движка (опционально).

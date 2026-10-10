@@ -49,6 +49,15 @@ func HandleResult(ctx context.Context, log *slog.Logger, st *store.Store, b *blo
 		log.Error("suriupdate: чтение блоба набора", "err", err)
 		return
 	}
+	// Карта sid → источник (чанк 95): блоб есть — поднимаем source_name.
+	srcBySid := map[int64]string{}
+	if su.GetSourcesKey() != "" && su.GetSourcesBytes() > 0 {
+		if mraw, merr := b.Get(ctx, su.GetSourcesKey()); merr == nil {
+			_ = json.Unmarshal(mraw, &srcBySid)
+		} else {
+			log.Warn("suriupdate: карта источников не прочитана", "err", merr)
+		}
+	}
 	parsed := rules.ParseReader(bytes.NewReader(data), maxParseErrors)
 	var imported, updated, unchanged int
 	for _, p := range parsed.Rules {
@@ -62,7 +71,7 @@ func HandleResult(ctx context.Context, log *slog.Logger, st *store.Store, b *blo
 		_, outcome, err := st.Rules.UpsertImport(ctx, orgID, store.ImportItem{
 			SID: p.SID, Rev: p.Rev, Msg: p.Msg, Classtype: p.Classtype,
 			Raw: p.Raw, Parsed: parsedJSON, Origin: "suriupdate",
-			InitialStatus: "enabled",
+			InitialStatus: "enabled", SourceName: srcBySid[p.SID],
 		}, "", "file")
 		if err != nil {
 			log.Error("suriupdate: upsert правила", "sid", p.SID, "err", err)
@@ -75,6 +84,13 @@ func HandleResult(ctx context.Context, log *slog.Logger, st *store.Store, b *blo
 			updated++
 		case store.UpsertUnchanged:
 			unchanged++
+		}
+	}
+	if len(srcBySid) > 0 {
+		if n, serr := st.Rules.SetSourceNames(ctx, orgID, srcBySid); serr != nil {
+			log.Warn("suriupdate: простановка source_name", "err", serr)
+		} else {
+			log.Info("suriupdate: source_name обновлены", "rules", n)
 		}
 	}
 	log.Info("suriupdate: набор импортирован в мастер-репозиторий",

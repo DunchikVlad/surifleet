@@ -148,6 +148,7 @@ type Rule struct {
 	Threshold      json.RawMessage `json:"threshold"`
 	SourceType     string          `json:"source_type"`
 	Origin         string          `json:"origin"` // manual | feed | ioc | suriupdate (миграция 000018)
+	SourceName     *string         `json:"source_name"` // источник suricata-update (000019)
 	FeedID         *uuid.UUID      `json:"feed_id"`
 	CreatedAt      time.Time       `json:"created_at"`
 	UpdatedAt      time.Time       `json:"updated_at"`

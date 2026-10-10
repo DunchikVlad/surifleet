@@ -71,6 +71,14 @@ func (h *handlers) runSuricataUpdate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		su.UploadUrl = url
+		skey := "suricata-update/" + taskID + ".sources.json"
+		surl, err := h.d.Blob.PresignPut(r.Context(), skey, suriUpdatePresignTTL)
+		if err != nil {
+			writeStoreError(w, err)
+			return
+		}
+		su.SourcesUrl = surl
+		su.SourcesKey = skey
 	}
 	task := &agentv1.Task{TaskId: taskID, Type: &agentv1.Task_SuricataUpdate{SuricataUpdate: su}}
 	if !h.d.Hub.SendTask(agent.ID, task) {

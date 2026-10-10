@@ -19,12 +19,12 @@ type RulesRepo struct {
 }
 
 const ruleColumns = `id, organization_id, sid, msg, category, tags, status, priority,
-	threshold, source_type, feed_id, origin, created_at, updated_at`
+	threshold, source_type, feed_id, origin, source_name, created_at, updated_at`
 
 func scanRule(row pgx.Row) (Rule, error) {
 	var r Rule
 	err := row.Scan(&r.ID, &r.OrganizationID, &r.SID, &r.Msg, &r.Category, &r.Tags,
-		&r.Status, &r.Priority, &r.Threshold, &r.SourceType, &r.FeedID, &r.Origin,
+		&r.Status, &r.Priority, &r.Threshold, &r.SourceType, &r.FeedID, &r.Origin, &r.SourceName,
 		&r.CreatedAt, &r.UpdatedAt)
 	return r, err
 }
@@ -56,6 +56,9 @@ type ImportItem struct {
 	// Origin — происхождение правила (чанк 91): manual|feed|ioc|suriupdate;
 	// пусто → по FeedID (feed/manual). Существующие правила не меняет.
 	Origin string
+	// SourceName — источник suricata-update (et/open и др.; чанк 95);
+	// пусто → NULL. При перевыпусках обновляется.
+	SourceName string
 }
 
 // Hash — sha256(hex) от Raw (ключ сравнения ревизий).
@@ -117,10 +120,10 @@ func (r *RulesRepo) UpsertImport(ctx context.Context, orgID uuid.UUID, it Import
 			}
 		}
 		rule, err = scanRule(tx.QueryRow(ctx,
-			`INSERT INTO rules (organization_id, sid, msg, category, status, source_type, feed_id, origin)
-			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+			`INSERT INTO rules (organization_id, sid, msg, category, status, source_type, feed_id, origin, source_name)
+			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 			 RETURNING `+ruleColumns,
-			orgID, it.SID, it.Msg, it.category(categoryOverride), initialStatus, sourceType, it.FeedID, origin))
+			orgID, it.SID, it.Msg, it.category(categoryOverride), initialStatus, sourceType, it.FeedID, origin, it.SourceName))
 		if err != nil {
 			return Rule{}, "", translate(err)
 		}

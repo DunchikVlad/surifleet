@@ -179,6 +179,23 @@ func main() {
 		log.Error("восстановление оркестратора", "err", err)
 	}
 
+	// Планировщик авто-ruleset'ов (чанк 96): минутный тик, пересборка по
+	// расписанию (schedule_time) с автодеплоем на таргетинг.
+	go func() {
+		t := time.NewTicker(time.Minute)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				if n := autoruleset.RunScheduled(ctx, log, db, blobStore, orch, time.Now()); n > 0 {
+					log.Info("auto-ruleset'ы пересобраны по расписанию", "count", n)
+				}
+			}
+		}
+	}()
+
 	// Движок уведомлений (чанк 84): переходы online/offline агентов →
 	// каналы webhook/telegram с дедупликацией (окно 10 мин).
 	notifEngine := notify.NewEngine(db, notify.NewSender(), log)

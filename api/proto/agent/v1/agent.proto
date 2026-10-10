@@ -393,6 +393,8 @@ message SuricataUpdateTask {
   bool reload = 6;                      // reload suricata после успешного update
   string upload_url = 7;                // presigned PUT: залить итоговый suricata.rules
   string upload_key = 8;                // ключ блоба (эхо в результат — сервер импортирует)
+  string sources_url = 9;               // presigned PUT: карта sid → источник (JSON; чанк 95)
+  string sources_key = 10;              // ключ блоба карты
 }
 
 // SourceInfo — источник правил suricata-update.
@@ -409,6 +411,8 @@ message SuricataUpdateResult {
   repeated SourceInfo sources = 3;      // актуальный список источников
   int64 uploaded_bytes = 4;             // размер залитого на сервер файла (0 — не заливался)
   string upload_key = 5;                // эхо ключа блоба
+  int64 sources_bytes = 6;              // размер залитой карты sid → источник (0 — нет)
+  string sources_key = 7;               // эхо ключа карты
 }
 
 // DeployRulesTask — доставка и применение ruleset на инстансе.

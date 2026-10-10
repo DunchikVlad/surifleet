@@ -28,6 +28,9 @@ type autoRulesetInput struct {
 	IncludeTags       []string       `json:"include_tags"`
 	IncludeCategories []string       `json:"include_categories"`
 	ExcludeSids       []int64        `json:"exclude_sids"`
+	IncludeSources    []string       `json:"include_sources"`
+	ScheduleEnabled   *bool          `json:"schedule_enabled"`
+	ScheduleTime      string         `json:"schedule_time"`
 	Targeting         targetingInput `json:"targeting"`
 	BatchSize         int            `json:"batch_size"`
 	CanarySize        int            `json:"canary_size"`
@@ -39,6 +42,8 @@ func (in *autoRulesetInput) toStore() store.AutoRulesetInput {
 		IncludeTags:       in.IncludeTags,
 		IncludeCategories: in.IncludeCategories,
 		ExcludeSids:       in.ExcludeSids,
+		IncludeSources:    in.IncludeSources,
+		ScheduleTime:      schedTime(in.ScheduleTime),
 		BatchSize:         in.BatchSize,
 		CanarySize:        in.CanarySize,
 		Enabled:           true,
@@ -60,6 +65,9 @@ func (in *autoRulesetInput) toStore() store.AutoRulesetInput {
 	}
 	if in.IncludeManual != nil {
 		out.IncludeManual = *in.IncludeManual
+	}
+	if in.ScheduleEnabled != nil {
+		out.ScheduleEnabled = *in.ScheduleEnabled
 	}
 	if in.IncludeFeeds != nil {
 		out.IncludeFeeds = *in.IncludeFeeds
@@ -231,4 +239,13 @@ func (h *handlers) rebuildAutoRuleset(w http.ResponseWriter, r *http.Request) {
 		"deployment_id":     res.Deployment,
 		"instances":         res.Instances,
 	})
+}
+
+// schedTime — пустая строка → nil (расписание не задано).
+func schedTime(s string) *string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return nil
+	}
+	return &s
 }

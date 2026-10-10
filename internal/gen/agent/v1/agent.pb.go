@@ -2945,6 +2945,8 @@ type SuricataUpdateTask struct {
 	Reload         bool                   `protobuf:"varint,6,opt,name=reload,proto3" json:"reload,omitempty"`                                      // reload suricata после успешного update
 	UploadUrl      string                 `protobuf:"bytes,7,opt,name=upload_url,json=uploadUrl,proto3" json:"upload_url,omitempty"`                // presigned PUT: залить итоговый suricata.rules
 	UploadKey      string                 `protobuf:"bytes,8,opt,name=upload_key,json=uploadKey,proto3" json:"upload_key,omitempty"`                // ключ блоба (эхо в результат — сервер импортирует)
+	SourcesUrl     string                 `protobuf:"bytes,9,opt,name=sources_url,json=sourcesUrl,proto3" json:"sources_url,omitempty"`             // presigned PUT: карта sid → источник (JSON; чанк 95)
+	SourcesKey     string                 `protobuf:"bytes,10,opt,name=sources_key,json=sourcesKey,proto3" json:"sources_key,omitempty"`            // ключ блоба карты
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
@@ -3035,6 +3037,20 @@ func (x *SuricataUpdateTask) GetUploadKey() string {
 	return ""
 }
 
+func (x *SuricataUpdateTask) GetSourcesUrl() string {
+	if x != nil {
+		return x.SourcesUrl
+	}
+	return ""
+}
+
+func (x *SuricataUpdateTask) GetSourcesKey() string {
+	if x != nil {
+		return x.SourcesKey
+	}
+	return ""
+}
+
 // SourceInfo — источник правил suricata-update.
 type SourceInfo struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -3104,6 +3120,8 @@ type SuricataUpdateResult struct {
 	Sources       []*SourceInfo          `protobuf:"bytes,3,rep,name=sources,proto3" json:"sources,omitempty"`                                   // актуальный список источников
 	UploadedBytes int64                  `protobuf:"varint,4,opt,name=uploaded_bytes,json=uploadedBytes,proto3" json:"uploaded_bytes,omitempty"` // размер залитого на сервер файла (0 — не заливался)
 	UploadKey     string                 `protobuf:"bytes,5,opt,name=upload_key,json=uploadKey,proto3" json:"upload_key,omitempty"`              // эхо ключа блоба
+	SourcesBytes  int64                  `protobuf:"varint,6,opt,name=sources_bytes,json=sourcesBytes,proto3" json:"sources_bytes,omitempty"`    // размер залитой карты sid → источник (0 — нет)
+	SourcesKey    string                 `protobuf:"bytes,7,opt,name=sources_key,json=sourcesKey,proto3" json:"sources_key,omitempty"`           // эхо ключа карты
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3169,6 +3187,20 @@ func (x *SuricataUpdateResult) GetUploadedBytes() int64 {
 func (x *SuricataUpdateResult) GetUploadKey() string {
 	if x != nil {
 		return x.UploadKey
+	}
+	return ""
+}
+
+func (x *SuricataUpdateResult) GetSourcesBytes() int64 {
+	if x != nil {
+		return x.SourcesBytes
+	}
+	return 0
+}
+
+func (x *SuricataUpdateResult) GetSourcesKey() string {
+	if x != nil {
+		return x.SourcesKey
 	}
 	return ""
 }
@@ -4146,7 +4178,7 @@ const file_agent_v1_agent_proto_rawDesc = "" +
 	"\x10set_capabilities\x18\x10 \x01(\v2\x1d.agent.v1.SetCapabilitiesTaskH\x00R\x0fsetCapabilities\x12>\n" +
 	"\ffetch_config\x18\x11 \x01(\v2\x19.agent.v1.FetchConfigTaskH\x00R\vfetchConfig\x12G\n" +
 	"\x0fsuricata_update\x18\x12 \x01(\v2\x1c.agent.v1.SuricataUpdateTaskH\x00R\x0esuricataUpdateB\x06\n" +
-	"\x04type\"\x9b\x02\n" +
+	"\x04type\"\xdd\x02\n" +
 	"\x12SuricataUpdateTask\x12\x1f\n" +
 	"\vinstance_id\x18\x01 \x01(\tR\n" +
 	"instanceId\x12%\n" +
@@ -4158,12 +4190,17 @@ const file_agent_v1_agent_proto_rawDesc = "" +
 	"\n" +
 	"upload_url\x18\a \x01(\tR\tuploadUrl\x12\x1d\n" +
 	"\n" +
-	"upload_key\x18\b \x01(\tR\tuploadKey\"T\n" +
+	"upload_key\x18\b \x01(\tR\tuploadKey\x12\x1f\n" +
+	"\vsources_url\x18\t \x01(\tR\n" +
+	"sourcesUrl\x12\x1f\n" +
+	"\vsources_key\x18\n" +
+	" \x01(\tR\n" +
+	"sourcesKey\"T\n" +
 	"\n" +
 	"SourceInfo\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x18\n" +
 	"\aenabled\x18\x02 \x01(\bR\aenabled\x12\x18\n" +
-	"\asummary\x18\x03 \x01(\tR\asummary\"\xc5\x01\n" +
+	"\asummary\x18\x03 \x01(\tR\asummary\"\x8b\x02\n" +
 	"\x14SuricataUpdateResult\x12\x16\n" +
 	"\x06output\x18\x01 \x01(\tR\x06output\x12\x1f\n" +
 	"\vrules_count\x18\x02 \x01(\x05R\n" +
@@ -4171,7 +4208,10 @@ const file_agent_v1_agent_proto_rawDesc = "" +
 	"\asources\x18\x03 \x03(\v2\x14.agent.v1.SourceInfoR\asources\x12%\n" +
 	"\x0euploaded_bytes\x18\x04 \x01(\x03R\ruploadedBytes\x12\x1d\n" +
 	"\n" +
-	"upload_key\x18\x05 \x01(\tR\tuploadKey\"\xa3\x02\n" +
+	"upload_key\x18\x05 \x01(\tR\tuploadKey\x12#\n" +
+	"\rsources_bytes\x18\x06 \x01(\x03R\fsourcesBytes\x12\x1f\n" +
+	"\vsources_key\x18\a \x01(\tR\n" +
+	"sourcesKey\"\xa3\x02\n" +
 	"\x0fDeployRulesTask\x12\x1f\n" +
 	"\vinstance_id\x18\x01 \x01(\tR\n" +
 	"instanceId\x12'\n" +

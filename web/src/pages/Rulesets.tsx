@@ -15,6 +15,9 @@ interface AutoRuleset {
   include_manual: boolean;
   include_feeds: boolean;
   exclude_sids: number[];
+  include_sources?: string[];
+  schedule_enabled?: boolean;
+  schedule_time?: string | null;
   targeting: { mode?: string; instance_ids?: string[] };
   last_built_at?: string;
   last_ruleset_version_id?: string;
@@ -35,6 +38,10 @@ function AutoRulesetsPanel() {
   const [incIoc, setIncIoc] = React.useState(true);
   const [incMan, setIncMan] = React.useState(true);
   const [exclude, setExclude] = React.useState("");
+  const [sources, setSources] = React.useState<string[]>([]);
+  const [allSources, setAllSources] = React.useState<string[]>([]);
+  const [schedEn, setSchedEn] = React.useState(false);
+  const [schedTime, setSchedTime] = React.useState("03:00");
   const [mode, setMode] = React.useState("all_clusters");
   const [selInst, setSelInst] = React.useState<string[]>([]);
 
@@ -46,7 +53,15 @@ function AutoRulesetsPanel() {
   React.useEffect(() => {
     load();
     apiGet<{ items?: { id: string; name: string; hostname?: string }[] }>("/instances?limit=100")
-      .then(d => setInstances(d.items || []))
+      .then(d => {
+        setInstances(d.items || []);
+        const first = (d.items || [])[0];
+        if (first) {
+          apiGet<{ items?: { name: string }[] }>(`/instances/${first.id}/suricata_update/sources`)
+            .then(x => setAllSources((x.items || []).map(y => y.name)))
+            .catch(() => {});
+        }
+      })
       .catch(() => {});
   }, []);
 
@@ -60,6 +75,8 @@ function AutoRulesetsPanel() {
       const body: Record<string, unknown> = {
         name: name.trim(), targeting,
         include_suriupdate: incSU, include_ioc: incIoc, include_manual: incMan,
+        include_sources: sources,
+        schedule_enabled: schedEn, schedule_time: schedEn ? schedTime : "",
         exclude_sids: exclude.split(",").map(x => Number(x.trim())).filter(x => Number.isFinite(x) && x > 0),
       };
       await apiPost("/auto_rulesets", body);
@@ -152,6 +169,27 @@ function AutoRulesetsPanel() {
               ))}
             </p>
           )}
+          {allSources.length > 0 && (
+            <p className="muted">
+              Источники suricata-update (пусто = все):{" "}
+              {allSources.map(nm => (
+                <label key={nm} style={{ marginRight: "1em" }}>
+                  <input type="checkbox" checked={sources.includes(nm)}
+                    onChange={() => setSources(prev => prev.includes(nm) ? prev.filter(x => x !== nm) : [...prev, nm])} />{" "}
+                  {nm}
+                </label>
+              ))}
+            </p>
+          )}
+          <p className="muted">
+            Расписание пересборки:{" "}
+            <label>
+              <input type="checkbox" checked={schedEn} onChange={e => setSchedEn(e.target.checked)} />{" "}
+              авто
+            </label>{" "}
+            <input type="time" value={schedTime} disabled={!schedEn} onChange={e => setSchedTime(e.target.value)} />{" "}
+            — после сборки набор сразу раскатывается на таргетинг
+          </p>
           <p className="muted">
             Запрет на деплой (sid через запятую — не попадут в набор):{" "}
             <input placeholder="напр. 2030692, 9000001" value={exclude} onChange={e => setExclude(e.target.value)} style={{ minWidth: "18em" }} />
