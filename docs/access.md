@@ -425,6 +425,36 @@ not_found, conflict, internal). Пагинация — keyset: параметр�
   «Синхронизировать» со строкой результата, переключатель enabled,
   удаление).
 
+### 4.9 Действия на сенсоре из UI (п. 7 ТЗ; чанки 82, 90, 98, 105–106, 111)
+
+Все действия — синхронные задачи агенту (409 — агент offline/не ответил,
+502 — ошибка выполнения на агенте с его текстом), аудит в `audit_log`.
+Каждое gated своей capability на хосте.
+
+- `POST /instances/{id}/suricata_update` — запуск suricata-update
+  (источники, заливка набора в S3, импорт в общий список; чанки 82/90/95);
+  `GET /instances/{id}/suricata_update/sources` — список источников.
+  Capability `rules`. Механика: [docs/rule-updates.md](rule-updates.md).
+- `GET /instances/{id}/config/current`, POST /config_versions/{id}/deploy —
+  чтение/деплой suricata.yaml (capability `config`).
+- `POST /instances/{id}/service_action` `{action: reload|restart|start|
+  stop}` — systemctl над юнитом инстанса (чанк 105, capability
+  `service_mgmt`).
+- `POST /instances/{id}/log_rotation` `{action: report|rotate, min_size_kb?,
+  keep?}` (чанк 111, capability `log_rotation`) — copytruncate логов
+  Suricata в log_dir инстанса: содержимое файлов ≥ порога (default 64 КБ)
+  копируется в архив «имя.ГГГГММДД-ЧЧММСС» рядом, оригинал усекается —
+  движок продолжает писать в тот же дескриптор, рестарт не нужен; архивов
+  на имя хранится keep (default 5). `report` — только состав/размеры.
+  Ответ: `{files[], rotated_count, freed_bytes, archived[]}`.
+- `POST /instances/{id}/packages` `{package: suricata|suricata-update,
+  action: check|install|remove|update}` (чанк 111, capability `packages`) —
+  apt/dpkg на сенсоре (белый список пакетов; install/remove/update через
+  apt-get, фактическое состояние после — по dpkg-query). Ответ:
+  `{installed, version, output}`.
+- `POST /agents/{id}/bundle` — диагностический бандл (чанк 106,
+  capability `monitoring`): tar.gz в S3, ответ с download_url.
+
 ## 5. Сквозной сценарий «от нуля до задеплоенных правил»
 
 Проверен на живом стенде 2026-09-16 (деплой `335b6069`, 245 правил,

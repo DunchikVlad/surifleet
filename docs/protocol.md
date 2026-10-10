@@ -60,7 +60,7 @@
 | Сообщение | Ключевые поля |
 |---|---|
 | `HelloAck` | `session_id`, `server_version`, интервалы (heartbeat 30 / state_report 300 / metrics 60 с), `log_level`, `config` (AgentConfig: capabilities, siem — чанк 89) |
-| `Task` | `task_id` (UUID), `deadline`, `type` — oneof из 7 типов задач (ниже) |
+| `Task` | `task_id` (UUID), `deadline`, `type` — oneof из 11 типов задач (ниже) |
 | `TaskCancel` | `task_id`, `reason` |
 | `LogLevelChange` | `level` (debug/info/warn/error) — на лету, без рестарта |
 | `ConfigPush` | `config` (AgentConfig; нулевые поля — «не менять»; `siem` — чанк 89: пересылка EVE-алертов addr/protocol/format, пустой addr — выкл) |
@@ -76,6 +76,10 @@
 | `CollectBundleTask` | флаги состава (логи агента/Suricata, конфиги, sysinfo), `upload_url` | Повтор перезаписывает бандл |
 | `AgentUpdateTask` | `version`, `signed_url`, `sha256` | По `version`: уже на ней → сразу success |
 | `SetCapabilitiesTask` | `capabilities[]` — полный целевой набор | По составу набора |
+| `FetchConfigTask` | `instance_id` | Читающая задача (журнал не пишется; чанк 55) |
+| `SuricataUpdateTask` | `instance_id`, enable/disable источников, `list_sources`, `no_update`, `reload`, `upload_url`/`upload_key`, `sources_url`/`sources_key` | Журнал обработанных task_id (чанк 82) |
+| `LogRotationTask` (чанк 111) | `instance_id`, `report_only`, `min_size_kb`, `keep` | Порог размера: повтор после усечения — no-op; журнал не пишется |
+| `PackageTask` (чанк 111) | `package` (suricata/suricata-update), `action` (check/install/remove/update) | apt идемпотентен по семантике; журнал не пишется |
 
 ## 6. Идемпотентность и надёжность
 

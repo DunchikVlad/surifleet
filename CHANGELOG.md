@@ -30,6 +30,41 @@
 
 ### Added
 
+- Чанк 111 (2026-10-11): задачи под capabilities log_rotation и packages
+  (backlog заказчика; до этого capability включались на хостах, но задач
+  под них в агенте не было). Proto: `LogRotationTask` (Task oneof =19:
+  instance_id, report_only, min_size_kb, keep) + `LogRotationResult`
+  (TaskResult oneof =18: файлы, rotated_count, freed_bytes, archived),
+  `PackageTask` (Task oneof =20: package suricata|suricata-update, action
+  check|install|remove|update) + `PackageResult` (TaskResult oneof =19) —
+  регенерация protoc, обе стороны перекатываются совместно (старик агент
+  честно откажет «тип задачи не поддерживается»). Агент
+  `cmd/agent/log_rotation.go`: capability-гейт log_rotation, copytruncate
+  логов Suricata в log_dir инстанса (содержимое файлов ≥ порога, default
+  64 КБ, копируется в архив «имя.ГГГГММДД-ЧЧММСС» рядом, оригинал
+  усекается — дескрипторы движка валидны, рестарт не нужен), архивов на
+  имя хранится keep (default 5); журнал идемпотентности не пишется —
+  повтор после усечения no-op по построению (порог размера). Агент
+  `cmd/agent/packages.go`: capability-гейт packages, белый список
+  suricata/suricata-update, apt/dpkg (check — dpkg-query read-only;
+  install/remove/update — apt-get, DEBIAN_FRONTEND=noninteractive, 5 мин;
+  фактическое состояние после — dpkg-query). Сервер
+  `internal/httpapi/log_rotation.go` + `packages.go`: POST
+  /instances/{id}/log_rotation {action: report|rotate, min_size_kb?, keep?}
+  и POST /instances/{id}/packages {package, action} (hosts.write, scoping
+  чанка 43, синхронные SendTaskAndWait 180 с / 10 мин, 409 offline, 502
+  текст ошибки агента; аудит instances.log_rotation /
+  instances.package_action). UI: панели «Ротация логов» и «Пакеты» на
+  странице инстанса (confirm у rotate/remove/update, вывод результата).
+  Юнит-тесты: rotateLogs (report/rotate/порог/права архива/prune/архивы
+  исключаются), packageCmd, whitelist, маппинги API. OpenAPI: оба пути +
+  схема LogFileInfo. **Живой e2E**: report — 4 активных файла (чужие
+  .1.gz системного logrotate исключены — находка фикса в e2e); rotate —
+  freed 221 700 821 байт за 0,85 с, движок пишет в усёкший файл дальше,
+  повтор — no-op; check — suricata 1:8.0.3-1 и suricata-update
+  1.3.7-2 installed; негативы 400; compliance in_sync 1/1. apt
+  install/remove/update на общем стенде не гонялись (разрушительно) —
+  ждут окна обслуживания. (proto, agent, server, api, ui)
 - Чанк 108 (2026-10-11): автооткат при падении сервиса после деплоя
   конфигурации (п. 7 ТЗ; watchdog чанка 12c-2 покрывал только правила).
   Сценарий: конфиг прошёл `suricata -T`, но движок падает при запуске
@@ -774,6 +809,12 @@
   (admin@surifleet.local / admin12345). (server, ui, db, docs)
 
 ### BREAKING
+
+- Чанк 111 (2026-10-11): proto — LogRotationTask (Task oneof =19) и
+  PackageTask (Task oneof =20), результаты LogRotationResult (oneof =18) и
+  PackageResult (oneof =19). Добавочные ветки oneof — старые стороны
+  wire-совместимы, но задачи до переката агента вернут честный отказ;
+  перекатывать сервер и агент совместно.
 
 - Чанк 64 (2026-10-09): профили конфигураций — фундамент (план 1B).
   Миграция 000012 config_profiles (scope_type/scope_id, parent_id

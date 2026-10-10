@@ -39,6 +39,49 @@ capabilities log_rotation и packages; статус suricata-update и PID
 (update.yaml, sources/*.yaml, enable/disable/modify.conf). Справка по
 механике обновлений: docs/rule-updates.md.
 
+Чанк 111 ГОТОВ (2026-10-11, этот коммит; **живой e2E пройден**):
+задачи под capabilities log_rotation и packages (backlog заказчика;
+до этого capability включены на стенде, но задач под них в агенте не
+было). Proto: LogRotationTask (Task oneof =19) + LogRotationResult
+(TaskResult oneof =18), PackageTask (Task oneof =20) + PackageResult
+(oneof =19), реген protoc — BREAKING-пометка (перекат совместно).
+Агент `cmd/agent/log_rotation.go`: capability-гейт log_rotation,
+copytruncate логов Suricata в log_dir привязки (содержимое файлов ≥
+порога, default 64 КБ, копируется в архив «имя.ГГГГММДД-ЧЧММСС»,
+оригинал усекается — дескрипторы движка валидны, рестарт не нужен),
+архивов на имя keep (default 5); исключены архивы ЧУЖОЙ ротации
+(системный logrotate сенсора: .N.gz — найдено живым e2e, без фикса
+зашли бы под ротацию). `cmd/agent/packages.go`: capability-гейт
+packages, белый список suricata/suricata-update, apt/dpkg
+(check — dpkg-query read-only; install/remove/update — apt-get,
+DEBIAN_FRONTEND=noninteractive; фактическое состояние после — по
+dpkg-query). Журнал идемпотентности не пишется (порог делает повтор
+no-op; apt идемпотентен) — как у service_action. Сервер
+`internal/httpapi/log_rotation.go` + `packages.go`: POST
+/instances/{id}/log_rotation {action: report|rotate, min_size_kb?,
+keep?} и POST /instances/{id}/packages {package, action}
+(hosts.write, scoping чанка 43, синхронные SendTaskAndWait 180 с /
+10 мин, 409 offline, 502 текст агента; аудит
+instances.log_rotation / instances.package_action). UI: панели
+«Ротация логов» и «Пакеты» на странице инстанса (confirm у
+rotate/remove/update). Юнит-тесты: rotateLogs (report/rotate/порог/
+права/prune/исключение архивов обоих форматов), packageCmd,
+whitelist, маппинги API. **Живой e2E (.28+.67 перекатаны)**: report —
+4 активных файла (eve.json 113 МБ, stats.log 97 МБ; чужие .1.gz
+исключены); rotate — 4 файла, freed 221 700 821 байт за 0,85 с,
+архивы на месте, оригиналы 0 Б, движок пишет в усёкший файл дальше
+(eve.json 9,7→18,5 КБ за 3 с), сервис active; повторный rotate —
+no-op (0/0, архивов нет); packages check — suricata 1:8.0.3-1 и
+suricata-update 1.3.7-2 оба installed; негативы (мусорный action /
+пакет) → 400 с деталями; аудит обоих действий в ленте; compliance
+in_sync 1/1. НЕ гонялись живьём (разрушительно на общем стенде):
+install/remove/update пакетов — путь тот же executor'а, ждёт окна
+обслуживания. OpenAPI: оба пути + схема LogFileInfo (123 paths).
+Следующий шаг из backlog: статус suricata-update (идёт ли сейчас /
+результат и время последнего запуска / PID) + конфиги suricata-update
+с хоста (fetch/редактирование update.yaml, sources/*.yaml,
+enable/disable/modify.conf по образцу fetch_config/deploy_config).
+
 **Решения заказчика 09.10**: исключены из scope автодетект инцидентов
 (10 типов, п. 7 ТЗ) и симулятор флота (1k/10k агентов, п. 10 ТЗ) —
 отмечены ⬛ в FEATURES и roadmap. Добавлен приоритет 1E (редактор
