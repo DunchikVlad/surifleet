@@ -178,6 +178,16 @@ func (r *AutoRulesetsRepo) SetLastBuild(ctx context.Context, id uuid.UUID, versi
 	return translate(err)
 }
 
+// TouchBuilt — сдвиг только last_built_at (чанк 110): пересборка дала
+// неизменный состав (деплой не создавался), но отметку времени надо
+// двинуть, иначе интервальный планировщик считает определение просроченным
+// и гоняет пересборку каждый тик.
+func (r *AutoRulesetsRepo) TouchBuilt(ctx context.Context, id uuid.UUID) error {
+	_, err := r.pool.Exec(ctx,
+		`UPDATE auto_rulesets SET last_built_at=now(), updated_at=now() WHERE id=$1`, id)
+	return translate(err)
+}
+
 // ListScheduled — включённые определения с включённым расписанием.
 func (r *AutoRulesetsRepo) ListScheduled(ctx context.Context) ([]AutoRuleset, error) {
 	rows, err := r.pool.Query(ctx,

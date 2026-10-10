@@ -93,6 +93,20 @@ func Rebuild(ctx context.Context, log *slog.Logger, st *store.Store, b *blob.Sto
 		return nil, fmt.Errorf("создание версии ruleset: %w", err)
 	}
 
+	// Чанк 110 (KI-6): идемпотентность пересборки — состав не изменился
+	// (та же версия, что у прошлой сборки этого определения) → деплой не
+	// создаём: иначе каждый триггер (планировщик/кнопка/list-sources до
+	// фикса) плодил деплой той же версии и лишний reload движка на сенсоре
+	// (~60 с на 53k правил). last_built_at всё равно двигаем — иначе
+	// интервальный планировщик будет считать определение вечно просроченным.
+	if def.LastRulesetVersionID != nil && *def.LastRulesetVersionID == v.ID {
+		if terr := st.AutoRulesets.TouchBuilt(ctx, def.ID); terr != nil {
+			log.Error("фиксация last_built_at (unchanged)", "err", terr)
+		}
+		log.Info("auto-ruleset без изменений — деплой пропущен", "version", v.Version)
+		return &RebuildResult{Version: v, Skipped: true, SkippedReason: "unchanged"}, nil
+	}
+
 	// Таргетинг → инстансы (системный контекст, без scoping-пользователя).
 	var t struct {
 		Mode        string   `json:"mode"`
@@ -194,6 +208,16 @@ func due(def store.AutoRuleset, now time.Time) bool {
 	return def.LastBuiltAt == nil || def.LastBuiltAt.Before(at)
 }
 
+// suriupdateResultImported — результат задачи suricata-update с реально
+// залитым набором (uploaded_bytes > 0), а не list-only/справочный вызов
+// (чанк 110, KI-6). Тот же критерий, что у suriupdate.HandleResult.
+func suriupdateResultImported(res *agentv1.TaskResult) bool {
+	su := res.GetSuricataUpdate()
+	return su != nil &&
+		res.GetStatus() == agentv1.TaskStatus_TASK_STATUS_SUCCESS &&
+		su.GetUploadedBytes() > 0
+}
+
 // HandleSuriupdateResult — триггер после успешного импорта suricata-update:
 // пересобирает включённые авто-ruleset'ы организации с include_suriupdate.
 func HandleSuriupdateResult(ctx context.Context, log *slog.Logger, st *store.Store, b *blob.Store, orch *orchestrator.Orchestrator, agentID uuid.UUID, res *agentv1.TaskResult) {
@@ -203,6 +227,15 @@ func HandleSuriupdateResult(ctx context.Context, log *slog.Logger, st *store.Sto
 	ctx = bg
 	su := res.GetSuricataUpdate()
 	if su == nil || res.GetStatus() != agentv1.TaskStatus_TASK_STATUS_SUCCESS {
+		return
+	}
+	// Чанк 110 (KI-6): list-only/справочные вызовы (GET suricata_update/sources —
+	// SuricataUpdateTask{list_sources}) тоже приходят сюда с успешным
+	// SuricataUpdateResult, но ничего не обновляют и не импортируют
+	// (uploaded_bytes=0 — как и у importer'а suriupdate.HandleResult).
+	// Без этого гейта КАЖДОЕ открытие вкладки «Правила» в UI (страница
+	// дёргает /sources) пересобирало все авто-ruleset'ы и плодило деплой.
+	if !suriupdateResultImported(res) {
 		return
 	}
 	orgID, err := orgByAgent(ctx, st, agentID)
