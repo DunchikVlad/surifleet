@@ -59,8 +59,8 @@ type taskExecutor struct {
 	dataDir  string
 	caps     map[string]bool
 	send     func(*agentv1.AgentMessage) error
-	bindings map[string]*agentv1.InstanceBinding          // instance_id → пути (чанк 54)
-	disc     *atomic.Pointer[agentv1.DiscoveryReport]     // юниты инстансов (чанк 54)
+	bindings map[string]*agentv1.InstanceBinding      // instance_id → пути (чанк 54)
+	disc     *atomic.Pointer[agentv1.DiscoveryReport] // юниты инстансов (чанк 54)
 
 	mu        sync.Mutex
 	processed map[string]cachedResult
@@ -109,6 +109,10 @@ func (e *taskExecutor) handle(task *agentv1.Task) {
 	}
 	if fc := task.GetFetchConfig(); fc != nil {
 		go e.executeFetch(task, fc)
+		return
+	}
+	if sa := task.GetServiceAction(); sa != nil {
+		go e.executeServiceAction(task, sa)
 		return
 	}
 	if su := task.GetSuricataUpdate(); su != nil {
