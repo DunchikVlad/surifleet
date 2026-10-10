@@ -1,8 +1,9 @@
 import React from "react";
 import {
-  Agent, apiGet, DeployHistoryItem, Instance, InstanceState, LogEntry, Page,
+  Agent, apiGet, apiPost, DeployHistoryItem, Instance, InstanceState, LogEntry, Page,
 } from "../api";
 import { Badge, ErrorBox, fmtTime, short } from "../components";
+import { useCan } from "../perms";
 
 // InstanceDetail — drill-down страница инстанса (требование А ТЗ):
 // состояние/compliance, версия ruleset (desired/actual), активные и failed
@@ -16,6 +17,7 @@ export default function InstanceDetail({ id, onBack }: { id: string; onBack: () 
   const [err, setErr] = React.useState<unknown>(null);
   const [histErr, setHistErr] = React.useState<unknown>(null);
   const [logsErr, setLogsErr] = React.useState<unknown>(null);
+  const can = useCan();
 
   React.useEffect(() => {
     let dead = false;
@@ -80,6 +82,10 @@ export default function InstanceDetail({ id, onBack }: { id: string; onBack: () 
               <tr><th>Сервис агента</th><td>surifleet-agent{inst.agent_pid ? ` (pid ${inst.agent_pid})` : ""}</td></tr>
             </tbody>
           </table>
+          {can("hosts.write") && <ServiceActions instanceId={id} onDone={() => {
+            // Перечитать карточку: service_state/pid обновятся из heartbeat хаба.
+            apiGet<Instance>(`/instances/${id}`).then(setInst).catch(() => {});
+          }} />}
         </div>
       )}
 
@@ -190,5 +196,53 @@ export default function InstanceDetail({ id, onBack }: { id: string; onBack: () 
         )}
       </div>
     </>
+  );
+}
+
+// ServiceActionResult — ответ POST /instances/{id}/service_action (чанк 105).
+interface ServiceActionResult {
+  task_id: string;
+  instance_id: string;
+  action: string;
+  service_state: string;
+}
+
+// ServiceActions — действия над сервисом Suricata инстанса (чанк 105, п. 7 ТЗ
+// «действия из UI — перезапуск сервиса»): restart/reload/start/stop через
+// агента (на агенте gated capability service_mgmt). Ответ синхронный —
+// restart может занять десятки секунд (graceful stop).
+function ServiceActions({ instanceId, onDone }: { instanceId: string; onDone: () => void }) {
+  const [busy, setBusy] = React.useState<string | null>(null);
+  const [result, setResult] = React.useState<string | null>(null);
+  const [err, setErr] = React.useState<unknown>(null);
+
+  const run = async (action: string) => {
+    if (busy) return;
+    if ((action === "stop" || action === "restart") &&
+        !window.confirm(`${action === "stop" ? "Остановить" : "Перезапустить"} Suricata на этом инстансе?`)) return;
+    setBusy(action); setErr(null); setResult(null);
+    try {
+      const r = await apiPost<ServiceActionResult>(`/instances/${instanceId}/service_action`, { action });
+      setResult(`${action}: выполнено — сервис ${r.service_state || "?"}`);
+      onDone();
+    } catch (e) { setErr(e); }
+    finally { setBusy(null); }
+  };
+
+  return (
+    <div style={{ marginTop: 8 }}>
+      <b>Действия над сервисом:</b>{" "}
+      {["restart", "reload", "start", "stop"].map(a => (
+        <button key={a} className="btn" disabled={busy !== null} onClick={() => run(a)}
+          style={{ marginRight: 6 }}>
+          {busy === a ? `${a}…` : a}
+        </button>
+      ))}
+      {result && <span className="muted"> {result}</span>}
+      <ErrorBox error={err} />
+      <div className="muted" style={{ marginTop: 4, fontSize: 12 }}>
+        Требуется capability service_mgmt на хосте; restart может занять до минуты (graceful stop Suricata).
+      </div>
+    </div>
   );
 }
