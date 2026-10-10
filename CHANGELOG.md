@@ -785,6 +785,25 @@
 
 ### Fixed
 
+- Чанк 109 (2026-10-11): двойная поломка обновлений правил, найдена при
+  перекате 105–108. (а) Регресс чанка 105: из `internal/httpapi/router.go`
+  случайно выпали маршруты `/instances/{id}/suricata_update(+ /sources)`
+  и вся группа `/auto_rulesets` (CRUD + preview + rebuild) — UI показывал
+  «404 маршрут не найден», выбор источников suricata-update пропал.
+  Обработчики на месте — восстановлена только регистрация маршрутов;
+  симметрично восстановлены блоки в `api/openapi/openapi.yaml` (226 строк,
+  взяты из состояния до чанка 105). (б) На сенсоре suricata-update падал
+  с ENOSPC: агентские бэкапы `*.surifleet-bak-*` копились без ротации в
+  выходном каталоге suricata-update (76 файлов ≈ 1.6 ГБ), а его
+  внутренний backup-проход стейджит весь каталог в TMPDIR — /tmp на
+  сенсоре это tmpfs 1.7 ГБ. Фикс агента: `pruneOldBackups` (оставляет 3
+  свежих, вызов из `backupFile` и перед запуском suricata-update) +
+  TMPDIR=/var/tmp для процесса suricata-update. Живой e2e после фикса:
+  POST suricata_update → 202 → на сенсоре загружено и импортировано
+  53115 правил из 26 источников, карта sid→источник залита, reload-rules
+  ok. Юнит-тесты TestPruneOldBackups/TestPruneOldBackupsFew/
+  TestBackupFilePrunes. (server, api, agent)
+
 - Чанк 107 (2026-10-11): KI-1 — цепочка хэшей аудита: запись с diff не
   проходила verify («hash записи не совпадает с содержимым», 4e34bdef).
   Корень: хэш при записи считался от исходной сериализации diff
