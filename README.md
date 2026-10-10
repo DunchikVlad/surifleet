@@ -45,6 +45,7 @@ web/            React-фронтенд
 - [CHANGELOG.md](CHANGELOG.md) — журнал изменений по чанкам (Keep a Changelog).
 - [docs/access.md](docs/access.md) — как подключиться к стенду: API, порты, сценарии использования.
 - [docs/known-issues.md](docs/known-issues.md) — реестр известных проблем на исправление.
+- [docs/rule-updates.md](docs/rule-updates.md) — как работает обновление правил на агентах (suricata-update end-to-end).
 
 ## Требования к разработке
 

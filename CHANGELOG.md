@@ -7,7 +7,26 @@
 
 ### Запланировано (backlog, нестандартный раздел — задачи в работу)
 
-(пусто на 2026-10-11 — KI-1 закрыт чанком 107, см. Fixed)
+Заказчик (2026-10-11) просит следующие чанки:
+
+- **Capabilities log_rotation и packages** — включены на стенде, но
+  задач под них в агенте нет. Реализовать: proto-типы задач
+  (LogRotationTask/PackageTask), исполнители в агенте (ротация логов
+  Suricata; управление пакетами suricata/suricata-update на сенсоре),
+  API-эндпоинты (гейт по соответствующей capability) и кнопки в UI.
+- **Статус suricata-update и PID**: в UI видеть состояние
+  suricata-update на хосте (идёт ли обновление сейчас, результат и
+  время последнего запуска, версия индекса источников) и PID процесса
+  (включая PID движка Suricata). Агент: сбор в discovery/heartbeat или
+  отдельной sync-задачей; сервер: API + отображение на странице
+  инстанса и/или вкладке «Правила».
+- **Конфиги suricata-update с хоста**: чтение и редактирование с UI —
+  `/etc/suricata/update.yaml` и сопутствующие (update/sources/*.yaml,
+  enable.conf/disable.conf/modify.conf). По образцу fetch_config для
+  suricata.yaml ( capability config): fetch → правка в UI → deploy с
+  бэкапом и историей версий.
+- Справка: механика обновления правил описана в
+  [docs/rule-updates.md](docs/rule-updates.md) (чанк 109+).
 
 ### Added
 
