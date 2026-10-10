@@ -45,6 +45,24 @@ function AutoRulesetDetail({ a, instances, version, onDownload }: {
   version?: string;
   onDownload: () => void;
 }) {
+  // cnt — «сколько правил попало бы в набор сейчас» (чанк 100): тот же
+  // preview, по фильтрам определения; 0 — объяснение пропуска пересборки.
+  const [cnt, setCnt] = React.useState<number | null>(null);
+  React.useEffect(() => {
+    const origins = [a.include_suriupdate && "suriupdate", a.include_ioc && "ioc",
+      a.include_manual && "manual", a.include_feeds && "feed"].filter(Boolean) as string[];
+    if (origins.length === 0) { setCnt(null); return; }
+    const p = new URLSearchParams();
+    p.set("origins", origins.join(","));
+    if ((a.include_sources || []).length) p.set("sources", (a.include_sources || []).join(","));
+    if ((a.exclude_sids || []).length) p.set("exclude", (a.exclude_sids || []).join(","));
+    let live = true;
+    apiGet<{ count: number }>(`/auto_rulesets/preview?${p.toString()}`)
+      .then(d => { if (live) setCnt(d.count); })
+      .catch(() => {});
+    return () => { live = false; };
+  }, [a]);
+
   const instName = (id: string) => {
     const i = instances.find(x => x.id === id);
     return i ? (i.hostname ? i.hostname + " · " : "") + i.name : id.slice(0, 8);
@@ -66,6 +84,9 @@ function AutoRulesetDetail({ a, instances, version, onDownload }: {
         )}
         {(a.include_tags || []).length > 0 && <> · теги: {a.include_tags!.join(", ")}</>}
         {(a.include_categories || []).length > 0 && <> · категории: {a.include_categories!.join(", ")}</>}
+        {" "}· попало бы правил:{" "}
+        {cnt === null ? "…" : <b>{cnt}</b>}
+        {cnt === 0 && <span style={{ color: "#c0392b" }}> — пересборка будет пропущена (пустой состав)</span>}
       </div>
       <div>
         Запрет на деплой (sid):{" "}
@@ -110,6 +131,30 @@ function AutoRulesetsPanel() {
   // для отображения/скачивания последней сборки.
   const [expanded, setExpanded] = React.useState<string | null>(null);
   const [versions, setVersions] = React.useState<Map<string, string>>(new Map());
+  // previewCount — «сколько правил попадёт в набор» (чанк 100): подсказка
+  // пустого состава до создания; пересчёт с debounce при смене фильтров.
+  const [previewCount, setPreviewCount] = React.useState<number | null>(null);
+
+  // previewQuery — общий помощник: фильтры → query-string preview.
+  const previewQuery = React.useCallback((origins: string[], srcs: string[], exclSids: number[]) => {
+    const p = new URLSearchParams();
+    p.set("origins", origins.join(","));
+    if (srcs.length) p.set("sources", srcs.join(","));
+    if (exclSids.length) p.set("exclude", exclSids.join(","));
+    return p.toString();
+  }, []);
+
+  React.useEffect(() => {
+    const origins = [incSU && "suriupdate", incIoc && "ioc", incMan && "manual"].filter(Boolean) as string[];
+    if (origins.length === 0) { setPreviewCount(null); return; }
+    const excl = exclude.split(",").map(x => Number(x.trim())).filter(x => Number.isFinite(x) && x > 0);
+    const t = setTimeout(() => {
+      apiGet<{ count: number }>(`/auto_rulesets/preview?${previewQuery(origins, sources, excl)}`)
+        .then(d => setPreviewCount(d.count))
+        .catch(() => setPreviewCount(null));
+    }, 400);
+    return () => clearTimeout(t);
+  }, [incSU, incIoc, incMan, sources, exclude, previewQuery]);
   const [mode, setMode] = React.useState("all_clusters");
   const [selInst, setSelInst] = React.useState<string[]>([]);
 
@@ -342,6 +387,12 @@ function AutoRulesetsPanel() {
             Запрет на деплой (sid через запятую — не попадут в набор):{" "}
             <input placeholder="напр. 2030692, 9000001" value={exclude} onChange={e => setExclude(e.target.value)} style={{ minWidth: "18em" }} />
           </p>
+          {previewCount !== null && (
+            <p className="muted">
+              По выбранным фильтрам в набор попадёт: <b>{previewCount}</b>{" "}
+              {previewCount === 0 && <span style={{ color: "#c0392b" }}>— пересборка будет пропущена (пустой состав): проверьте источники/origin</span>}
+            </p>
+          )}
         </>
       )}
       <p className="muted">

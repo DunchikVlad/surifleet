@@ -273,6 +273,16 @@ func (r *RulesRepo) SetSourceNames(ctx context.Context, orgID uuid.UUID, m map[i
 	return tag.RowsAffected(), nil
 }
 
+// whereByOrigins — общий фильтр выборки правил для авто-ruleset'ов
+// (используется и при сборке, и в preview-подсчёте — чанк 100). Плейсхолдеры:
+// $1 org, $2 origins, $3 tags, $4 categories, $5 exclude, $6 sources.
+const whereByOrigins = `r.organization_id=$1 AND r.status='enabled'
+			   AND r.origin = ANY ($2)
+			   AND (cardinality($3::text[])=0 OR r.tags && $3)
+			   AND (cardinality($4::text[])=0 OR r.category = ANY ($4))
+			   AND (cardinality($6::text[])=0 OR r.source_name = ANY ($6))
+			   AND NOT (r.sid = ANY ($5))`
+
 // SelectRawByOrigins — raw-правила для сборки авто-ruleset'а: включённые,
 // origin в списке, (опционально) теги/категории/источники suricata-update
 // совпадают (пустые массивы = без ограничения), sid вне exclude.
@@ -283,12 +293,7 @@ func (r *RulesRepo) SelectRawByOrigins(ctx context.Context, orgID uuid.UUID, ori
 			COALESCE((SELECT rr2.revision FROM rule_revisions rr2
 			WHERE rr2.rule_id = r.id ORDER BY rr2.revision DESC LIMIT 1), 1)
 		 FROM rules r
-		 WHERE r.organization_id=$1 AND r.status='enabled'
-		   AND r.origin = ANY ($2)
-		   AND (cardinality($3::text[])=0 OR r.tags && $3)
-		   AND (cardinality($4::text[])=0 OR r.category = ANY ($4))
-		   AND (cardinality($6::text[])=0 OR r.source_name = ANY ($6))
-		   AND NOT (r.sid = ANY ($5))
+		 WHERE `+whereByOrigins+`
 		 ORDER BY r.sid`,
 		orgID, origins, tags, categories, exclude, sources)
 	if err != nil {
@@ -304,4 +309,17 @@ func (r *RulesRepo) SelectRawByOrigins(ctx context.Context, orgID uuid.UUID, ori
 		out = append(out, rr)
 	}
 	return out, translate(rows.Err())
+}
+
+// CountByOrigins — сколько правил попадёт в авто-ruleset по тем же фильтрам
+// (preview перед созданием/пересборкой — чанк 100). Без выборки raw.
+func (r *RulesRepo) CountByOrigins(ctx context.Context, orgID uuid.UUID, origins []string, tags, categories, sources []string, exclude []int64) (int, error) {
+	var n int
+	err := r.pool.QueryRow(ctx,
+		`SELECT count(*) FROM rules r WHERE `+whereByOrigins,
+		orgID, origins, tags, categories, exclude, sources).Scan(&n)
+	if err != nil {
+		return 0, translate(err)
+	}
+	return n, nil
 }

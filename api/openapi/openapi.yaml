@@ -1644,6 +1644,29 @@ paths:
               schema: {$ref: '#/components/schemas/AutoRuleset'}
         default: {$ref: '#/components/responses/Error'}
 
+  /auto_rulesets/preview:
+    get:
+      operationId: preview_auto_ruleset
+      tags: [rulesets]
+      summary: Сколько правил попадёт в набор по фильтрам (preview)
+      description: "Требуется право: rules.read. Те же фильтры, что у авто-ruleset'а; подсказка «пустой состав» до создания/пересборки."
+      parameters:
+        - {name: origins, in: query, required: true, schema: {type: string}, description: 'Через запятую: suriupdate,ioc,manual,feed'}
+        - {name: tags, in: query, required: false, schema: {type: string}, description: 'Через запятую; пусто = без ограничения'}
+        - {name: categories, in: query, required: false, schema: {type: string}, description: 'Через запятую; пусто = без ограничения'}
+        - {name: sources, in: query, required: false, schema: {type: string}, description: 'Источники suricata-update через запятую; пусто = все'}
+        - {name: exclude, in: query, required: false, schema: {type: string}, description: 'sid через запятую — не попадут в подсчёт'}
+      responses:
+        '200':
+          description: Число попадающих правил
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  count: {type: integer}
+        default: {$ref: '#/components/responses/Error'}
+
   /auto_rulesets/{id}:
     parameters:
       - {$ref: '#/components/parameters/PathId'}

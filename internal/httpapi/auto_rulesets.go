@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
@@ -263,6 +264,84 @@ func (h *handlers) rebuildAutoRuleset(w http.ResponseWriter, r *http.Request) {
 		"deployment_id":      res.Deployment,
 		"instances":          res.Instances,
 	})
+}
+
+// previewAutoRuleset — GET /auto_rulesets/preview (rules.read): сколько
+// правил попадёт в набор по выбранным фильтрам (чанк 100) — подсказка
+// «пустой состав» до создания/пересборки. Параметры (query): origins
+// (обязателен, через запятую: suriupdate,ioc,manual,feed), tags,
+// categories, sources, exclude (sid через запятую).
+func (h *handlers) previewAutoRuleset(w http.ResponseWriter, r *http.Request) {
+	orgID, ok := h.resolveOrgID(w, r)
+	if !ok {
+		return
+	}
+	q := r.URL.Query()
+	origins := csvStrings(q.Get("origins"))
+	tags := csvStrings(q.Get("tags"))
+	categories := csvStrings(q.Get("categories"))
+	sources := csvStrings(q.Get("sources"))
+	exclude, exErr := csvInt64s(q.Get("exclude"))
+	fe := fieldErrors{}
+	if len(origins) == 0 {
+		fe.add("origins", "обязательный параметр (suriupdate,ioc,manual,feed через запятую)")
+	}
+	for _, o := range origins {
+		switch o {
+		case "suriupdate", "ioc", "manual", "feed":
+		default:
+			fe.add("origins", "недопустимое значение: "+o)
+		}
+	}
+	if exErr != nil {
+		fe.add("exclude", "sid через запятую, целые числа")
+	}
+	if fe.any() {
+		writeValidation(w, fe)
+		return
+	}
+	n, err := h.d.Store.Rules.CountByOrigins(r.Context(), orgID, origins, tags, categories, sources, exclude)
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"count": n})
+}
+
+// csvStrings — "a, b,,c" → ["a","b","c"]; пусто → nil.
+func csvStrings(s string) []string {
+	if strings.TrimSpace(s) == "" {
+		return nil
+	}
+	parts := strings.Split(s, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if t := strings.TrimSpace(p); t != "" {
+			out = append(out, t)
+		}
+	}
+	return out
+}
+
+// csvInt64s — "1, 2" → [1,2]; пусто → nil; мусор → ошибка.
+func csvInt64s(s string) ([]int64, error) {
+	if strings.TrimSpace(s) == "" {
+		return nil, nil
+	}
+	parts := strings.Split(s, ",")
+	out := make([]int64, 0, len(parts))
+	for _, p := range parts {
+		t := strings.TrimSpace(p)
+		if t == "" {
+			continue
+		}
+		n, err := strconv.ParseInt(t, 10, 64)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, n)
+	}
+	return out, nil
 }
 
 // schedTime — пустая строка → nil (расписание не задано).
