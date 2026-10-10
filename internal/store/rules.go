@@ -330,7 +330,7 @@ func (r *RulesRepo) BatchUpsertSuriupdate(ctx context.Context, orgID uuid.UUID, 
 		}
 		if _, err := tx.Exec(ctx,
 			`INSERT INTO rule_revisions (rule_id, sid, revision, raw, hash, parsed)
-			 SELECT c.rule_id, c.sid, c.rev, c.raw, c.hash, c.parsed
+			 SELECT c.rule_id, c.sid, c.rev, c.raw, c.hash, c.parsed::jsonb
 			 FROM unnest($1::bigint[], $2::int[], $3::text[], $4::text[], $5::text[], $6::uuid[])
 			   AS c(sid, rev, raw, hash, parsed, rule_id)
 			 ON CONFLICT (rule_id, revision) DO NOTHING`,
