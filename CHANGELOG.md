@@ -13,6 +13,23 @@
 
 ### Added
 
+- Чанк 105 (2026-10-11): действия из UI над сервисом Suricata (п. 7 ТЗ
+  «Реагирование: действия из UI — перезапуск сервиса», первый срез;
+  proto-типы ServiceActionTask/ServiceActionResult были заложены в
+  фазе 1). Агент: `cmd/agent/service_action.go` — executeServiceAction:
+  capability-гейт service_mgmt, дедлайн, systemd-юнит инстанса из
+  discovery-отчёта по config_path привязки, systemctl
+  reload/restart/start/stop (таймаут 120 с — graceful stop Suricata
+  десятки секунд), фактическое состояние после действия по
+  systemctl is-active; журнал идемпотентности не пишется (задача меняет
+  состояние сервиса, не файлы — повтор безопасен по семантике systemd).
+  Сервер: POST /instances/{id}/service_action {action} (hosts.write,
+  scoping, аудит instances.service_action) — синхронная задача агенту
+  (SendTaskAndWait 150 с); 409 агент offline/не ответил, 502 — ошибка
+  агента. UI: панель «Действия над сервисом» на странице инстанса
+  (кнопки restart/reload/start/stop с confirm у деструктивных, ответ —
+  фактический service_state). Юнит-тесты serviceActionVerb/firstLine.
+  (agent, server, api, ui)
 - Чанк 104 (2026-10-10): сортировка таблицы «Деплои» — кликабельные
   заголовки по образцу чанка 53 (SortTh/sortBy): ID, ruleset, статус,
   прогресс (% завершённых задач), создан; дефолт — created_at desc,

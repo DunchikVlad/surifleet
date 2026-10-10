@@ -971,6 +971,46 @@ components.tsx — кликабельные заголовки ▲/▼, стро
 действуют и там. Проверки: npm run build чисто (tsc strict + vite, бандл
 index-Z0Q5XsyO.js 260.5 КБ), go build не затронут (embed).
 
+Чанк 105 ГОТОВ (2026-10-11, эти коммиты; стенд не трогаем — живой e2E
+при перекате .28+.67): действия из UI над сервисом Suricata (п. 7 ТЗ
+«Реагирование: действия из UI — перезапуск сервиса», первый срез эпика;
+proto-типы ServiceActionTask/ServiceActionResult были заложены в фазе 1).
+Агент `cmd/agent/service_action.go`: executeServiceAction —
+capability-гейт service_mgmt (отдельная capability поэтапной передачи
+контроля, п. 4 ТЗ), дедлайн, юнит инстанса из discovery-отчёта по
+config_path привязки (общий unitForInstance из deploy_config), systemctl
+reload/restart/start/stop с таймаутом 120 с (graceful stop Suricata на
+стенде ~55 с, чанк 12c-2), фактическое состояние после действия —
+systemctl is-active (exit≠0 на inactive — валидное состояние, не ошибка
+диагностики); журнал идемпотентности не пишется (задача меняет состояние
+сервиса, не файлы — повтор systemctl безопасен по семантике systemd).
+handle() разбирает Task_ServiceAction. Сервер `internal/httpapi/
+service_action.go`: POST /instances/{id}/service_action {action}
+(hosts.write, scoping instanceAllowed, валидация action reload|restart|
+start|stop → 400, аудит instances.service_action success/error) —
+синхронная SendTaskAndWait 150 с (restart долог); 409 агент offline/не
+ответил, 502 текст ошибки агента. OpenAPI: путь + схема ответа (yaml
+валиден). UI: панель «Действия над сервисом» на странице инстанса (perm
+hosts.write) — кнопки restart/reload/start/stop (stop/restart с
+window.confirm), результат «сервис active», перечитывание карточки
+(service_state/pid обновляются из heartbeat хаба). Юнит-тесты агента:
+serviceActionVerb (маппинг enum→systemctl, мусор/unspecified → отказ),
+firstLine. Проверки: go build/vet зелёные, cmd/agent + httpapi тесты ok,
+npm build чисто (TS strict), openapi yaml валиден.
+
+**Следующий шаг после 105**: живой e2E при перекате .28+.67 (обе
+стороны: proto не менялся, но агент должен быть новым — handler
+service_action; включить capability service_mgmt на хосте через UI
+capability / PUT /hosts/{id}/capabilities): кнопки на странице инстанса
+→ restart → service_state active, stop → inactive, start → active,
+аудит instances.service_action; негатив — без capability 502 с текстом
+про service_mgmt. Далее из backlog: живой e2E чанка 103 (KI-2..KI-4),
+KI-1 (канонизация diff в цепочке хэшей аудита), CollectBundleTask
+(диагностический бандл одной кнопкой — следующий срез п. 7 «действия из
+UI»), автооткат при падении сервиса после деплоя конфига (watchdog
+чанка 12c-2 — только правила), same-rev перевыпуск фида, include_sources
+под конкретного агента.
+
 **Следующий шаг после 104**: живой e2E чанка 103 при перекате .28
 (KI-проверки из known-issues: рестарт агента → offline + recovery с
 IP/hostname; failed-деплой правил → уведомление с контекстом); сортировку
