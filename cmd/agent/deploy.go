@@ -445,15 +445,20 @@ func watchdogAfterDeploy(dr *agentv1.DeployRulesTask, target, backup string, had
 	log.Error("watchdog: движок не поднялся даже после отката — нужен оператор", "unit", unit)
 }
 
-// engineAlive — живость движка: по systemd-юниту (если известен), иначе
-// по ответу unix-command сокета.
+// engineAlive — живость движка инстанса из задачи деплоя правил.
 func engineAlive(dr *agentv1.DeployRulesTask) bool {
-	if unit := dr.GetSystemdUnit(); unit != "" {
+	return engineAliveByUnit(dr.GetSystemdUnit(), dr.GetConfigPath())
+}
+
+// engineAliveByUnit — живость движка: по systemd-юниту (если известен),
+// иначе по ответу unix-command сокета (из конфига по configPath).
+func engineAliveByUnit(unit, configPath string) bool {
+	if unit != "" {
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
 		return exec.CommandContext(ctx, "systemctl", "is-active", "--quiet", unit).Run() == nil
 	}
-	_, err := suricatasc(commandSocket(dr.GetConfigPath()), "uptime", suricatascTimeout)
+	_, err := suricatasc(commandSocket(configPath), "uptime", suricatascTimeout)
 	return err == nil
 }
 

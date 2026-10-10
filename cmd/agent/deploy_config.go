@@ -8,6 +8,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
 	"sync/atomic"
@@ -151,6 +152,46 @@ func (e *taskExecutor) executeConfig(task *agentv1.Task, dc *agentv1.DeployConfi
 	}
 	e.saveProcessed(taskID, cachedResult{Status: "succeeded", Config: res})
 	e.replyConfigOK(taskID, res)
+
+	// Watchdog (чанк 108, как у правил — 12c-2): конфиг прошёл suricata -T,
+	// но движок может упасть при запуске (AF_PACKET/ifaces/потоки — рантайм,
+	// которого -T не проверяет). Юнит известен и рестарт выполнен —
+	// одноразовый контроль: не жив → откат конфига из бэкапа + рестарт.
+	if unit != "" {
+		go watchdogAfterConfigDeploy(unit, configPath, backup, hadBackup, log)
+	}
+}
+
+// watchdogAfterConfigDeploy — одноразовый контроль после успешного деплоя
+// конфигурации (чанк 108, п. 7 ТЗ «автооткат при падении сервиса после
+// деплоя»): через watchdogSettleDelay проверяем живость движка; не жив —
+// откат suricata.yaml из бэкапа и рестарт юнита с повторной проверкой.
+// Сервер узнаёт через heartbeat (статус сервиса) и несовпадение sha
+// при следующем fetch_config / истории применений.
+func watchdogAfterConfigDeploy(unit, configPath, backup string, hadBackup bool, log *slog.Logger) {
+	time.Sleep(watchdogSettleDelay)
+	if engineAliveByUnit(unit, configPath) {
+		log.Info("watchdog: движок жив после деплоя конфига", "unit", unit)
+		return
+	}
+	log.Error("watchdog: движок НЕ жив после деплоя конфига — откат suricata.yaml",
+		"unit", unit, "config", configPath)
+	rollback(configPath, backup, hadBackup, log)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
+	if out, err := exec.CommandContext(ctx, "systemctl", "restart", unit).CombinedOutput(); err != nil {
+		log.Error("watchdog: рестарт юнита неуспешен", "unit", unit,
+			"err", err, "вывод", tail(string(out), 5))
+		return
+	}
+	// Проверка поднятия после рестарта.
+	time.Sleep(5 * time.Second)
+	if engineAliveByUnit(unit, configPath) {
+		log.Info("watchdog: конфиг откачен, движок поднят", "unit", unit)
+		return
+	}
+	log.Error("watchdog: движок не поднялся даже после отката конфига — нужен оператор", "unit", unit)
 }
 
 // unitForInstance — systemd-юнит инстанса из discovery-отчёта
