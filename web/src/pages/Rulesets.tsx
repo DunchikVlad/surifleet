@@ -18,10 +18,22 @@ interface AutoRuleset {
   include_sources?: string[];
   schedule_enabled?: boolean;
   schedule_time?: string | null;
+  schedule_interval_minutes?: number | null;
   targeting: { mode?: string; instance_ids?: string[] };
   last_built_at?: string;
   last_ruleset_version_id?: string;
 }
+
+// schedLabel — человекочитаемое расписание пересборки (таблица).
+const schedLabel = (a: AutoRuleset): string => {
+  if (!a.schedule_enabled) return "—";
+  const iv = a.schedule_interval_minutes;
+  if (iv) {
+    if (iv % 60 === 0 && iv >= 60) return `каждые ${iv / 60} ч`;
+    return `каждые ${iv} мин`;
+  }
+  return a.schedule_time ? `ежедневно ${a.schedule_time}` : "—";
+};
 
 // AutoRulesetsPanel — авто-ruleset'ы: состав по происхождению (suricata-
 // update + IOC + ручные), exclude_sids — запрет на деплой, таргетинг
@@ -41,7 +53,9 @@ function AutoRulesetsPanel() {
   const [sources, setSources] = React.useState<string[]>([]);
   const [allSources, setAllSources] = React.useState<string[]>([]);
   const [schedEn, setSchedEn] = React.useState(false);
+  const [schedMode, setSchedMode] = React.useState<"daily" | "minutes" | "hours">("daily");
   const [schedTime, setSchedTime] = React.useState("03:00");
+  const [schedEvery, setSchedEvery] = React.useState(30);
   const [mode, setMode] = React.useState("all_clusters");
   const [selInst, setSelInst] = React.useState<string[]>([]);
 
@@ -76,7 +90,10 @@ function AutoRulesetsPanel() {
         name: name.trim(), targeting,
         include_suriupdate: incSU, include_ioc: incIoc, include_manual: incMan,
         include_sources: sources,
-        schedule_enabled: schedEn, schedule_time: schedEn ? schedTime : "",
+        schedule_enabled: schedEn,
+        schedule_time: schedEn && schedMode === "daily" ? schedTime : "",
+        schedule_interval_minutes: schedEn && schedMode !== "daily"
+          ? (schedMode === "minutes" ? schedEvery : schedEvery * 60) : null,
         exclude_sids: exclude.split(",").map(x => Number(x.trim())).filter(x => Number.isFinite(x) && x > 0),
       };
       await apiPost("/auto_rulesets", body);
@@ -117,7 +134,7 @@ function AutoRulesetsPanel() {
       {msg && <p className="muted">{msg}</p>}
       {items.length > 0 && (
         <table>
-          <thead><tr><th>Имя</th><th>Состав</th><th>Запрет (sid)</th><th>Последняя сборка</th><th></th></tr></thead>
+          <thead><tr><th>Имя</th><th>Состав</th><th>Запрет (sid)</th><th>Расписание</th><th>Последняя сборка</th><th></th></tr></thead>
           <tbody>
             {items.map(a => (
               <tr key={a.id}>
@@ -127,6 +144,7 @@ function AutoRulesetsPanel() {
                     .filter(Boolean).join(" + ")}
                 </td>
                 <td className="muted">{(a.exclude_sids || []).length || "—"}</td>
+                <td className="muted">{schedLabel(a)}</td>
                 <td className="muted">{a.last_built_at ? fmtTime(a.last_built_at) : "не собирался"}</td>
                 <td style={{ whiteSpace: "nowrap" }}>
                   {can("rules.write") && <>
@@ -187,7 +205,24 @@ function AutoRulesetsPanel() {
               <input type="checkbox" checked={schedEn} onChange={e => setSchedEn(e.target.checked)} />{" "}
               авто
             </label>{" "}
-            <input type="time" value={schedTime} disabled={!schedEn} onChange={e => setSchedTime(e.target.value)} />{" "}
+            <label>
+              <input type="radio" name="schedmode" disabled={!schedEn} checked={schedMode === "daily"}
+                onChange={() => setSchedMode("daily")} /> ежедневно
+            </label>{" "}
+            <input type="time" value={schedTime} disabled={!schedEn || schedMode !== "daily"}
+              onChange={e => setSchedTime(e.target.value)} />{" "}
+            <label>
+              <input type="radio" name="schedmode" disabled={!schedEn} checked={schedMode === "minutes"}
+                onChange={() => setSchedMode("minutes")} /> каждые
+            </label>{" "}
+            <input type="number" min={1} max={10080} value={schedEvery} style={{ width: "5em" }}
+              disabled={!schedEn || schedMode === "daily"}
+              onChange={e => setSchedEvery(Math.max(1, Number(e.target.value) || 1))} />{" "}
+            <select value={schedMode === "hours" ? "hours" : "minutes"} disabled={!schedEn || schedMode === "daily"}
+              onChange={e => setSchedMode(e.target.value as "minutes" | "hours")}>
+              <option value="minutes">минут</option>
+              <option value="hours">часов</option>
+            </select>{" "}
             — после сборки набор сразу раскатывается на таргетинг
           </p>
           <p className="muted">

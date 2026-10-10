@@ -139,9 +139,11 @@ func Rebuild(ctx context.Context, log *slog.Logger, st *store.Store, b *blob.Sto
 	return &RebuildResult{Version: v, Deployment: dep.ID, Instances: len(instanceIDs)}, nil
 }
 
-// RunScheduled — пересборка по расписанию (чанк 96): включённые определения
-// с schedule_time 'HH:MM'; due, если сегодняшний момент расписания прошёл,
-// а последняя сборка была раньше его (или ни разу не была).
+// RunScheduled — пересборка по расписанию (чанк 96, интервалы — чанк 97):
+// включённые определения с расписанием; due, если момент расписания прошёл,
+// а последняя сборка была раньше него (или ни разу не была). Режимы:
+// интервал (schedule_interval_minutes — каждые N минут от последней сборки)
+// и ежедневный (schedule_time 'HH:MM').
 func RunScheduled(ctx context.Context, log *slog.Logger, st *store.Store, b *blob.Store, orch *orchestrator.Orchestrator, now time.Time) int {
 	defs, err := st.AutoRulesets.ListScheduled(ctx)
 	if err != nil {
@@ -150,7 +152,7 @@ func RunScheduled(ctx context.Context, log *slog.Logger, st *store.Store, b *blo
 	}
 	n := 0
 	for _, def := range defs {
-		if def.ScheduleTime == nil || !due(def, now) {
+		if !due(def, now) {
 			continue
 		}
 		if _, err := Rebuild(ctx, log, st, b, orch, def); err != nil {
@@ -162,8 +164,22 @@ func RunScheduled(ctx context.Context, log *slog.Logger, st *store.Store, b *blo
 	return n
 }
 
-// due — момент расписания сегодня прошёл и сборка была раньше него.
+// due — интервал: прошло N минут с последней сборки (нет её — давно пора);
+// ежедневно: момент расписания сегодня прошёл и сборка была раньше него.
 func due(def store.AutoRuleset, now time.Time) bool {
+	if def.ScheduleIntervalMinutes != nil {
+		if *def.ScheduleIntervalMinutes <= 0 {
+			return false
+		}
+		if def.LastBuiltAt == nil {
+			return true
+		}
+		next := def.LastBuiltAt.Add(time.Duration(*def.ScheduleIntervalMinutes) * time.Minute)
+		return !now.Before(next)
+	}
+	if def.ScheduleTime == nil {
+		return false
+	}
 	var hh, mm int
 	if _, err := fmt.Sscanf(*def.ScheduleTime, "%d:%d", &hh, &mm); err != nil {
 		return false

@@ -30,6 +30,9 @@ type AutoRuleset struct {
 	IncludeSources   []string   `json:"include_sources"`
 	ScheduleEnabled  bool       `json:"schedule_enabled"`
 	ScheduleTime     *string    `json:"schedule_time"`
+	// ScheduleIntervalMinutes — интервальное расписание (чанк 97): каждые N
+	// минут; NULL — режим «ежедневно в schedule_time».
+	ScheduleIntervalMinutes *int `json:"schedule_interval_minutes"`
 	Targeting        json.RawMessage `json:"targeting"`
 	BatchSize        int        `json:"batch_size"`
 	CanarySize       int        `json:"canary_size"`
@@ -55,6 +58,7 @@ type AutoRulesetInput struct {
 	IncludeSources    []string
 	ScheduleEnabled   bool
 	ScheduleTime      *string
+	ScheduleIntervalMinutes *int
 	Targeting         json.RawMessage
 	BatchSize         int
 	CanarySize        int
@@ -70,7 +74,7 @@ func scanAutoRuleset(row pgx.Row) (AutoRuleset, error) {
 	var a AutoRuleset
 	err := row.Scan(&a.ID, &a.OrganizationID, &a.Name, &a.Description, &a.Enabled,
 		&a.IncludeSuriupdate, &a.IncludeIoc, &a.IncludeManual, &a.IncludeFeeds,
-		&a.IncludeTags, &a.IncludeCategories, &a.ExcludeSids, &a.IncludeSources, &a.ScheduleEnabled, &a.ScheduleTime, &a.Targeting,
+		&a.IncludeTags, &a.IncludeCategories, &a.ExcludeSids, &a.IncludeSources, &a.ScheduleEnabled, &a.ScheduleTime, &a.ScheduleIntervalMinutes, &a.Targeting,
 		&a.BatchSize, &a.CanarySize, &a.LastBuiltAt, &a.LastRulesetVersionID, &a.LastDeploymentID,
 		&a.CreatedAt, &a.UpdatedAt)
 	return a, err
@@ -89,13 +93,13 @@ func (r *AutoRulesetsRepo) Create(ctx context.Context, orgID uuid.UUID, in AutoR
 	a, err := scanAutoRuleset(r.pool.QueryRow(ctx,
 		`INSERT INTO auto_rulesets (organization_id, name, description, enabled,
 			include_suriupdate, include_ioc, include_manual, include_feeds,
-			include_tags, include_categories, exclude_sids, include_sources, schedule_enabled, schedule_time, targeting, batch_size, canary_size)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+			include_tags, include_categories, exclude_sids, include_sources, schedule_enabled, schedule_time, schedule_interval_minutes, targeting, batch_size, canary_size)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
 		 RETURNING `+autoRulesetColumns,
 		orgID, in.Name, in.Description, in.Enabled,
 		in.IncludeSuriupdate, in.IncludeIoc, in.IncludeManual, in.IncludeFeeds,
 		in.IncludeTags, in.IncludeCategories, in.ExcludeSids, in.IncludeSources,
-		in.ScheduleEnabled, in.ScheduleTime, in.Targeting,
+		in.ScheduleEnabled, in.ScheduleTime, in.ScheduleIntervalMinutes, in.Targeting,
 		in.BatchSize, in.CanarySize))
 	if err != nil {
 		return a, translate(err)
@@ -127,7 +131,7 @@ func (r *AutoRulesetsRepo) List(ctx context.Context, orgID uuid.UUID, limit int)
 		var a AutoRuleset
 		if err := rows.Scan(&a.ID, &a.OrganizationID, &a.Name, &a.Description, &a.Enabled,
 			&a.IncludeSuriupdate, &a.IncludeIoc, &a.IncludeManual, &a.IncludeFeeds,
-			&a.IncludeTags, &a.IncludeCategories, &a.ExcludeSids, &a.IncludeSources, &a.ScheduleEnabled, &a.ScheduleTime, &a.Targeting,
+			&a.IncludeTags, &a.IncludeCategories, &a.ExcludeSids, &a.IncludeSources, &a.ScheduleEnabled, &a.ScheduleTime, &a.ScheduleIntervalMinutes, &a.Targeting,
 			&a.BatchSize, &a.CanarySize, &a.LastBuiltAt, &a.LastRulesetVersionID, &a.LastDeploymentID,
 			&a.CreatedAt, &a.UpdatedAt); err != nil {
 			return nil, translate(err)
@@ -145,13 +149,13 @@ func (r *AutoRulesetsRepo) Update(ctx context.Context, id uuid.UUID, in AutoRule
 	a, err := scanAutoRuleset(r.pool.QueryRow(ctx,
 		`UPDATE auto_rulesets SET name=$2, description=$3, enabled=$4,
 			include_suriupdate=$5, include_ioc=$6, include_manual=$7, include_feeds=$8,
-			include_tags=$9, include_categories=$10, exclude_sids=$11, include_sources=$12, schedule_enabled=$13, schedule_time=$14, targeting=$15,
-			batch_size=$16, canary_size=$17, updated_at=now()
+			include_tags=$9, include_categories=$10, exclude_sids=$11, include_sources=$12, schedule_enabled=$13, schedule_time=$14, schedule_interval_minutes=$15, targeting=$16,
+			batch_size=$17, canary_size=$18, updated_at=now()
 		 WHERE id=$1 RETURNING `+autoRulesetColumns,
 		id, in.Name, in.Description, in.Enabled,
 		in.IncludeSuriupdate, in.IncludeIoc, in.IncludeManual, in.IncludeFeeds,
 		in.IncludeTags, in.IncludeCategories, in.ExcludeSids, in.IncludeSources,
-		in.ScheduleEnabled, in.ScheduleTime, in.Targeting,
+		in.ScheduleEnabled, in.ScheduleTime, in.ScheduleIntervalMinutes, in.Targeting,
 		in.BatchSize, in.CanarySize))
 	if err != nil {
 		return a, translate(err)
@@ -178,7 +182,7 @@ func (r *AutoRulesetsRepo) SetLastBuild(ctx context.Context, id uuid.UUID, versi
 func (r *AutoRulesetsRepo) ListScheduled(ctx context.Context) ([]AutoRuleset, error) {
 	rows, err := r.pool.Query(ctx,
 		`SELECT `+autoRulesetColumns+` FROM auto_rulesets
-		 WHERE enabled AND schedule_enabled AND schedule_time IS NOT NULL
+		 WHERE enabled AND schedule_enabled AND (schedule_time IS NOT NULL OR schedule_interval_minutes IS NOT NULL)
 		 ORDER BY created_at`)
 	if err != nil {
 		return nil, translate(err)
@@ -189,7 +193,7 @@ func (r *AutoRulesetsRepo) ListScheduled(ctx context.Context) ([]AutoRuleset, er
 		var a AutoRuleset
 		if err := rows.Scan(&a.ID, &a.OrganizationID, &a.Name, &a.Description, &a.Enabled,
 			&a.IncludeSuriupdate, &a.IncludeIoc, &a.IncludeManual, &a.IncludeFeeds,
-			&a.IncludeTags, &a.IncludeCategories, &a.ExcludeSids, &a.IncludeSources, &a.ScheduleEnabled, &a.ScheduleTime, &a.Targeting,
+			&a.IncludeTags, &a.IncludeCategories, &a.ExcludeSids, &a.IncludeSources, &a.ScheduleEnabled, &a.ScheduleTime, &a.ScheduleIntervalMinutes, &a.Targeting,
 			&a.BatchSize, &a.CanarySize, &a.LastBuiltAt, &a.LastRulesetVersionID, &a.LastDeploymentID,
 			&a.CreatedAt, &a.UpdatedAt); err != nil {
 			return nil, translate(err)
@@ -215,7 +219,7 @@ func (r *AutoRulesetsRepo) ListEnabledForRebuild(ctx context.Context, orgID uuid
 		var a AutoRuleset
 		if err := rows.Scan(&a.ID, &a.OrganizationID, &a.Name, &a.Description, &a.Enabled,
 			&a.IncludeSuriupdate, &a.IncludeIoc, &a.IncludeManual, &a.IncludeFeeds,
-			&a.IncludeTags, &a.IncludeCategories, &a.ExcludeSids, &a.IncludeSources, &a.ScheduleEnabled, &a.ScheduleTime, &a.Targeting,
+			&a.IncludeTags, &a.IncludeCategories, &a.ExcludeSids, &a.IncludeSources, &a.ScheduleEnabled, &a.ScheduleTime, &a.ScheduleIntervalMinutes, &a.Targeting,
 			&a.BatchSize, &a.CanarySize, &a.LastBuiltAt, &a.LastRulesetVersionID, &a.LastDeploymentID,
 			&a.CreatedAt, &a.UpdatedAt); err != nil {
 			return nil, translate(err)

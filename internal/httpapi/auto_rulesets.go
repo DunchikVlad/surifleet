@@ -6,6 +6,7 @@ package httpapi
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -31,6 +32,7 @@ type autoRulesetInput struct {
 	IncludeSources    []string       `json:"include_sources"`
 	ScheduleEnabled   *bool          `json:"schedule_enabled"`
 	ScheduleTime      string         `json:"schedule_time"`
+	ScheduleIntervalMinutes *int     `json:"schedule_interval_minutes"` // каждые N минут; null/0 — режим «ежедневно» по schedule_time
 	Targeting         targetingInput `json:"targeting"`
 	BatchSize         int            `json:"batch_size"`
 	CanarySize        int            `json:"canary_size"`
@@ -44,6 +46,7 @@ func (in *autoRulesetInput) toStore() store.AutoRulesetInput {
 		ExcludeSids:       in.ExcludeSids,
 		IncludeSources:    in.IncludeSources,
 		ScheduleTime:      schedTime(in.ScheduleTime),
+		ScheduleIntervalMinutes: schedInterval(in.ScheduleIntervalMinutes),
 		BatchSize:         in.BatchSize,
 		CanarySize:        in.CanarySize,
 		Enabled:           true,
@@ -111,6 +114,8 @@ func (h *handlers) createAutoRuleset(w http.ResponseWriter, r *http.Request) {
 	default:
 		fe.add("targeting.mode", "недопустимый режим")
 	}
+	schedOn := in.ScheduleEnabled != nil && *in.ScheduleEnabled
+	validateSchedule(fe, schedOn, in.ScheduleTime, schedInterval(in.ScheduleIntervalMinutes))
 	if fe.any() {
 		writeValidation(w, fe)
 		return
@@ -184,6 +189,24 @@ func (h *handlers) updateAutoRuleset(w http.ResponseWriter, r *http.Request) {
 	if in.Enabled == nil {
 		merge.Enabled = cur.Enabled
 	}
+	// Расписание (чанк 97): непереданные поля сохраняем — раньше PATCH
+	// вида {name, targeting, enabled} (переключатель вкл/выкл) обнулял
+	// расписание.
+	if in.ScheduleEnabled == nil {
+		merge.ScheduleEnabled = cur.ScheduleEnabled
+	}
+	if in.ScheduleTime == "" {
+		merge.ScheduleTime = cur.ScheduleTime
+	}
+	if in.ScheduleIntervalMinutes == nil {
+		merge.ScheduleIntervalMinutes = cur.ScheduleIntervalMinutes
+	}
+	fe := fieldErrors{}
+	validateSchedule(fe, merge.ScheduleEnabled, derefStr(merge.ScheduleTime), merge.ScheduleIntervalMinutes)
+	if fe.any() {
+		writeValidation(w, fe)
+		return
+	}
 	a, err := h.d.Store.AutoRulesets.Update(r.Context(), id, merge)
 	if err != nil {
 		writeStoreError(w, err)
@@ -248,4 +271,39 @@ func schedTime(s string) *string {
 		return nil
 	}
 	return &s
+}
+
+// schedInterval — нормализация интервала: nil/≤0 → NULL (режим «ежедневно»).
+func schedInterval(v *int) *int {
+	if v == nil || *v <= 0 {
+		return nil
+	}
+	return v
+}
+
+// derefStr — nil → "" (для валидации опциональных строк).
+func derefStr(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
+}
+
+// validateSchedule — проверка полей расписания (чанк 97): HH:MM и/или
+// интервал 1..10080 минут (неделя). Хотя бы один режим — если расписание
+// включено.
+func validateSchedule(fe fieldErrors, enabled bool, timeStr string, interval *int) {
+	t := strings.TrimSpace(timeStr)
+	if t != "" {
+		var hh, mm int
+		if _, err := fmt.Sscanf(t, "%d:%d", &hh, &mm); err != nil || hh < 0 || hh > 23 || mm < 0 || mm > 59 {
+			fe.add("schedule_time", "формат HH:MM (00:00–23:59)")
+		}
+	}
+	if interval != nil && (*interval < 1 || *interval > 10080) {
+		fe.add("schedule_interval_minutes", "интервал 1..10080 минут (неделя)")
+	}
+	if enabled && t == "" && schedInterval(interval) == nil {
+		fe.add("schedule_enabled", "расписание включено, но не задано: укажите schedule_time (ежедневно) или schedule_interval_minutes (интервал)")
+	}
 }
