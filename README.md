@@ -44,6 +44,7 @@ web/            React-фронтенд
 - [FEATURES.md](FEATURES.md) — реестр функционала: пункт ТЗ → статус → где реализовано.
 - [CHANGELOG.md](CHANGELOG.md) — журнал изменений по чанкам (Keep a Changelog).
 - [docs/access.md](docs/access.md) — как подключиться к стенду: API, порты, сценарии использования.
+- [docs/known-issues.md](docs/known-issues.md) — реестр известных проблем на исправление.
 
 ## Требования к разработке
 
