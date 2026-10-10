@@ -191,7 +191,9 @@ func (r *AutoRulesetsRepo) ListEnabledForRebuild(ctx context.Context, orgID uuid
 func (r *RulesRepo) SelectRawByOrigins(ctx context.Context, orgID uuid.UUID, origins []string, tags, categories []string, exclude []int64) ([]RuleRawForBuild, error) {
 	rows, err := r.pool.Query(ctx,
 		`SELECT r.sid, COALESCE((SELECT raw FROM rule_revisions rr
-			WHERE rr.rule_id = r.id ORDER BY rr.revision DESC LIMIT 1), ''), r.rev
+			WHERE rr.rule_id = r.id ORDER BY rr.revision DESC LIMIT 1), ''),
+			COALESCE((SELECT rr2.revision FROM rule_revisions rr2
+			WHERE rr2.rule_id = r.id ORDER BY rr2.revision DESC LIMIT 1), 1)
 		 FROM rules r
 		 WHERE r.organization_id=$1 AND r.status='enabled'
 		   AND r.origin = ANY ($2)

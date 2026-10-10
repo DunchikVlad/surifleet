@@ -67,6 +67,16 @@ func (in *autoRulesetInput) toStore() store.AutoRulesetInput {
 	if in.BatchSize == 0 {
 		out.BatchSize = 50
 	}
+	// nil → пустые массивы (NOT NULL в БД).
+	if out.IncludeTags == nil {
+		out.IncludeTags = []string{}
+	}
+	if out.IncludeCategories == nil {
+		out.IncludeCategories = []string{}
+	}
+	if out.ExcludeSids == nil {
+		out.ExcludeSids = []int64{}
+	}
 	tRaw, _ := json.Marshal(in.Targeting)
 	out.Targeting = tRaw
 	return out

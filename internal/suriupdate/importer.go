@@ -56,9 +56,13 @@ func HandleResult(ctx context.Context, log *slog.Logger, st *store.Store, b *blo
 		if err != nil {
 			continue
 		}
+		// ET Open и др. — доверенные фиды: suricata-update применяет их
+		// включёнными, значит и в репозитории новые — enabled (тюнинг
+		// аналитика при перевыпусках не перетирается).
 		_, outcome, err := st.Rules.UpsertImport(ctx, orgID, store.ImportItem{
 			SID: p.SID, Rev: p.Rev, Msg: p.Msg, Classtype: p.Classtype,
 			Raw: p.Raw, Parsed: parsedJSON, Origin: "suriupdate",
+			InitialStatus: "enabled",
 		}, "", "file")
 		if err != nil {
 			log.Error("suriupdate: upsert правила", "sid", p.SID, "err", err)

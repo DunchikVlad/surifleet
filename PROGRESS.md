@@ -735,9 +735,37 @@ SuricataUpdate у нас). Сборка/тесты зелёные. Перека�
 /notification_channels 200, suricata_update sources (et/open enabled),
 compliance in_sync 1/1. Push origin выполнен (включая мердж-коммит).
 
-**Следующий шаг после мерджа**: живой e2E чужих чанков глубже (дашборды
-UI, тест уведомлений, SIEM-применение на агенте); хвосты: живая проверка
-rollback профилей /versions/diff на стенде.
+Чанк 94 ГОТОВ (2026-10-10, этот коммит; **живой e2E пройден**):
+авто-обновляемые ruleset'ы (запрос заказчика). Миграция 000018:
+rules.origin (manual|feed|ioc|suriupdate, бэкфилл по feed_id) +
+auto_rulesets (состав include_* по origin, include_tags/categories,
+exclude_sids — запрет на деплой, targeting, batch/canary, last_build).
+Store: AutoRulesetsRepo CRUD/ListEnabledForRebuild/SetLastBuild,
+Rules.SelectRawByOrigins (enabled, origin ANY, теги/категории, sid вне
+exclude). Движок internal/autoruleset: Rebuild = выборка → рендер блоба
+→ новая версия ruleset → резолв таргетинга (без scoping — системный
+контекст) → деплой kind=rules + desired_state → Orch.Start; триггер
+HandleSuriupdateResult — цепочка OnTaskResult в main (после импорта
+suricata-update пересобираются включённые наборы с include_suriupdate —
+это и есть «постоянно обновляется»). API /auto_rulesets CRUD +
+POST /{id}/rebuild (OpenAPI AutoRuleset/Input). UI: панель на вкладке
+«Ruleset'ы» (состав чекбоксами, запрет sid, таргетинг, пересобрать/вкл/
+выкл/удалить). Фиксы по живому e2E: nil-слайсы→NULL (NOT NULL массивы),
+rule_revisions.revision (не rev), suriupdate-импорт теперь
+InitialStatus=enabled (ET Open — доверенный фид, как сам suricata-update;
+тюнинг аналитика не перетирается).
+**Живой e2E (стенд)**: бэкфилл origin (53138→suriupdate), enable
+suriupdate-правил; авто-ruleset auto-et (exclude 2030692, all_clusters)
+→ rebuild → версия → деплой completed 1/1 → на сенсоре managed-файл
+53133 правила, **sid 2030692 отсутствует** (запрет), движок
+rules_loaded 53134 / failed 0, compliance in_sync 1/1. Триггер
+автопересборки после suricata-update — в коде, прогон следующего
+обновления фида его проверит.
+
+**Следующий шаг после 94**: живой e2E чужих чанков глубже (дашборды UI,
+тест уведомлений, SIEM-применение на агенте); живая проверка rollback
+профилей /versions/diff; следить за автопересборкой при следующем
+suricata-update.
 ✅ ЗАКРЫТО чанком 82.
 
 **Следующий шаг после 64**: рендер профиля (resolve parent-цепочки +
