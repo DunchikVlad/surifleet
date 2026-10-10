@@ -27,6 +27,10 @@ const (
 	updateUploadTimeout = 5 * time.Minute  // заливка итогового набора на сервер
 	// updateOutputDefault — итоговый файл suricata-update по умолчанию.
 	updateOutputDefault = "/var/lib/suricata/rules/suricata.rules"
+	// updateTmpDir — TMPDIR для suricata-update (чанк 109): его backup-проход
+	// копирует весь выходной каталог во временный каталог; дефолтный /tmp на
+	// сенсоре — tmpfs 1.7G, каталог правил с бэкапами его превысил (ENOSPC).
+	updateTmpDir = "/var/tmp"
 )
 
 // executeSuricataUpdate — задача suricata_update: enable/disable источников,
@@ -85,8 +89,16 @@ func (e *taskExecutor) executeSuricataUpdate(task *agentv1.Task, su *agentv1.Sur
 	// 3. Собственно обновление (если не list-only и не no_update).
 	needUpdate := !su.GetListSources() && !su.GetNoUpdate()
 	if needUpdate {
+		// Чанк 109: бэкапы managed-файла (.surifleet-bak-*) копятся в выходном
+		// каталоге и раздувают внутренний backup-проход suricata-update — он
+		// стейджит весь каталог в TMPDIR. На сенсоре /tmp — tmpfs 1.7G, каталог
+		// перевалил за него → ENOSPC, обновления не грузились. Чистим старые
+		// бэкапы и уводим TMPDIR на root-FS.
+		pruneOldBackups(filepath.Join(filepath.Dir(updateOutputDefault), managedRulesFile), backupKeep)
 		ctx, cancel := context.WithTimeout(context.Background(), updateRunTimeout)
-		out, err := exec.CommandContext(ctx, "suricata-update").CombinedOutput()
+		cmd := exec.CommandContext(ctx, "suricata-update")
+		cmd.Env = append(os.Environ(), "TMPDIR="+updateTmpDir)
+		out, err := cmd.CombinedOutput()
 		cancel()
 		res.Output = tail(string(out), 30)
 		if err != nil {

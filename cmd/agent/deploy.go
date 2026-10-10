@@ -670,7 +670,14 @@ func ensureRuleFiles(configPath string, log *slog.Logger) error {
 
 // --- файловые операции с бэкапом и атомарной записью ---
 
-// backupFile копирует существующий файл рядом (.surifleet-bak-TS).
+// backupKeep — сколько .surifleet-bak-TS держать рядом с файлом (чанк 109:
+// бэкапы копились без ротации; каталог вывода suricata-update раздулся
+// за пределы tmpfs /tmp на сенсоре — его внутренний backup-проход падал
+// с ENOSPC, и обновления правил не грузились).
+const backupKeep = 3
+
+// backupFile копирует существующий файл рядом (.surifleet-bak-TS) и чистит
+// старые бэкапы этого же файла (см. backupKeep).
 func backupFile(target string) (path string, ok bool, err error) {
 	raw, err := os.ReadFile(target)
 	if err != nil {
@@ -683,7 +690,22 @@ func backupFile(target string) (path string, ok bool, err error) {
 	if err := os.WriteFile(path, raw, 0o644); err != nil {
 		return "", false, err
 	}
+	pruneOldBackups(target, backupKeep)
 	return path, true, nil
+}
+
+// pruneOldBackups удаляет старые бэкапы target.surifleet-bak-*, оставляя
+// keep свежих (имя содержит UTC-метку — сортировка по имени = по времени).
+// Best-effort: ошибки удаления не блокируют основную операцию.
+func pruneOldBackups(target string, keep int) {
+	baks, err := filepath.Glob(target + ".surifleet-bak-*")
+	if err != nil || len(baks) <= keep {
+		return
+	}
+	sort.Strings(baks)
+	for _, p := range baks[:len(baks)-keep] {
+		_ = os.Remove(p)
+	}
 }
 
 // writeFileAtomic — tmp-файл в том же каталоге + rename (атомарно в пределах FS).
