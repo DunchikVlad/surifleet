@@ -123,6 +123,14 @@ func (e *taskExecutor) handle(task *agentv1.Task) {
 		go e.executeSuricataUpdate(task, su)
 		return
 	}
+	if lr := task.GetLogRotation(); lr != nil {
+		go e.executeLogRotation(task, lr)
+		return
+	}
+	if pt := task.GetPackages(); pt != nil {
+		go e.executePackages(task, pt)
+		return
+	}
 	if sc := task.GetSetCapabilities(); sc != nil {
 		e.applyCapabilities(task, sc)
 		return
@@ -150,6 +158,12 @@ func taskTypeName(task *agentv1.Task) string {
 		return "agent_update"
 	case *agentv1.Task_SetCapabilities:
 		return "set_capabilities"
+	case *agentv1.Task_SuricataUpdate:
+		return "suricata_update"
+	case *agentv1.Task_LogRotation:
+		return "log_rotation"
+	case *agentv1.Task_Packages:
+		return "packages"
 	default:
 		return "unknown"
 	}

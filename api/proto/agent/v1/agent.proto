@@ -296,7 +296,9 @@ message TaskResult {
     AgentUpdateResult agent_update = 15;
     FetchConfigResult fetch_config = 16;  // фактический suricata.yaml с сенсора
     SuricataUpdateResult suricata_update = 17;
-    // 18–49 зарезервировано под результаты будущих типов задач.
+    LogRotationResult log_rotation = 18;  // ротация логов Suricata (чанк 111)
+    PackageResult packages = 19;          // управление пакетами (чанк 111)
+    // 20–49 зарезервировано под результаты будущих типов задач.
   }
 
   StateReport state_after = 20;  // снапшот actual state после изменения (если задача меняла состояние)
@@ -376,7 +378,9 @@ message Task {
     SetCapabilitiesTask set_capabilities = 16;
     FetchConfigTask fetch_config = 17;  // чтение фактического suricata.yaml с сенсора
     SuricataUpdateTask suricata_update = 18;  // suricata-update: источники/обновление (чанк 82)
-    // 19–49 зарезервировано под будущие типы задач.
+    LogRotationTask log_rotation = 19;  // ротация логов Suricata (чанк 111)
+    PackageTask packages = 20;          // пакеты suricata/suricata-update (чанк 111)
+    // 21–49 зарезервировано под будущие типы задач.
   }
 }
 
@@ -413,6 +417,63 @@ message SuricataUpdateResult {
   string upload_key = 5;                // эхо ключа блоба
   int64 sources_bytes = 6;              // размер залитой карты sid → источник (0 — нет)
   string sources_key = 7;               // эхо ключа карты
+}
+
+// LogRotationTask — ротация логов Suricata инстанса (чанк 111, capability
+// log_rotation). Семантика copytruncate: содержимое активного лог-файла
+// копируется в архив рядом (имя + «.ГГГГММДД-ЧЧММСС»), оригинал усекается
+// — открытые дескрипторы Suricata остаются валидными, рестарт не нужен.
+// Файлы меньше порога min_size_kb не трогаются; архивов хранится keep
+// свежих на каждое базовое имя. Журнал идемпотентности не пишется:
+// повторная ротация после усечения — no-op по построению (порог размера).
+message LogRotationTask {
+  string instance_id = 1;
+  bool report_only = 2;  // true — только отчёт (файлы/размеры), без ротации
+  int64 min_size_kb = 3; // порог ротации, КБ (0 — по умолчанию 64)
+  int32 keep = 4;        // архивов на имя хранить (0 — по умолчанию 5)
+}
+
+// LogFileInfo — один файл журнала в отчёте/итоге ротации.
+message LogFileInfo {
+  string name = 1;        // имя файла (без каталога)
+  int64 size_bytes = 2;   // размер ДО ротации
+  bool rotated = 3;       // под порог и ротирован
+}
+
+// LogRotationResult — итог ротации/отчёта.
+message LogRotationResult {
+  string instance_id = 1;
+  repeated LogFileInfo files = 2;  // файлы журнала в log_dir (архивы не входят)
+  int32 rotated_count = 3;         // сколько файлов ротировано
+  int64 freed_bytes = 4;           // суммарный размер усёкшегося содержимого
+  repeated string archived = 5;    // имена созданных архивов
+}
+
+// PackageAction — действие над пакетом на сенсоре.
+enum PackageAction {
+  PACKAGE_ACTION_UNSPECIFIED = 0;
+  PACKAGE_ACTION_CHECK = 1;    // только статус/версия (read-only)
+  PACKAGE_ACTION_INSTALL = 2;  // apt-get install -y
+  PACKAGE_ACTION_REMOVE = 3;   // apt-get remove -y
+  PACKAGE_ACTION_UPDATE = 4;   // apt-get install --only-upgrade -y (до последней версии)
+}
+
+// PackageTask — управление пакетами Suricata на сенсоре (чанк 111,
+// capability packages). Белый список: suricata, suricata-update (пакетный
+// менеджер — apt/dpkg; агент на сенсорах работает от root). Журнал
+// идемпотентности не пишется: apt сам идемпотентен по семантике.
+message PackageTask {
+  string package = 1;      // suricata | suricata-update
+  PackageAction action = 2;
+}
+
+// PackageResult — итог задачи над пакетом.
+message PackageResult {
+  string package = 1;      // эхо задачи
+  string action = 2;       // эхо: check | install | remove | update
+  bool installed = 3;      // установлен ли пакет после действия
+  string version = 4;      // установленная версия (пусто — не установлен)
+  string output = 5;       // хвост вывода apt/dpkg
 }
 
 // DeployRulesTask — доставка и применение ruleset на инстансе.

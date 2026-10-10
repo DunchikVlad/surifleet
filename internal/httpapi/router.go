@@ -221,6 +221,8 @@ func NewRouter(d Deps) http.Handler {
 				r.With(h.requirePerm(PermConfigRead)).Get("/config/current", h.fetchInstanceConfig)
 				r.With(h.requirePerm(PermConfigRead)).Get("/config/history", h.getInstanceConfigHistory)
 				r.With(h.requirePerm(PermHostsWrite)).Post("/service_action", h.serviceAction)
+				r.With(h.requirePerm(PermHostsWrite)).Post("/log_rotation", h.logRotation)
+				r.With(h.requirePerm(PermHostsWrite)).Post("/packages", h.packagesAction)
 			})
 		})
 

@@ -86,6 +86,10 @@ export default function InstanceDetail({ id, onBack }: { id: string; onBack: () 
             // Перечитать карточку: service_state/pid обновятся из heartbeat хаба.
             apiGet<Instance>(`/instances/${id}`).then(setInst).catch(() => {});
           }} />}
+          {can("hosts.write") && <LogRotationPanel instanceId={id} />}
+          {can("hosts.write") && <PackagesPanel instanceId={id} onChanged={() => {
+            apiGet<Instance>(`/instances/${id}`).then(setInst).catch(() => {});
+          }} />}
           {agent && can("agents.read") && <BundleButton agentId={agent.id} />}
         </div>
       )}
@@ -243,6 +247,124 @@ function ServiceActions({ instanceId, onDone }: { instanceId: string; onDone: ()
       <ErrorBox error={err} />
       <div className="muted" style={{ marginTop: 4, fontSize: 12 }}>
         Требуется capability service_mgmt на хосте; restart может занять до минуты (graceful stop Suricata).
+      </div>
+    </div>
+  );
+}
+
+// LogRotationResult — ответ POST /instances/{id}/log_rotation (чанк 111).
+interface LogRotationResult {
+  task_id: string;
+  instance_id: string;
+  action: string;
+  files: { name: string; size_bytes: number; rotated: boolean }[];
+  rotated_count: number;
+  freed_bytes: number;
+  archived: string[];
+}
+
+// LogRotationPanel — ротация логов Suricata инстанса (чанк 111, capability
+// log_rotation): отчёт (состав/размеры) или rotate — copytruncate активных
+// файлов в log_dir (архив «имя.ГГГГММДД-ЧЧММСС», оригинал усекается).
+function LogRotationPanel({ instanceId }: { instanceId: string }) {
+  const [busy, setBusy] = React.useState<string | null>(null);
+  const [res, setRes] = React.useState<LogRotationResult | null>(null);
+  const [err, setErr] = React.useState<unknown>(null);
+
+  const run = async (action: "report" | "rotate") => {
+    if (busy) return;
+    if (action === "rotate" &&
+        !window.confirm("Ротировать логи Suricata на этом инстансе? Активные файлы будут скопированы в архив и усечены.")) return;
+    setBusy(action); setErr(null); setRes(null);
+    try {
+      setRes(await apiPost<LogRotationResult>(`/instances/${instanceId}/log_rotation`, { action }));
+    } catch (e) { setErr(e); }
+    finally { setBusy(null); }
+  };
+
+  return (
+    <div style={{ marginTop: 8 }}>
+      <b>Ротация логов:</b>{" "}
+      <button className="btn" disabled={busy !== null} onClick={() => run("report")} style={{ marginRight: 6 }}>
+        {busy === "report" ? "Отчёт…" : "Отчёт"}
+      </button>
+      <button className="btn" disabled={busy !== null} onClick={() => run("rotate")}>
+        {busy === "rotate" ? "Ротирую…" : "Ротировать"}
+      </button>
+      {res && (
+        <div className="muted" style={{ marginTop: 4 }}>
+          {res.action === "report" ? "Подлежит ротации" : "Ротировано"}: {res.rotated_count} файлов
+          {res.action === "rotate" && res.freed_bytes > 0 &&
+            `, освобождено ${(res.freed_bytes / 1024 / 1024).toFixed(1)} МБ`}
+          {res.archived && res.archived.length > 0 && <div>Архивы: {res.archived.join(", ")}</div>}
+          {res.files && res.files.length > 0 && (
+            <div>
+              Файлы журнала:{" "}
+              {res.files.map(f => `${f.name} (${(f.size_bytes / 1024).toFixed(0)} КБ${f.rotated ? " — ротирован" : ""})`).join("; ")}
+            </div>
+          )}
+        </div>
+      )}
+      <ErrorBox error={err} />
+      <div className="muted" style={{ marginTop: 4, fontSize: 12 }}>
+        Требуется capability log_rotation; copytruncate — движок продолжает писать в тот же дескриптор, рестарт не нужен.
+      </div>
+    </div>
+  );
+}
+
+// PackagesResult — ответ POST /instances/{id}/packages (чанк 111).
+interface PackagesResult {
+  task_id: string;
+  instance_id: string;
+  package: string;
+  action: string;
+  installed: boolean;
+  version: string;
+  output: string;
+}
+
+// PackagesPanel — управление пакетами suricata/suricata-update на сенсоре
+// (чанк 111, capability packages): check/install/update/remove через apt.
+function PackagesPanel({ instanceId, onChanged }: { instanceId: string; onChanged: () => void }) {
+  const [pkg, setPkg] = React.useState("suricata");
+  const [busy, setBusy] = React.useState<string | null>(null);
+  const [res, setRes] = React.useState<PackagesResult | null>(null);
+  const [err, setErr] = React.useState<unknown>(null);
+
+  const run = async (action: string) => {
+    if (busy) return;
+    if ((action === "remove" || action === "update") &&
+        !window.confirm(`${action === "remove" ? "Удалить" : "Обновить"} пакет ${pkg} на сенсоре?`)) return;
+    setBusy(action); setErr(null); setRes(null);
+    try {
+      const r = await apiPost<PackagesResult>(`/instances/${instanceId}/packages`, { package: pkg, action });
+      setRes(r);
+      if (action !== "check") onChanged();
+    } catch (e) { setErr(e); }
+    finally { setBusy(null); }
+  };
+
+  return (
+    <div style={{ marginTop: 8 }}>
+      <b>Пакеты:</b>{" "}
+      <select value={pkg} onChange={e => setPkg(e.target.value)} disabled={busy !== null} style={{ marginRight: 6 }}>
+        <option value="suricata">suricata</option>
+        <option value="suricata-update">suricata-update</option>
+      </select>
+      {["check", "install", "update", "remove"].map(a => (
+        <button key={a} className="btn" disabled={busy !== null} onClick={() => run(a)} style={{ marginRight: 6 }}>
+          {busy === a ? `${a}…` : a}
+        </button>
+      ))}
+      {res && (
+        <span className="muted">
+          {" "}{res.package}: {res.installed ? `установлен (${res.version || "версия ?"})` : "не установлен"}
+        </span>
+      )}
+      <ErrorBox error={err} />
+      <div className="muted" style={{ marginTop: 4, fontSize: 12 }}>
+        Требуется capability packages; install/update/remove идут через apt и могут занять несколько минут.
       </div>
     </div>
   );

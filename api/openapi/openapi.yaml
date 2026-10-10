@@ -2683,6 +2683,77 @@ paths:
                   service_state: {type: string, description: "Состояние юнита после действия (active/inactive/failed/…)"}
         default: {$ref: '#/components/responses/Error'}
 
+  /instances/{id}/log_rotation:
+    parameters:
+      - {$ref: '#/components/parameters/PathId'}
+    post:
+      operationId: instance_log_rotation
+      tags: [fleet]
+      summary: Ротация логов Suricata инстанса (отчёт или rotate)
+      description: "Требуется право: hosts.write. Синхронная LogRotationTask агенту (на агенте gated capability log_rotation): copytruncate активных лог-файлов в log_dir инстанса (архив «имя.ГГГГММДД-ЧЧММСС», оригинал усекается — рестарт движка не нужен); файлы меньше min_size_kb не трогаются, архивов хранится keep. action=report — только состав и размеры. 409 — агент offline/не ответил; 502 — ошибка выполнения на агенте."
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [action]
+              properties:
+                action: {type: string, enum: [report, rotate]}
+                min_size_kb: {type: integer, description: "Порог ротации, КБ (0/нет — по умолчанию 64)"}
+                keep: {type: integer, description: "Архивов на имя хранить (0/нет — по умолчанию 5)"}
+      responses:
+        '200':
+          description: Отчёт/ротация выполнены
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  task_id: {type: string, format: uuid}
+                  instance_id: {type: string, format: uuid}
+                  action: {type: string}
+                  files: {type: array, items: {$ref: '#/components/schemas/LogFileInfo'}}
+                  rotated_count: {type: integer, description: "Сколько файлов ротировано (в report — подлежит ротации)"}
+                  freed_bytes: {type: integer, format: int64}
+                  archived: {type: array, items: {type: string}}
+        default: {$ref: '#/components/responses/Error'}
+
+  /instances/{id}/packages:
+    parameters:
+      - {$ref: '#/components/parameters/PathId'}
+    post:
+      operationId: instance_packages
+      tags: [fleet]
+      summary: Управление пакетами suricata/suricata-update на сенсоре
+      description: "Требуется право: hosts.write. Синхронная PackageTask агенту (на агенте gated capability packages; apt/dpkg, белый список пакетов): check — только статус/версия, install/remove/update — apt-get install/remove/--only-upgrade. Ответ — фактическое состояние пакета после действия (dpkg-query). 409 — агент offline/не ответил; 502 — ошибка выполнения на агенте."
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [package, action]
+              properties:
+                package: {type: string, enum: [suricata, suricata-update]}
+                action: {type: string, enum: [check, install, remove, update]}
+      responses:
+        '200':
+          description: Действие выполнено
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  task_id: {type: string, format: uuid}
+                  instance_id: {type: string, format: uuid}
+                  package: {type: string}
+                  action: {type: string}
+                  installed: {type: boolean}
+                  version: {type: string, description: "Установленная версия (пусто — не установлен)"}
+                  output: {type: string, description: "Хвост вывода apt/dpkg"}
+        default: {$ref: '#/components/responses/Error'}
+
   /clusters/{id}/capabilities:
     parameters:
       - {$ref: '#/components/parameters/PathId'}
@@ -3609,6 +3680,13 @@ components:
         known:
           type: array
           items: {type: string}
+
+    LogFileInfo:
+      type: object
+      properties:
+        name: {type: string, description: "Имя файла журнала (без каталога)"}
+        size_bytes: {type: integer, format: int64, description: "Размер ДО ротации"}
+        rotated: {type: boolean, description: "Больше порога (в report — подлежит ротации)"}
 
     ConfigVersion:
       type: object
