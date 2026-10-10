@@ -116,12 +116,25 @@ func (e *taskExecutor) executeConfig(task *agentv1.Task, dc *agentv1.DeployConfi
 	log.Info("suricata -T пройден")
 
 	// Рестарт движка: юнит из discovery (по совпадению config_path).
+	// Таймаут 120 с: на стенде 90 с не хватило при конкурентных рестартах
+	// suricata (ruleset-деплои) — systemctl ждал чужую транзакцию.
 	unit := e.unitForInstance(disc, configPath)
 	if unit != "" {
-		ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 		defer cancel()
-		if out, err := exec.CommandContext(ctx, "systemctl", "restart", unit).CombinedOutput(); err != nil {
-			e.failCfgTask(taskID, nil, fmt.Sprintf("systemctl restart %s: %v; вывод: %s", unit, err, tail(string(out), 10)))
+		rout, rerr := exec.CommandContext(ctx, "systemctl", "restart", unit).CombinedOutput()
+		if rerr != nil {
+			// Конфиг записан и suricata -T пройден — фиксируем попытку
+			// применения в истории (deploy_failed), иначе провал не виден
+			// в instance_config_history (чанк 101: раньше детали не
+			// прикреплялись, сервер пропускал запись).
+			e.failCfgTask(taskID, &agentv1.DeployConfigResult{
+				ConfigVersion:    dc.GetConfigVersion(),
+				InstanceId:       dc.GetInstanceId(),
+				ValidateOnly:     dc.GetValidateOnly(),
+				ValidationPassed: true,
+				ValidationOutput: tail(out, 40),
+			}, fmt.Sprintf("systemctl restart %s: %v; вывод: %s", unit, rerr, tail(string(rout), 10)))
 			return
 		}
 		log.Info("юнит перезапущен", "unit", unit)
