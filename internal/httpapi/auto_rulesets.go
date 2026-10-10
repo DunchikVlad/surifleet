@@ -277,11 +277,22 @@ func (h *handlers) previewAutoRuleset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	q := r.URL.Query()
+	// nil-слайсы pgx кодирует как NULL (а не '{}') — cardinality(NULL) и
+	// = ANY(NULL) дают NULL и выбивают все строки; пустые массивы = «без
+	// ограничения» (как в данных авто-ruleset'ов из БД).
 	origins := csvStrings(q.Get("origins"))
 	tags := csvStrings(q.Get("tags"))
 	categories := csvStrings(q.Get("categories"))
 	sources := csvStrings(q.Get("sources"))
 	exclude, exErr := csvInt64s(q.Get("exclude"))
+	for _, ss := range []*[]string{&tags, &categories, &sources} {
+		if *ss == nil {
+			*ss = []string{}
+		}
+	}
+	if exclude == nil {
+		exclude = []int64{}
+	}
 	fe := fieldErrors{}
 	if len(origins) == 0 {
 		fe.add("origins", "обязательный параметр (suriupdate,ioc,manual,feed через запятую)")
