@@ -66,7 +66,7 @@ type AutoRulesetInput struct {
 
 const autoRulesetColumns = `id, organization_id, name, description, enabled,
 	include_suriupdate, include_ioc, include_manual, include_feeds,
-	include_tags, include_categories, exclude_sids, include_sources, schedule_enabled, schedule_time, targeting,
+	include_tags, include_categories, exclude_sids, include_sources, schedule_enabled, schedule_time, schedule_interval_minutes, targeting,
 	batch_size, canary_size, last_built_at, last_ruleset_version_id, last_deployment_id,
 	created_at, updated_at`
 
