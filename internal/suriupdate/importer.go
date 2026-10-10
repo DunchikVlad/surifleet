@@ -68,17 +68,20 @@ func HandleResult(ctx context.Context, log *slog.Logger, st *store.Store, b *blo
 		}
 	}
 	parsed := rules.ParseReader(bytes.NewReader(data), maxParseErrors)
-	var imported, updated, unchanged int
 	// Предфильтр по хэшу последней ревизии: неизменившиеся правила не
-	// гоняем через UpsertImport (иначе 50k+ транзакций — чанк 96).
+	// гоняем через апсерт (иначе 50k+ строк — чанк 96); изменившиеся и новые
+	// идут одной пакетной транзакцией (чанк 102 — вместо транзакции
+	// на правило).
 	hashes, herr := st.Rules.LastRevisionHashes(ctx, orgID)
 	if herr != nil {
 		log.Warn("suriupdate: хэши ревизий не получены — импорт без фильтра", "err", herr)
 		hashes = map[int64]string{}
 	}
+	var batch []store.ImportItem
+	var skippedUnchanged int
 	for _, p := range parsed.Rules {
 		if sum := sha256.Sum256([]byte(p.Raw)); hex.EncodeToString(sum[:]) == hashes[p.SID] {
-			unchanged++
+			skippedUnchanged++
 			continue
 		}
 		parsedJSON, err := json.Marshal(p)
@@ -88,24 +91,18 @@ func HandleResult(ctx context.Context, log *slog.Logger, st *store.Store, b *blo
 		// ET Open и др. — доверенные фиды: suricata-update применяет их
 		// включёнными, значит и в репозитории новые — enabled (тюнинг
 		// аналитика при перевыпусках не перетирается).
-		_, outcome, err := st.Rules.UpsertImport(ctx, orgID, store.ImportItem{
+		batch = append(batch, store.ImportItem{
 			SID: p.SID, Rev: p.Rev, Msg: p.Msg, Classtype: p.Classtype,
 			Raw: p.Raw, Parsed: parsedJSON, Origin: "suriupdate",
 			InitialStatus: "enabled", SourceName: srcBySid[p.SID],
-		}, "", "file")
-		if err != nil {
-			log.Error("suriupdate: upsert правила", "sid", p.SID, "err", err)
-			continue
-		}
-		switch outcome {
-		case store.UpsertImported:
-			imported++
-		case store.UpsertUpdated:
-			updated++
-		case store.UpsertUnchanged:
-			unchanged++
-		}
+		})
 	}
+	imported, updated, unchanged, err := st.Rules.BatchUpsertSuriupdate(ctx, orgID, batch)
+	if err != nil {
+		log.Error("suriupdate: пакетный апсерт", "err", err)
+		return
+	}
+	unchanged += skippedUnchanged
 	if len(srcBySid) > 0 {
 		if n, serr := st.Rules.SetSourceNames(ctx, orgID, srcBySid); serr != nil {
 			log.Warn("suriupdate: простановка source_name", "err", serr)

@@ -173,6 +173,177 @@ func insertRevision(ctx context.Context, tx pgx.Tx, ruleID uuid.UUID, it ImportI
 	return translate(err)
 }
 
+// BatchUpsertSuriupdate — пакетный идемпотентный импорт правил
+// suricata-update (чанк 102): одна транзакция на всю партию вместо
+// транзакции на правило (~600 изменений на прогон импорта → порядка
+// 2400 round-trip'ов против 4 set-операций). Семантика — как у
+// UpsertImport с source_type='file', feed_id=NULL, categoryOverride=""
+// (category = classtype): новые правила создаются со статусом/происхождением
+// из item (InitialStatus/Origin/SourceName), существующие обновляются
+// только в данных фида (msg/category) — тюнинг аналитика
+// (status/priority/threshold/tags) не трогаем; новая ревизия — только при
+// изменении raw (sha256 последней ревизии), дубль (rule_id, revision)
+// пропускается. Возвращает (imported, updated, unchanged).
+func (r *RulesRepo) BatchUpsertSuriupdate(ctx context.Context, orgID uuid.UUID, items []ImportItem) (int, int, int, error) {
+	if len(items) == 0 {
+		return 0, 0, 0, nil
+	}
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return 0, 0, 0, translate(err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	sids := make([]int64, len(items))
+	revs := make([]int, len(items))
+	msgs := make([]string, len(items))
+	classtypes := make([]string, len(items))
+	raws := make([]string, len(items))
+	hashes := make([]string, len(items))
+	parsed := make([]string, len(items))
+	origins := make([]string, len(items))
+	statuses := make([]string, len(items))
+	srcNames := make([]string, len(items))
+	for i, it := range items {
+		sids[i] = it.SID
+		revs[i] = it.Rev
+		msgs[i] = it.Msg
+		classtypes[i] = it.Classtype
+		raws[i] = it.Raw
+		hashes[i] = it.Hash()
+		if it.Parsed != nil {
+			parsed[i] = string(it.Parsed)
+		} else {
+			parsed[i] = "{}"
+		}
+		origins[i] = it.Origin
+		statuses[i] = it.InitialStatus
+		srcNames[i] = it.SourceName
+	}
+
+	// 1) Новые правила (anti-join по (org, sid)).
+	var newSids []int64
+	rows, err := tx.Query(ctx,
+		`INSERT INTO rules (organization_id, sid, msg, category, status, source_type, feed_id, origin, source_name)
+		 SELECT $11, c.sid, c.msg, NULLIF(c.classtype, ''),
+		        COALESCE(NULLIF(c.status, ''), 'under_review'),
+		        'file', NULL, COALESCE(NULLIF(c.origin, ''), 'manual'), NULLIF(c.source_name, '')
+		 FROM unnest($1::bigint[], $2::int[], $3::text[], $4::text[], $5::text[], $6::text[], $7::text[], $8::text[], $9::text[], $10::text[])
+		   AS c(sid, rev, msg, classtype, raw, hash, parsed, origin, status, source_name)
+		 LEFT JOIN rules r ON r.organization_id = $11 AND r.sid = c.sid
+		 WHERE r.id IS NULL
+		 RETURNING sid`,
+		sids, revs, msgs, classtypes, raws, hashes, parsed, origins, statuses, srcNames, orgID)
+	if err != nil {
+		return 0, 0, 0, translate(err)
+	}
+	for rows.Next() {
+		var sid int64
+		if err := rows.Scan(&sid); err != nil {
+			rows.Close()
+			return 0, 0, 0, translate(err)
+		}
+		newSids = append(newSids, sid)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return 0, 0, 0, translate(err)
+	}
+	newSet := make(map[int64]bool, len(newSids))
+	for _, sid := range newSids {
+		newSet[sid] = true
+	}
+
+	// 2) Существующие: свежий хэш последней ревизии + блокировка строк.
+	type existing struct {
+		ruleID   uuid.UUID
+		sid      int64
+		sameHash bool
+	}
+	var ex []existing
+	rows2, err := tx.Query(ctx,
+		`SELECT r.id, c.sid,
+		        c.hash = (SELECT rr.hash FROM rule_revisions rr
+		                  WHERE rr.rule_id = r.id
+		                  ORDER BY rr.created_at DESC, rr.revision DESC LIMIT 1) AS same_hash
+		 FROM unnest($1::bigint[], $2::text[]) AS c(sid, hash)
+		 JOIN rules r ON r.organization_id = $3 AND r.sid = c.sid
+		 FOR UPDATE OF r`,
+		sids, hashes, orgID)
+	if err != nil {
+		return 0, 0, 0, translate(err)
+	}
+	for rows2.Next() {
+		var e existing
+		var same *bool // NULL, если ревизий ещё нет → считаем изменившимся
+		if err := rows2.Scan(&e.ruleID, &e.sid, &same); err != nil {
+			rows2.Close()
+			return 0, 0, 0, translate(err)
+		}
+		e.sameHash = same != nil && *same
+		ex = append(ex, e)
+	}
+	rows2.Close()
+	if err := rows2.Err(); err != nil {
+		return 0, 0, 0, translate(err)
+	}
+
+	// 3+4) Изменившиеся: UPDATE rules (msg/category) + новые ревизии.
+	idxBySid := make(map[int64]int, len(items))
+	for i, it := range items {
+		idxBySid[it.SID] = i
+	}
+	var (
+		cSids    []int64
+		cRevs    []int
+		cMsgs    []string
+		cClasses []string
+		cRaws    []string
+		cHashes  []string
+		cParsed  []string
+		cRuleIDs []uuid.UUID
+	)
+	changed := 0
+	for _, e := range ex {
+		if e.sameHash {
+			continue
+		}
+		changed++
+		i := idxBySid[e.sid]
+		it := items[i]
+		cSids = append(cSids, it.SID)
+		cRevs = append(cRevs, it.Rev)
+		cMsgs = append(cMsgs, it.Msg)
+		cClasses = append(cClasses, it.Classtype)
+		cRaws = append(cRaws, it.Raw)
+		cHashes = append(cHashes, hashes[i])
+		cParsed = append(cParsed, parsed[i])
+		cRuleIDs = append(cRuleIDs, e.ruleID)
+	}
+	if changed > 0 {
+		if _, err := tx.Exec(ctx,
+			`UPDATE rules SET msg = c.msg, category = NULLIF(c.classtype, ''), updated_at = now()
+			 FROM unnest($1::bigint[], $2::text[], $3::text[], $4::uuid[]) AS c(sid, msg, classtype, rule_id)
+			 WHERE rules.id = c.rule_id AND rules.organization_id = $5`,
+			cSids, cMsgs, cClasses, cRuleIDs, orgID); err != nil {
+			return 0, 0, 0, translate(err)
+		}
+		if _, err := tx.Exec(ctx,
+			`INSERT INTO rule_revisions (rule_id, sid, revision, raw, hash, parsed)
+			 SELECT c.rule_id, c.sid, c.rev, c.raw, c.hash, c.parsed
+			 FROM unnest($1::bigint[], $2::int[], $3::text[], $4::text[], $5::text[], $6::uuid[])
+			   AS c(sid, rev, raw, hash, parsed, rule_id)
+			 ON CONFLICT (rule_id, revision) DO NOTHING`,
+			cSids, cRevs, cRaws, cHashes, cParsed, cRuleIDs); err != nil {
+			return 0, 0, 0, translate(err)
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return 0, 0, 0, translate(err)
+	}
+	return len(newSids), changed, len(items) - len(newSids) - changed, nil
+}
+
 // CreateManual — ручное создание правила (POST /rules): разобранный raw +
 // поля аналитика. Дубль (organization_id, sid) → ErrConflict.
 func (r *RulesRepo) CreateManual(ctx context.Context, orgID uuid.UUID, it ImportItem, in RulePatch, status string) (Rule, error) {
