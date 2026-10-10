@@ -998,6 +998,42 @@ serviceActionVerb (маппинг enum→systemctl, мусор/unspecified → �
 firstLine. Проверки: go build/vet зелёные, cmd/agent + httpapi тесты ok,
 npm build чисто (TS strict), openapi yaml валиден.
 
+Чанк 106 ГОТОВ (2026-10-11, эти коммиты; стенд не трогаем — живой e2E
+при перекате .28+.67): диагностический бандл одной кнопкой (п. 7 ТЗ
+«Реагирование: сбор диагностического бандла» — последний срез эпика
+«действия из UI»; proto-типы CollectBundleTask/BundleResult были
+заложены в фазе 1). Агент `cmd/agent/bundle.go`: executeCollectBundle —
+capability-гейт monitoring (читающая задача, как fetch_config; журнал
+идемпотентности не пишется), сбор tar.gz в памяти: хвост agent.log
+(до 1 МБ, readTail), suricata.log/eve.json каждого привязанного инстанса
+(до 1 МБ), suricata.yaml инстансов, sysinfo.txt (uname/uptime/free/df/
+systemctl status юнитов + версии агента и Suricata из discovery),
+manifest.txt (что вошло/пропущено с причинами); пределы 1 МБ/файл и
+32 МБ/бандл; загрузка на presigned PUT тем же uploadFile, что у
+suricata-update (чанк 90). handle() разбирает Task_CollectBundle.
+Сервер `internal/httpapi/bundle.go`: POST /agents/{id}/bundle
+{include_*} (agents.read, scoping по кластеру хоста агента, флаги по
+умолчанию true) — ключ bundles/<org>/<agent>/<ts>-<rand>.tar.gz →
+PresignPut (15 мин) → синхронная SendTaskAndWait 120 с → ответ
+{bundle_key, size_bytes, download_url (PresignGet 15 мин)}; 409 агент
+offline/не ответил, 502 текст ошибки агента; аудит agents.bundle
+success/error. OpenAPI: путь + схема ответа (yaml валиден). UI: кнопка
+«Диагностический бандл» на странице инстанса (perm agents.read, рядом
+с действиями над сервисом) → ссылка «Скачать tar.gz» с размером.
+Юнит-тесты агента: packTarGz round-trip и предел, readTail
+(хвост/малый файл/нет файла), sanitizeName. Проверки: go build/vet
+зелёные, cmd/agent + httpapi тесты ok, npm build чисто (TS strict),
+openapi yaml валиден.
+
+**Следующий шаг после 106**: живой e2E при перекате .28+.67 (агент —
+handler collect_bundle): кнопка на странице инстанса → бандл в S3 →
+скачивание, содержимое (manifest, логи, sysinfo); негатив — offline
+агент 409. Далее из backlog: живой e2E чанков 103/105 (KI-2..KI-4,
+service_action с capability service_mgmt), KI-1 (канонизация diff в
+цепочке хэшей аудита), автооткат при падении сервиса после деплоя
+конфига (watchdog чанка 12c-2 — только правила), same-rev перевыпуск
+фида, include_sources под конкретного агента.
+
 **Следующий шаг после 105**: живой e2E при перекате .28+.67 (обе
 стороны: proto не менялся, но агент должен быть новым — handler
 service_action; включить capability service_mgmt на хосте через UI

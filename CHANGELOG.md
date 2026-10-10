@@ -13,6 +13,21 @@
 
 ### Added
 
+- Чанк 106 (2026-10-11): диагностический бандл одной кнопкой (п. 7 ТЗ
+  «Реагирование: сбор диагностического бандла»; proto-типы
+  CollectBundleTask/BundleResult были заложены в фазе 1). Агент:
+  `cmd/agent/bundle.go` — executeCollectBundle (capability-гейт
+  monitoring): tar.gz в памяти — хвосты agent.log и suricata.log/
+  eve.json/suricata.yaml привязанных инстансов (до 1 МБ на файл),
+  sysinfo.txt (uname/uptime/free/df/systemctl status/версии),
+  manifest.txt; пределы 1 МБ/файл, 32 МБ/бандл; загрузка на presigned
+  PUT. Сервер: POST /agents/{id}/bundle {include_*} (agents.read,
+  scoping, аудит agents.bundle) — PresignPut ключа bundles/<org>/
+  <agent>/<ts>.tar.gz → синхронная задача агенту (120 с) → ответ с
+  bundle_key и download_url (presigned GET, 15 мин); 409 — агент
+  offline. UI: кнопка «Диагностический бандл» на странице инстанса →
+  ссылка скачивания tar.gz. Юнит-тесты packTarGz/readTail/sanitizeName.
+  (agent, server, api, ui)
 - Чанк 105 (2026-10-11): действия из UI над сервисом Suricata (п. 7 ТЗ
   «Реагирование: действия из UI — перезапуск сервиса», первый срез;
   proto-типы ServiceActionTask/ServiceActionResult были заложены в
