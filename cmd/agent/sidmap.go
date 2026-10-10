@@ -32,9 +32,10 @@ var (
 
 // buildSidSourceMap — sid → имя источника suricata-update. Для каждого
 // включённого источника (yaml в sources/) имя берём из поля source:,
-// URL из index.yaml, тарбол — cache/<md5(url)>-*.tar.gz; sids — из всех
-// .rules внутри тарбола. Без ошибок на отсутствующих файлах (защитно).
-func buildSidSourceMap() map[int64]string {
+// URL из index.yaml, тарбол — cache/<md5(url)>-*.tar.gz (url с подставленной
+// версией suricata — плейсхолдер %(__version__)s); sids — из всех .rules
+// внутри тарбола. Без ошибок на отсутствующих файлах (защитно).
+func buildSidSourceMap(suricataVersion string) map[int64]string {
 	out := map[int64]string{}
 
 	// URL источников из index.yaml: имя → url.
@@ -81,10 +82,18 @@ func buildSidSourceMap() map[int64]string {
 		if !ok {
 			continue
 		}
-		sum := md5.Sum([]byte(url))
-		glob := filepath.Join(cacheDir, fmt.Sprintf("%x-*", sum))
-		tars, err := filepath.Glob(glob)
-		if err != nil || len(tars) == 0 {
+		// Тарбол кэшируется по md5 РАЗРЕШЁННОГО url: подставляем версию.
+		resolved := strings.ReplaceAll(url, "%(__version__)s", suricataVersion)
+		tars := []string{}
+		for _, u := range []string{resolved, url} {
+			sum := md5.Sum([]byte(u))
+			glob := filepath.Join(cacheDir, fmt.Sprintf("%x-*", sum))
+			if g, gerr := filepath.Glob(glob); gerr == nil && len(g) > 0 {
+				tars = g
+				break
+			}
+		}
+		if len(tars) == 0 {
 			continue
 		}
 		for _, tf := range tars {

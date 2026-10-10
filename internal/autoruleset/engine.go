@@ -178,6 +178,10 @@ func due(def store.AutoRuleset, now time.Time) bool {
 // HandleSuriupdateResult — триггер после успешного импорта suricata-update:
 // пересобирает включённые авто-ruleset'ы организации с include_suriupdate.
 func HandleSuriupdateResult(ctx context.Context, log *slog.Logger, st *store.Store, b *blob.Store, orch *orchestrator.Orchestrator, agentID uuid.UUID, res *agentv1.TaskResult) {
+	// Отсоединённый контекст — как в suriupdate (хаб отменяет свой).
+	bg, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+	ctx = bg
 	su := res.GetSuricataUpdate()
 	if su == nil || res.GetStatus() != agentv1.TaskStatus_TASK_STATUS_SUCCESS {
 		return

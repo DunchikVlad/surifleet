@@ -115,7 +115,11 @@ func (e *taskExecutor) executeSuricataUpdate(task *agentv1.Task, su *agentv1.Sur
 		}
 		// Карта sid → источник (чанк 95): для выбора источников в авто-ruleset'ах.
 		if su.GetSourcesUrl() != "" {
-			m := buildSidSourceMap()
+			surVer := ""
+			if rep := e.disc.Load(); rep != nil {
+				surVer = rep.GetBinary().GetVersion()
+			}
+			m := buildSidSourceMap(surVer)
 			if mraw, merr := json.Marshal(m); merr == nil && len(m) > 0 {
 				if uerr := uploadFile(su.GetSourcesUrl(), mraw); uerr != nil {
 					log.Warn("заливка карты источников", "err", uerr)

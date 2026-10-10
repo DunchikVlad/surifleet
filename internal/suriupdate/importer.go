@@ -9,9 +9,12 @@ package suriupdate
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -30,6 +33,12 @@ const maxParseErrors = 100
 // блоба в мастер-репозиторий организации агента. Ошибки импорта — в лог,
 // на задачу не влияют (набор уже на сенсоре применён).
 func HandleResult(ctx context.Context, log *slog.Logger, st *store.Store, b *blob.Store, agentID uuid.UUID, res *agentv1.TaskResult) {
+	// Контекст хаба отменяется после обработки сообщения — импорт 50k+
+	// правил идёт на отсоединённом контексте с щедрым таймаутом
+	// (по живому e2E чанка 95: иначе 'context canceled' на тысячах upsert).
+	bg, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
+	defer cancel()
+	ctx = bg
 	su := res.GetSuricataUpdate()
 	if su == nil || su.GetUploadedBytes() == 0 || su.GetUploadKey() == "" {
 		return
@@ -60,7 +69,18 @@ func HandleResult(ctx context.Context, log *slog.Logger, st *store.Store, b *blo
 	}
 	parsed := rules.ParseReader(bytes.NewReader(data), maxParseErrors)
 	var imported, updated, unchanged int
+	// Предфильтр по хэшу последней ревизии: неизменившиеся правила не
+	// гоняем через UpsertImport (иначе 50k+ транзакций — чанк 96).
+	hashes, herr := st.Rules.LastRevisionHashes(ctx, orgID)
+	if herr != nil {
+		log.Warn("suriupdate: хэши ревизий не получены — импорт без фильтра", "err", herr)
+		hashes = map[int64]string{}
+	}
 	for _, p := range parsed.Rules {
+		if sum := sha256.Sum256([]byte(p.Raw)); hex.EncodeToString(sum[:]) == hashes[p.SID] {
+			unchanged++
+			continue
+		}
 		parsedJSON, err := json.Marshal(p)
 		if err != nil {
 			continue

@@ -225,6 +225,30 @@ func (r *AutoRulesetsRepo) ListEnabledForRebuild(ctx context.Context, orgID uuid
 	return out, translate(rows.Err())
 }
 
+// LastRevisionHashes — sid → sha256 последней ревизии по всем правилам
+// организации (одна выборка; фильтр «без изменений» импорта suriupdate —
+// иначе 50k+ транзакций на каждый прогон).
+func (r *RulesRepo) LastRevisionHashes(ctx context.Context, orgID uuid.UUID) (map[int64]string, error) {
+	rows, err := r.pool.Query(ctx,
+		`SELECT r.sid, COALESCE((SELECT rr.hash FROM rule_revisions rr
+			WHERE rr.rule_id = r.id ORDER BY rr.revision DESC LIMIT 1), '')
+		 FROM rules r WHERE r.organization_id = $1`, orgID)
+	if err != nil {
+		return nil, translate(err)
+	}
+	defer rows.Close()
+	out := map[int64]string{}
+	for rows.Next() {
+		var sid int64
+		var h string
+		if err := rows.Scan(&sid, &h); err != nil {
+			return nil, translate(err)
+		}
+		out[sid] = h
+	}
+	return out, translate(rows.Err())
+}
+
 // SetSourceNames — массовая простановка source_name по карте sid → источник
 // (чанк 95): обновляет даже правила без изменения raw.
 func (r *RulesRepo) SetSourceNames(ctx context.Context, orgID uuid.UUID, m map[int64]string) (int64, error) {
