@@ -2,7 +2,7 @@ import React from "react";
 import {
   apiGet, apiPost, Deployment, DeployTask, Instance, Page, Ruleset,
 } from "../api";
-import { Badge, ErrorBox, fmtTime, Progress, short } from "../components";
+import { Badge, ErrorBox, fmtTime, Progress, short, SortState, SortTh, sortBy } from "../components";
 import { useCan } from "../perms";
 
 function TaskList({ depId }: { depId: string }) {
@@ -86,13 +86,35 @@ function DeploymentRow({
 export function DeploymentTable({
   items, onAction,
 }: { items: Deployment[]; onAction?: (id: string, act: string) => void }) {
+  // Сортировка по образцу чанка 53 (SortTh/sortBy): по умолчанию новые
+  // деплои вверху (created_at desc).
+  const [sort, setSort] = React.useState<SortState>({ key: "created_at", dir: -1 });
   return (
     <table>
       <thead>
-        <tr><th>ID</th><th>Ruleset</th><th>Статус</th><th>Прогресс</th><th>Создан</th><th>Действия</th></tr>
+        <tr>
+          <SortTh label="ID" k="id" sort={sort} onSort={setSort} />
+          <SortTh label="Ruleset" k="ruleset" sort={sort} onSort={setSort} />
+          <SortTh label="Статус" k="status" sort={sort} onSort={setSort} />
+          <SortTh label="Прогресс" k="progress" sort={sort} onSort={setSort} />
+          <SortTh label="Создан" k="created_at" sort={sort} onSort={setSort} />
+          <th>Действия</th>
+        </tr>
       </thead>
       <tbody>
-        {items.map(d => <DeploymentRow key={d.id} d={d} onAction={onAction} />)}
+        {sortBy(items, sort, (d, k) => {
+          switch (k) {
+            case "id": return d.id;
+            case "ruleset": return d.ruleset_version_id || undefined;
+            case "status": return d.status;
+            case "progress": {
+              const total = d.progress?.total ?? 0;
+              return total ? Math.round(100 * ((d.progress?.succeeded ?? 0) + (d.progress?.failed ?? 0)) / total) : 0;
+            }
+            case "created_at": return d.created_at || undefined;
+            default: return undefined;
+          }
+        }).map(d => <DeploymentRow key={d.id} d={d} onAction={onAction} />)}
       </tbody>
     </table>
   );
