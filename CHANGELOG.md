@@ -804,6 +804,21 @@
 
 ### Fixed
 
+- Чанк 110 (2026-10-11): KI-6 — лавина деплоев правил. Корень:
+  `autoruleset.HandleSuriupdateResult` срабатывал на любой успешный
+  SuricataUpdateResult, включая list-only вызовы GET
+  /instances/{id}/suricata_update/sources — UI дёргает его при каждом
+  открытии вкладок «Правила»/«Ruleset'ы», и каждое открытие страницы
+  пересобирало все авто-ruleset'ы с include_suriupdate и создавало
+  деплой (плюс reload движка ~60 с на сенсоре). Фикс: (1) гейт
+  `suriupdateResultImported` (триггер только при uploaded_bytes > 0 —
+  тот же критерий, что у importer'а); (2) идемпотентность Rebuild:
+  состав не изменился (версия == last_ruleset_version_id) → деплой не
+  создаётся (skipped_reason=unchanged), last_built_at двигается
+  (AutoRulesets.TouchBuilt), чтобы интервальный планировщик не гонял
+  пересборку каждый тик. Юнит-тест TestSuriupdateResultImported. e2e:
+  3 вызова /sources → 200, деплоев не прибавилось. (server)
+
 - Чанк 109 (2026-10-11): двойная поломка обновлений правил, найдена при
   перекате 105–108. (а) Регресс чанка 105: из `internal/httpapi/router.go`
   случайно выпали маршруты `/instances/{id}/suricata_update(+ /sources)`

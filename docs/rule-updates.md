@@ -3,7 +3,7 @@
 > Как устроено обновление правил Suricata на сенсорах через SuriFleet:
 > цепочка UI → API → агент → suricata-update → S3 → импорт в
 > мастер-репозиторий → авто-ruleset'ы. Актуально на 2026-10-11
-> (после чанка 109 — ротация бэкапов и TMPDIR, см. KI-3).
+> (после чанка 109 — ротация бэкапов и TMPDIR, см. KI-5).
 
 ## 1. Общая схема
 
@@ -65,7 +65,7 @@ UI (Правила / Ruleset'ы)
    `pruneOldBackups` чистит старые `zz-surifleet-managed.rules.surifleet-bak-*`
    в выходном каталоге (оставляет 3 свежих — иначе каталог раздувается
    за пределы tmpfs /tmp и внутренний backup-проход suricata-update
-   падает с ENOSPC, см. KI-3), процессу выставляется `TMPDIR=/var/tmp`
+   падает с ENOSPC, см. KI-5), процессу выставляется `TMPDIR=/var/tmp`
    (root-FS, не tmpfs).
 4. **Чтение итогового набора** — `/var/lib/suricata/rules/suricata.rules`;
    если вывод не по дефолту — самый свежий непустой `.rules` рядом
@@ -100,8 +100,12 @@ output — хвост вывода) → в hub.
 - **`internal/autoruleset`** — пересобирает включённые авто-ruleset'ы
   организации с `include_suriupdate` (новые/обновлённые правила из
   источников попадают в версии ruleset'ов) и запускает волновой деплой
-  по их targeting. У авто-ruleset'ов есть и своё интервальное
-  расписание (чанк 97).
+  по их targeting. Срабатывает только на реальное обновление — гейт
+  `uploaded_bytes > 0` (чанк 110, KI-6: list-only вызовы /sources раньше
+  тоже триггерили пересборку — каждое открытие вкладки UI плодило
+  деплой). Если состав не изменился (версия совпала с прошлой сборкой) —
+  деплой не создаётся (skipped_reason=unchanged). У авто-ruleset'ов есть
+  и своё интервальное расписание (чанк 97).
 
 ## 5. Что с чем не путать
 
@@ -118,7 +122,7 @@ output — хвост вывода) → в hub.
 
 | Симптом | Где смотреть | Типовая причина |
 |---|---|---|
-| 404 «маршрут не найден» в UI | `git log -S auto_rulesets -- internal/httpapi/router.go` | регресс маршрутов (KI-3, чанк 109) |
+| 404 «маршрут не найден» в UI | `git log -S auto_rulesets -- internal/httpapi/router.go` | регресс маршрутов (KI-5, чанк 109) |
 | Задача failed: ENOSPC, shutil.Error | df -h /tmp на сенсоре; размер `/var/lib/suricata/rules` | бэкапы раздули каталог за пределы tmpfs (до чанка 109) |
 | Обновление «висит» ~60 с при reload | suricata.log: «rule reload starting/complete» | live-swap 53k правил — норма; ждать до 150 с |
 | `systemctl list-jobs` — висит reload | journalctl -u suricata | зависший reload-джоб; новый reload его выталкивает |
