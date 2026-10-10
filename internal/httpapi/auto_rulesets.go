@@ -252,15 +252,16 @@ func (h *handlers) rebuildAutoRuleset(w http.ResponseWriter, r *http.Request) {
 	objType := "auto_ruleset"
 	reason := "пересборка: версия " + res.Version.Version
 	if res.Skipped && res.Version.ID == uuid.Nil {
-		reason = "пересборка пропущена: пустой состав или нет целей"
+		reason = "пересборка пропущена: " + res.SkippedReason
 	}
 	h.audit(r, identityFrom(r.Context()), "auto_rulesets.rebuild", &objType, &id, "success", reason)
 	writeJSON(w, http.StatusOK, map[string]any{
-		"skipped":           res.Skipped,
-		"ruleset_version":   res.Version.Version,
+		"skipped":            res.Skipped,
+		"skipped_reason":     res.SkippedReason,
+		"ruleset_version":    res.Version.Version,
 		"ruleset_version_id": res.Version.ID,
-		"deployment_id":     res.Deployment,
-		"instances":         res.Instances,
+		"deployment_id":      res.Deployment,
+		"instances":          res.Instances,
 	})
 }
 

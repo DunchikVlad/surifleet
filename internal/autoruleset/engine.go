@@ -26,7 +26,10 @@ type RebuildResult struct {
 	Version    store.RulesetVersion
 	Deployment uuid.UUID
 	Instances  int
-	Skipped    bool // нечего деплоить (нет правил/инстансов) — версия не создана
+	Skipped    bool   // нечего деплоить (нет правил/инстансов) — версия не создана
+	// SkippedReason — почему пропущено: no_rules (пустой состав по
+	// origin/источникам/тегам) или no_targets (таргетинг не дал инстансов).
+	SkippedReason string
 }
 
 // Rebuild — собрать авто-ruleset заново: выборка raw-правил по origin/
@@ -58,7 +61,7 @@ func Rebuild(ctx context.Context, log *slog.Logger, st *store.Store, b *blob.Sto
 		return nil, fmt.Errorf("выборка правил: %w", err)
 	}
 	if len(raw) == 0 {
-		return &RebuildResult{Skipped: true}, nil
+		return &RebuildResult{Skipped: true, SkippedReason: "no_rules"}, nil
 	}
 
 	rr := make([]ruleset.RawRule, len(raw))
@@ -108,7 +111,7 @@ func Rebuild(ctx context.Context, log *slog.Logger, st *store.Store, b *blob.Sto
 		return nil, err
 	}
 	if len(instanceIDs) == 0 {
-		return &RebuildResult{Version: v, Skipped: true}, nil
+		return &RebuildResult{Version: v, Skipped: true, SkippedReason: "no_targets"}, nil
 	}
 
 	targetingRaw, _ := json.Marshal(t)

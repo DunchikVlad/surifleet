@@ -1702,6 +1702,7 @@ paths:
                 type: object
                 properties:
                   skipped: {type: boolean}
+                  skipped_reason: {type: string, enum: [no_rules, no_targets], description: 'Почему пропущено: no_rules — пустой состав (нет правил по выбранным origin/источникам/тегам), no_targets — таргетинг не дал инстансов'}
                   ruleset_version: {type: string}
                   ruleset_version_id: {type: string, format: uuid}
                   deployment_id: {type: string, format: uuid}

@@ -14,6 +14,8 @@ interface AutoRuleset {
   include_ioc: boolean;
   include_manual: boolean;
   include_feeds: boolean;
+  include_tags?: string[];
+  include_categories?: string[];
   exclude_sids: number[];
   include_sources?: string[];
   schedule_enabled?: boolean;
@@ -34,6 +36,54 @@ const schedLabel = (a: AutoRuleset): string => {
   }
   return a.schedule_time ? `ежедневно ${a.schedule_time}` : "—";
 };
+
+// AutoRulesetDetail — раскрытые детали авто-ruleset'а (чанк 99): что выбрано
+// в составе, запреты, таргетинг, последняя сборка + скачивание.
+function AutoRulesetDetail({ a, instances, version, onDownload }: {
+  a: AutoRuleset;
+  instances: { id: string; name: string; hostname?: string }[];
+  version?: string;
+  onDownload: () => void;
+}) {
+  const instName = (id: string) => {
+    const i = instances.find(x => x.id === id);
+    return i ? (i.hostname ? i.hostname + " · " : "") + i.name : id.slice(0, 8);
+  };
+  const targetingLabel =
+    a.targeting?.mode === "specific_instances"
+      ? (a.targeting.instance_ids || []).map(instName).join(", ") || "—"
+      : a.targeting?.mode === "all_clusters" ? "все кластеры" : (a.targeting?.mode || "—");
+  return (
+    <div className="muted" style={{ padding: "0.3em 0 0.5em 1.5em" }}>
+      <div>
+        Состав:{" "}
+        <b>
+          {[a.include_suriupdate && "suricata-update", a.include_ioc && "IOC", a.include_manual && "ручные", a.include_feeds && "фиды"]
+            .filter(Boolean).join(" + ")}
+        </b>
+        {a.include_suriupdate && (
+          <> · источники suricata-update: <b>{(a.include_sources || []).length ? a.include_sources!.join(", ") : "все"}</b></>
+        )}
+        {(a.include_tags || []).length > 0 && <> · теги: {a.include_tags!.join(", ")}</>}
+        {(a.include_categories || []).length > 0 && <> · категории: {a.include_categories!.join(", ")}</>}
+      </div>
+      <div>
+        Запрет на деплой (sid):{" "}
+        {(a.exclude_sids || []).length ? a.exclude_sids.join(", ") : "—"}
+      </div>
+      <div>Таргетинг: <b>{targetingLabel}</b></div>
+      <div>
+        Последняя сборка:{" "}
+        {a.last_built_at
+          ? <>{fmtTime(a.last_built_at)}{version ? ` (версия ${version})` : ""}</>
+          : "не собирался"}
+        {" "}<button className="btn" disabled={!a.last_ruleset_version_id}
+          title={a.last_ruleset_version_id ? "скачать последнюю сборку (.rules)" : "последней сборки нет"}
+          onClick={onDownload}>скачать .rules</button>
+      </div>
+    </div>
+  );
+}
 
 // AutoRulesetsPanel — авто-ruleset'ы: состав по происхождению (suricata-
 // update + IOC + ручные), exclude_sids — запрет на деплой, таргетинг
@@ -56,6 +106,10 @@ function AutoRulesetsPanel() {
   const [schedMode, setSchedMode] = React.useState<"daily" | "minutes" | "hours">("daily");
   const [schedTime, setSchedTime] = React.useState("03:00");
   const [schedEvery, setSchedEvery] = React.useState(30);
+  // детали строки (чанк 99): раскрытый авто-ruleset + версии ruleset'ов
+  // для отображения/скачивания последней сборки.
+  const [expanded, setExpanded] = React.useState<string | null>(null);
+  const [versions, setVersions] = React.useState<Map<string, string>>(new Map());
   const [mode, setMode] = React.useState("all_clusters");
   const [selInst, setSelInst] = React.useState<string[]>([]);
 
@@ -75,6 +129,15 @@ function AutoRulesetsPanel() {
             .then(x => setAllSources((x.items || []).map(y => y.name)))
             .catch(() => {});
         }
+      })
+      .catch(() => {});
+    // версии ruleset'ов: last_ruleset_version_id → "vN" для отображения
+    // и имени файла при скачивании последней сборки (чанк 99).
+    apiGet<Page<Ruleset>>("/rulesets?limit=100")
+      .then(d => {
+        const m = new Map<string, string>();
+        (d.items || []).forEach(v => m.set(v.id, v.version));
+        setVersions(m);
       })
       .catch(() => {});
   }, []);
@@ -106,13 +169,37 @@ function AutoRulesetsPanel() {
   const rebuild = async (a: AutoRuleset) => {
     setBusy(true);
     try {
-      const r = await apiPost<{ skipped: boolean; ruleset_version?: string; instances?: number }>(
+      const r = await apiPost<{ skipped: boolean; skipped_reason?: string; ruleset_version?: string; instances?: number }>(
         `/auto_rulesets/${a.id}/rebuild`, {});
       setMsg(r.skipped
-        ? `${a.name}: пересборка пропущена (пустой состав/нет целей)`
+        ? `${a.name}: пересборка пропущена — ${r.skipped_reason === "no_targets"
+            ? "нет целей (таргетинг не даёт инстансов)"
+            : "пустой состав (нет правил по выбранным origin/источникам/тегам)"}`
         : `${a.name}: версия ${r.ruleset_version}, инстансов: ${r.instances} — деплой пошёл`);
       await load();
     } catch (e) { setErr(e); } finally { setBusy(false); }
+  };
+
+  // downloadBuild — скачивание последней сборки авто-ruleset'а (чанк 99):
+  // тот же эндпоинт и блоб, что у обычных ruleset-версий.
+  const downloadBuild = async (a: AutoRuleset) => {
+    const vid = a.last_ruleset_version_id;
+    if (!vid) { setMsg(`${a.name}: последней сборки нет — сначала пересоберите`); return; }
+    try {
+      const base = import.meta.env.VITE_API_BASE ?? "/api/v1";
+      const r = await fetch(`${base}/rulesets/${vid}/download`, {
+        headers: { Authorization: "Bearer " + (localStorage.getItem("surifleet_token") || "") },
+      });
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      const ver = versions.get(vid) || vid.slice(0, 8);
+      const blob = await r.blob();
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(blob);
+      link.download = `surifleet-auto-${a.name}-${ver}.rules`;
+      link.click();
+      URL.revokeObjectURL(link.href);
+      setMsg(`${a.name}: последняя сборка ${ver} скачана (${blob.size} байт)`);
+    } catch (e) { setErr(e); }
   };
 
   const toggleEnabled = async (a: AutoRuleset) => {
@@ -137,23 +224,49 @@ function AutoRulesetsPanel() {
           <thead><tr><th>Имя</th><th>Состав</th><th>Запрет (sid)</th><th>Расписание</th><th>Последняя сборка</th><th></th></tr></thead>
           <tbody>
             {items.map(a => (
-              <tr key={a.id}>
-                <td><b>{a.name}</b>{!a.enabled && <span className="muted"> (выкл)</span>}</td>
-                <td className="muted">
-                  {[a.include_suriupdate && "suriupdate", a.include_ioc && "ioc", a.include_manual && "manual", a.include_feeds && "feeds"]
-                    .filter(Boolean).join(" + ")}
-                </td>
-                <td className="muted">{(a.exclude_sids || []).length || "—"}</td>
-                <td className="muted">{schedLabel(a)}</td>
-                <td className="muted">{a.last_built_at ? fmtTime(a.last_built_at) : "не собирался"}</td>
-                <td style={{ whiteSpace: "nowrap" }}>
-                  {can("rules.write") && <>
-                    <button className="btn primary" disabled={busy || !a.enabled} onClick={() => rebuild(a)}>пересобрать</button>{" "}
-                    <button className="btn" disabled={busy} onClick={() => toggleEnabled(a)}>{a.enabled ? "выкл" : "вкл"}</button>{" "}
-                    <button className="btn" disabled={busy} onClick={() => del(a)}>×</button>
-                  </>}
-                </td>
-              </tr>
+              <React.Fragment key={a.id}>
+                <tr>
+                  <td>
+                    <button className="btn" style={{ padding: "0 0.4em" }} title="что выбрано в составе"
+                      onClick={() => setExpanded(expanded === a.id ? null : a.id)}>
+                      {expanded === a.id ? "▾" : "▸"}
+                    </button>{" "}
+                    <b>{a.name}</b>{!a.enabled && <span className="muted"> (выкл)</span>}
+                  </td>
+                  <td className="muted">
+                    {[a.include_suriupdate && "suriupdate", a.include_ioc && "ioc", a.include_manual && "manual", a.include_feeds && "feeds"]
+                      .filter(Boolean).join(" + ")}
+                  </td>
+                  <td className="muted">{(a.exclude_sids || []).length || "—"}</td>
+                  <td className="muted">{schedLabel(a)}</td>
+                  <td className="muted">
+                    {a.last_built_at ? fmtTime(a.last_built_at) : "не собирался"}
+                    {a.last_ruleset_version_id && versions.get(a.last_ruleset_version_id)
+                      ? ` (${versions.get(a.last_ruleset_version_id)})` : ""}
+                  </td>
+                  <td style={{ whiteSpace: "nowrap" }}>
+                    {can("rules.write") && <>
+                      <button className="btn primary" disabled={busy || !a.enabled} onClick={() => rebuild(a)}>пересобрать</button>{" "}
+                    </>}
+                    <button className="btn" disabled={!a.last_ruleset_version_id}
+                      title={a.last_ruleset_version_id ? "скачать последнюю сборку (.rules)" : "последней сборки нет"}
+                      onClick={() => downloadBuild(a)}>скачать</button>{" "}
+                    {can("rules.write") && <>
+                      <button className="btn" disabled={busy} onClick={() => toggleEnabled(a)}>{a.enabled ? "выкл" : "вкл"}</button>{" "}
+                      <button className="btn" disabled={busy} onClick={() => del(a)}>×</button>
+                    </>}
+                  </td>
+                </tr>
+                {expanded === a.id && (
+                  <tr>
+                    <td colSpan={6}>
+                      <AutoRulesetDetail a={a} instances={instances}
+                        version={a.last_ruleset_version_id ? versions.get(a.last_ruleset_version_id) : undefined}
+                        onDownload={() => downloadBuild(a)} />
+                    </td>
+                  </tr>
+                )}
+              </React.Fragment>
             ))}
           </tbody>
         </table>
