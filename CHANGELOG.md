@@ -7,6 +7,14 @@
 
 ### Added
 
+- Чанк 101 (2026-10-10): история применений конфига — провал рестарта
+  при деплое теперь виден: агент прикрепляет DeployConfigResult к
+  failed-ответу (ValidationPassed=true, вывод suricata -T) → сервер
+  пишет deploy_failed в instance_config_history (раньше детали не
+  прикреплялись — запись пропускалась). Таймаут systemctl restart
+  90→120 с (конкурентные рестарты suricata на стенде). Сервер без
+  изменений. Живой регресс: перекат агента .67, validate_only →
+  validated в истории. (agent)
 - Чанк 100 (2026-10-10): предпросмотр состава авто-ruleset'а — GET
   /auto_rulesets/preview (count правил по тем же фильтрам, что у сборки;
   whereByOrigins — общая константа SELECT/COUNT); UI: «по выбранным
