@@ -239,33 +239,35 @@ func (r *AgentsRepo) CreateEnrolled(ctx context.Context, tx pgx.Tx, id, hostID u
 // SetStatus обновляет статус/last_seen_at агента и при смене статуса пишет
 // запись в agent_state_history (heartbeat пишет last_seen_at троттлированно
 // через TouchLastSeen, в историю попадают только смены состояния — §5.4). Атомарно, в одной транзакции.
+// Возвращает true, если статус реально сменился (prev != status) — хаб по
+// этому флаку публикует события переходов (KI-2, чанк 103).
 // Нет записи → ErrNotFound.
-func (r *AgentsRepo) SetStatus(ctx context.Context, id uuid.UUID, status string, details map[string]any) error {
+func (r *AgentsRepo) SetStatus(ctx context.Context, id uuid.UUID, status string, details map[string]any) (bool, error) {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
-		return translate(err)
+		return false, translate(err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	var prev string
 	err = tx.QueryRow(ctx, `SELECT status FROM agents WHERE id = $1 FOR UPDATE`, id).Scan(&prev)
 	if err != nil {
-		return translate(err)
+		return false, translate(err)
 	}
 	if _, err := tx.Exec(ctx,
 		`UPDATE agents SET status = $2, last_seen_at = now(), updated_at = now() WHERE id = $1`,
 		id, status); err != nil {
-		return translate(err)
+		return false, translate(err)
 	}
 	if prev != status {
 		if _, err := tx.Exec(ctx,
 			`INSERT INTO agent_state_history (agent_id, previous_status, status, details)
 			 VALUES ($1, $2, $3, $4)`,
 			id, prev, status, details); err != nil {
-			return translate(err)
+			return false, translate(err)
 		}
 	}
-	return translate(tx.Commit(ctx))
+	return prev != status, translate(tx.Commit(ctx))
 }
 
 // HeartbeatPulse — пульс heartbeat (chunk 23): обновляет last_seen_at. Если

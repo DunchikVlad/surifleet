@@ -90,9 +90,11 @@ type Server struct {
 	// OnAgentOnline — подписчик подключения агента (подхват pending-задач).
 	OnAgentOnline func(ctx context.Context, agentID uuid.UUID)
 	// OnAgentStatus — подписчик смен статусов online/offline (чанк 84,
-	// движок уведомлений): вызывается при переходах (разрыв стрима →
-	// offline, свипер → offline, heartbeat-revive → online). nil — выкл.
-	OnAgentStatus func(ctx context.Context, agentID uuid.UUID, status string)
+	// движок уведомлений): вызывается при ПЕРЕХОДАХ (подключение → online,
+	// разрыв стрима → offline, свипер → offline, heartbeat-revive → online).
+	// ip — последний известный IP агента (remote-addr стрима; пусто — не
+	// знаем; чанк 103, KI-3). nil — выкл.
+	OnAgentStatus func(ctx context.Context, agentID uuid.UUID, status, ip string)
 }
 
 // NewServer собирает Hub.
@@ -119,9 +121,10 @@ func (s *Server) AgentIP(agentID uuid.UUID) (string, bool) {
 }
 
 // emitStatus — уведомить подписчика смены статуса (чанк 84; nil-безопасно).
-func (s *Server) emitStatus(ctx context.Context, agentID uuid.UUID, status string) {
+// ip — последний известный IP агента (чанк 103).
+func (s *Server) emitStatus(ctx context.Context, agentID uuid.UUID, status, ip string) {
 	if s.OnAgentStatus != nil {
-		s.OnAgentStatus(ctx, agentID, status)
+		s.OnAgentStatus(ctx, agentID, status, ip)
 	}
 }
 
@@ -175,26 +178,38 @@ func (s *Server) Channel(stream grpc.BidiStreamingServer[agentv1.AgentMessage, a
 
 	// Online: PostgreSQL (статус + история) и Redis (presence с TTL).
 	details := map[string]any{"hub_id": s.hubID, "session_id": sessionID, "boot_id": hello.GetBootId()}
-	if err := s.db.Agents.SetStatus(ctx, agentID, "online", details); err != nil {
+	onlineChanged, err := s.db.Agents.SetStatus(ctx, agentID, "online", details)
+	if err != nil {
 		log.Error("установка статуса online", "err", err)
 		return status.Errorf(codes.Internal, "смена статуса: %v", err)
 	}
 	// IP подключения — для вкладки «Инстансы» (чанк 78): remote-addr
 	// стрима без порта.
+	var agentIP string
 	if p, ok := peer.FromContext(ctx); ok && p.Addr != nil {
-		s.SetAgentIP(agentID, remoteHost(p.Addr.String()))
+		agentIP = remoteHost(p.Addr.String())
+		s.SetAgentIP(agentID, agentIP)
 	}
 	if err := s.setPresence(ctx, agentID, sessionID); err != nil {
 		log.Error("регистрация presence в Redis", "err", err)
 	}
 	// SetStatus уже записал last_seen_at=now() — считаем пульс свежим.
 	s.lastTouch.Store(agentID, time.Now())
+	// Реальный переход в online (offline → online) — событие для движка
+	// уведомлений (KI-2, чанк 103): раньше online уходил только из
+	// heartbeat-revive, recovery-сообщение не приходило.
+	if onlineChanged {
+		s.emitStatus(ctx, agentID, "online", agentIP)
+	}
 
 	// Отключение — при выходе из функции (разрыв, ошибка, shutdown).
 	// Защита от дубль-стрима: статус offline ставим, только если в реестре
 	// всё ещё ЭТА сессия (иначе агент переподключился и жив на новой).
 	defer func() {
 		s.lastTouch.Delete(agentID)
+		// IP захватываем до удаления из реестра — offline-уведомление
+		// должно знать адрес, с которого агент был виден (KI-3, чанк 103).
+		lastIP, _ := s.AgentIP(agentID)
 		cur, registered := s.streams.Load(agentID)
 		if registered && cur.(*streamHandle).sessionID != sessionID {
 			log.Info("отключилась старая сессия — агент жив на новой, статус не меняем",
@@ -203,7 +218,8 @@ func (s *Server) Channel(stream grpc.BidiStreamingServer[agentv1.AgentMessage, a
 		}
 		bgCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		if err := s.db.Agents.SetStatus(bgCtx, agentID, "offline", map[string]any{"hub_id": s.hubID, "session_id": sessionID}); err != nil {
+		offlineChanged, err := s.db.Agents.SetStatus(bgCtx, agentID, "offline", map[string]any{"hub_id": s.hubID, "session_id": sessionID})
+		if err != nil {
 			log.Error("установка статуса offline", "err", err)
 		}
 		s.DeleteAgentIP(agentID)
@@ -215,7 +231,9 @@ func (s *Server) Channel(stream grpc.BidiStreamingServer[agentv1.AgentMessage, a
 		}
 		// Агент офлайн — compliance инстансов хоста больше недостоверен (stale).
 		s.recomputeHostCompliance(bgCtx, log, agentID, false)
-		s.emitStatus(bgCtx, agentID, "offline")
+		if offlineChanged {
+			s.emitStatus(bgCtx, agentID, "offline", lastIP)
+		}
 		log.Info("агент отключился")
 	}()
 
@@ -332,7 +350,8 @@ func (s *Server) handleMessage(ctx context.Context, log *slog.Logger, agentID uu
 					// Свипер успел погасить агента, но стрим жив — вернули online.
 					log.Warn("агент снова online: heartbeat возобновился")
 					s.recomputeHostCompliance(ctx, log, agentID, true)
-					s.emitStatus(ctx, agentID, "online")
+					ip, _ := s.AgentIP(agentID)
+					s.emitStatus(ctx, agentID, "online", ip)
 				}
 			}
 		}
@@ -558,6 +577,8 @@ func (s *Server) SweepOfflineAgents(ctx context.Context, offlineAfter time.Durat
 		return 0, err
 	}
 	for _, id := range ids {
+		// IP захватываем до удаления — offline-уведомление с адресом (KI-3).
+		lastIP, _ := s.AgentIP(id)
 		if err := s.rdb.Del(ctx, presenceKey(id)).Err(); err != nil {
 			s.log.Error("свипер offline: удаление presence", "agent_id", id, "err", err)
 		}
@@ -569,7 +590,7 @@ func (s *Server) SweepOfflineAgents(ctx context.Context, offlineAfter time.Durat
 		s.log.Warn("агент помечен offline: heartbeat-timeout",
 			"agent_id", id, "offline_after", offlineAfter.String())
 		s.recomputeHostCompliance(ctx, s.log, id, false)
-		s.emitStatus(ctx, id, "offline")
+		s.emitStatus(ctx, id, "offline", lastIP)
 	}
 	return len(ids), nil
 }

@@ -925,7 +925,51 @@ same-rev перевыпуск фида (2 правила обновляются 
 отдельная задача: при конфликте (rule_id, revision) брать max(revision)+1
 (задокументировано ранее); при живом форсе провала рестарта — догнать
 e2E ветки deploy_failed (запись теперь есть, чанк 101).
-✅ ЗАКРЫТО чанком 82.
+✅ KI-2..KI-4 ЗАКРЫТО чанком 103 (ниже).
+
+Чанк 103 ГОТОВ (2026-10-10, этот коммит; без переката — по команде
+пользователя стенд не трогаем): доработки уведомлений по замечаниям
+живого стенда (docs/known-issues.md KI-2..KI-4 — все три закрыты, код
+server-only). (1) KI-2 — recovery «агент снова онлайн»: коренная причина
+— online-переход при обычном переподключении (Hello в hub.Channel) вообще
+не публиковался в OnAgentStatus (только heartbeat-revive публиковал);
+AgentsRepo.SetStatus теперь возвращает факт смены (prev != status) — хаб
+шлёт online из Hello при реальном переходе (и offline только при реальном
+переходе в defer/свипере); emitStatus/OnAgentStatus дополнены IP; в
+cmd/server новый notify.OfflineTracker (internal/notify/guard.go) —
+recovery уходит только если offline-эпизод зафиксирован этим процессом
+(иначе reconnect-шторм после рестарта сервера дал бы волну ложных
+«снова онлайн» по флоту), повторы всё равно глушит дедуп 10 мин; текст
+recovery с длительностью («был недоступен 12м34с»). (2) KI-3 — hostname +
+IP в текстах событий по агентам: хаб захватывает IP из реестра ДО
+удаления (defer отключения, свипер) и передаёт в OnAgentStatus; эмиттер
+(cmd/server/notify.go — emitAgentStatusEvent перенесён из main.go)
+формирует единый формат «Агент test1 (192.168.31.67), кластер DC-1, …»,
+fallback — ip_addresses карточки хоста. (3) KI-4 — уведомление о провале
+задачи деплоя: Orchestrator.OnTaskFailed (вызывается из failTask и
+HandleTaskResult при status=failed) → emitDeployFailedEvent: событие
+deploy.task_failed (дедуп по task_id) с ruleset версией+sha (rules) /
+cfg-версией (config), инстансом (имя + хост hostname+IP), попытками
+attempts/max_attempts, текстом ошибки (notify.ClipText — 4 строки /
+300 символов, UTF-8-safe), полем rolled_back (прежняя версия на сенсоре
+сохранена — поток агента откатывает изменения при провале). Юнит-тесты:
+guard_test.go — OfflineTracker (online без offline подавляется, пара
+offline→online, повторный online, независимость агентов) + ClipText.
+Проверки: go build/vet зелёные, go test ./... — единственный FAIL
+известный не-блокер samlauth (NTFS 0600); npm не затронут. Живой e2E
+(рестарт агента .67 → offline+online с IP/hostname; битый ruleset →
+failed → Telegram) — при перекате .28.
+
+**Следующий шаг после 103**: живой e2E чанка 103 при перекате .28
+(KI-проверки из known-issues: рестарт агента → offline + recovery с
+IP/hostname; failed-деплой правил → уведомление с контекстом); далее из
+backlog: KI-1 (канонизация diff в цепочке хэшей аудита — jsonb-нормализация
+vs сериализация при записи), живой e2E дашбордов UI/тест уведомлений/
+SIEM-применение на агенте, живая проверка rollback профилей
+(/versions/diff), include_sources с чекбоксами под конкретного агента
+(сейчас список — с первого инстанса), same-rev перевыпуск фида
+(отдельная задача: max(revision)+1 при конфликте), при живом форсе
+провала рестарта — догнать e2E ветки deploy_failed (ч. 101).
 
 **Следующий шаг после 64**: рендер профиля (resolve parent-цепочки +
 подстановка переменных {{var}} — решить синтаксис) и интеграция с

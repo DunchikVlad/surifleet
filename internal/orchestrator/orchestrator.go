@@ -50,6 +50,12 @@ type Orchestrator struct {
 	router Router
 	log    *slog.Logger
 
+	// OnTaskFailed — подписчик провала задачи деплоя (чанк 103, KI-4:
+	// уведомление о неудачном обновлении правил/конфигурации с контекстом
+	// — ruleset, инстанс, ошибка, попытки). Вызывается синхронно после
+	// фиксации failed; nil — выкл.
+	OnTaskFailed func(ctx context.Context, t store.DeploymentTask, errMsg string)
+
 	mu      sync.Mutex
 	running map[uuid.UUID]bool // деплои с активной горутиной run
 }
@@ -430,6 +436,13 @@ func (o *Orchestrator) HandleTaskResult(ctx context.Context, agentID uuid.UUID, 
 	o.event(ctx, t.DeploymentID, &t.ID, &t.InstanceID, "task_"+status,
 		fmt.Sprintf("задача %s: %s", taskID, status))
 	log.Info("результат задачи зафиксирован", "status", status, "deployment_id", t.DeploymentID)
+	if status == "failed" && o.OnTaskFailed != nil {
+		msg := res.GetError()
+		if msg == "" {
+			msg = "задача отвечена агентом как failed без текста ошибки"
+		}
+		o.OnTaskFailed(ctx, t, msg)
+	}
 }
 
 // DispatchPending — колбэк hub.OnAgentOnline: подхват накопленных
@@ -461,6 +474,9 @@ func (o *Orchestrator) failTask(ctx context.Context, deploymentID uuid.UUID, t s
 		return
 	}
 	o.event(ctx, deploymentID, &t.ID, &t.InstanceID, "task_failed", msg)
+	if o.OnTaskFailed != nil {
+		o.OnTaskFailed(ctx, t, msg)
+	}
 }
 
 // event — запись в историю деплоя (best-effort: ошибка только в лог).
