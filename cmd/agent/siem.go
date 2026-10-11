@@ -63,6 +63,41 @@ func sevToCEF(sev int) int {
 	}
 }
 
+// suriTSLayouts — форматы timestamp EVE (Suricata пишет
+// "2006-01-02T15:04:05.999999-0700"; встречаются RFC3339).
+var suriTSLayouts = []string{
+	"2006-01-02T15:04:05.999999999-0700",
+	"2006-01-02T15:04:05-0700",
+	time.RFC3339Nano,
+	time.RFC3339,
+}
+
+// cefRT — нормализация rt (deviceReceiptTime) для CEF (чанк 118):
+// канонический CEF принимает rt как миллисекунды с эпохи; Suricata-ISO и
+// epoch (сек/мс) приводим к ms, мусор/пусто → "" (rt опускается). Без
+// нормализации в rt уходили непредсказуемые строки (наблюдение чанка 45:
+// rt=2731 у части событий — приёмники CEF не парсят такое).
+func cefRT(ts string) string {
+	ts = strings.TrimSpace(ts)
+	if ts == "" {
+		return ""
+	}
+	for _, l := range suriTSLayouts {
+		if t, err := time.Parse(l, ts); err == nil {
+			return strconv.FormatInt(t.UnixMilli(), 10)
+		}
+	}
+	if n, err := strconv.ParseInt(ts, 10, 64); err == nil {
+		switch {
+		case n > 10_000_000_000: // уже миллисекунды
+			return strconv.FormatInt(n, 10)
+		case n > 1_000_000_000: // секунды
+			return strconv.FormatInt(n*1000, 10)
+		}
+	}
+	return ""
+}
+
 // toCEF — alert-событие → CEF-строка:
 // CEF:0|Vendor|Product|Version|SignatureID|Name|Severity|Extension
 func (e *alertEvent) toCEF() string {
@@ -72,9 +107,11 @@ func (e *alertEvent) toCEF() string {
 		" spt=" + strconv.Itoa(e.SrcPort) +
 		" dst=" + cefEscape(e.DestIP) +
 		" dpt=" + strconv.Itoa(e.DestPort) +
-		" proto=" + cefEscape(e.Proto) +
-		" rt=" + cefEscape(e.Timestamp) +
-		" cs1Label=SuricataSignatureID cs1=" + sigID
+		" proto=" + cefEscape(e.Proto)
+	if rt := cefRT(e.Timestamp); rt != "" {
+		ext += " rt=" + rt
+	}
+	ext += " cs1Label=SuricataSignatureID cs1=" + sigID
 	return "CEF:0|SuriFleet|Suricata|1.0|" + sigID + "|" +
 		cefHeaderEscape(e.Alert.Signature) + "|" + sev + "|" + ext
 }

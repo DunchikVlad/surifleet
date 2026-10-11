@@ -43,6 +43,43 @@ func TestToCEF(t *testing.T) {
 	}
 }
 
+// TestCefRT — нормализация rt (чанк 118): Suricata-ISO → ms с эпохи,
+// epoch сек/мс — к ms, мусор/пусто — "" (rt опускается).
+func TestCefRT(t *testing.T) {
+	cases := []struct {
+		in   string
+		want string
+	}{
+		{"2026-10-03T12:00:00.000000+0000", "1791028800000"},
+		{"2026-10-03T12:00:00+03:00", "1791018000000"}, // RFC3339 с TZ
+		{"1791028800", "1791028800000"},               // epoch секунды
+		{"1791028800000", "1791028800000"},            // epoch миллисекунды
+		{"2731", ""},                                  // мусор (наблюдение чанка 45)
+		{"", ""},
+		{"not-a-date", ""},
+	}
+	for _, c := range cases {
+		if got := cefRT(c.in); got != c.want {
+			t.Errorf("cefRT(%q) = %q, ожидается %q", c.in, got, c.want)
+		}
+	}
+	// toCEF: валидный timestamp даёт rt=<ms>, мусорный — опускает rt.
+	var ev alertEvent
+	line := alertJSON(7, "rt ok", "192.0.2.7")
+	if err := json.Unmarshal([]byte(line), &ev); err != nil {
+		t.Fatal(err)
+	}
+	cef := ev.toCEF()
+	if !strings.Contains(cef, "rt=1791028800000") {
+		t.Errorf("rt в CEF = %q", cef)
+	}
+	ev.Timestamp = "2731"
+	cef = ev.toCEF()
+	if strings.Contains(cef, "rt=") {
+		t.Errorf("мусорный rt не опущен: %q", cef)
+	}
+}
+
 func TestNewAlertsFiltersAndRotation(t *testing.T) {
 	dir := t.TempDir()
 	p := filepath.Join(dir, "eve.json")
