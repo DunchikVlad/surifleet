@@ -82,6 +82,33 @@ install/remove/update пакетов — путь тот же executor'а, жд�
 с хоста (fetch/редактирование update.yaml, sources/*.yaml,
 enable/disable/modify.conf по образцу fetch_config/deploy_config).
 
+Чанк 112 ГОТОВ (2026-10-11, этот коммит; **живой e2E пройден**):
+статус suricata-update и PID в UI (второй пункт backlog). Proto:
+Heartbeat.suricata_update = 9 (добавочное, wire-совместимо) +
+SuricataUpdateStatus (running/pid, last_result/last_run_at/last_error,
+index_version/index_updated_at). Агент `cmd/agent/update_status.go`:
+running/PID — скан /proc по argv (basename элемента «suricata-update»;
+pgrep -f не подходит — матчит наши же ssh/sudo-врапперы, найдено при
+подготовке e2e; движок suricata не матчится); трекинг своих прогонов —
+data_dir/suricata-update-status.json (запись в executeSuricataUpdate,
+success/failed); index — version из update/cache/index.yaml + mtime.
+Хаб: Redis agent_upd:{agent_id} (protojson, TTL 120 с) + AgentUpdateStatus.
+API: GET /instances/{id}/suricata_update/status (rules.read, scoping) —
+блок + suricata_pid/state (heartbeat чанка 80); available=false — агент
+offline или старше чанка 112. UI: строка статуса в панели
+suricata-update «Правила» (опрос 15 с). Юнит-тесты: детект процесса
+(фейковый /proc: враппер не матчится, selfPid исключён), indexInfo,
+round-trip трекинга. **Живой e2E (.28+.67 перекатаны)**: до прогона —
+available, index v1 (updated 09.10), suricata_pid 1231; прогон update
+через API → last_result=success, last_run_at свежий; детект running
+проверен пробником exec -a /usr/bin/suricata-update sleep 45 →
+running=true pid=2037 в Redis и API, после выхода — false/0 (окно
+реального прогона ~17-25 с на фазе heartbeat 30 с можно промахнуть —
+данные снапшотные, это норма); suricata_pid 1231 == systemctl MainPID;
+бандл UI содержит панель; compliance in_sync 1/1. Остался третий пункт
+backlog: конфиги suricata-update с хоста (fetch/редактирование
+update.yaml, sources/*.yaml, enable/disable/modify.conf).
+
 **Решения заказчика 09.10**: исключены из scope автодетект инцидентов
 (10 типов, п. 7 ТЗ) и симулятор флота (1k/10k агентов, п. 10 ТЗ) —
 отмечены ⬛ в FEATURES и roadmap. Добавлен приоритет 1E (редактор

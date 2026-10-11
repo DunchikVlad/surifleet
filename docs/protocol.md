@@ -42,7 +42,7 @@
 | Сообщение | Периодичность | Ключевые поля |
 |---|---|---|
 | `Hello` | при подключении | `agent_id`, `agent_version`, `protocol_version` (=1), `boot_id`, `hostname`, `instances[]` (InstanceInfo), `capabilities[]` |
-| `Heartbeat` | 30 с (из HelloAck) | `agent_id`, `uptime_seconds`, версии, `resources{cpu_percent, mem_bytes, disk_used_percent}`, `clock_offset_ms`, `instances[]{instance_id, state, pid}` |
+| `Heartbeat` | 30 с (из HelloAck) | `agent_id`, `uptime_seconds`, версии, `resources{cpu_percent, mem_bytes, disk_used_percent}`, `clock_offset_ms`, `instances[]{instance_id, state, pid}`, `agent_pid` (чанк 80), `suricata_update{running, pid, last_result, last_run_at, last_error, index_version, index_updated_at}` (чанк 112) |
 | `StateReport` | после деплоя + каждые 300 с | `instance_id`, `ruleset_hash`, `loaded_rules[]{sid,rev}`, `failed_rules[]{sid,rev,error_text}`, `last_reload{action,success,message,finished_at}`, `reported_at`, `full` |
 | `RuleLoadReport` | сразу после reload/restart | `instance_id`, `ruleset_hash`, `loaded_count`, `failed_rules[]`, `verified_at` |
 | `MetricsBatch` | 60 с | `points[]{ts, instance_id (пусто = хост), name, value, labels{}}` |

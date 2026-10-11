@@ -30,6 +30,32 @@
 
 ### Added
 
+- Чанк 112 (2026-10-11): статус suricata-update в UI (backlog заказчика).
+  Proto: `Heartbeat.suricata_update = 9` (добавочное — wire-совместимо)
+  + сообщение `SuricataUpdateStatus` (running/pid процесса, итог/время
+  последнего прогона с текстом ошибки, версия/время индекса источников).
+  Агент `cmd/agent/update_status.go`: скан /proc по argv (basename
+  элемента == «suricata-update») — shell-врапперы с подстрокой не
+  матчатся (в отличие от pgrep -f); трекинг своих прогонов в
+  data_dir/suricata-update-status.json (запись из executeSuricataUpdate
+  по факту завершения — success/failed); version из
+  update/cache/index.yaml + mtime. Heartbeat раз в 30 с несёт блок.
+  Хаб: Redis `agent_upd:{agent_id}` (protojson, TTL 120 с) + метод
+  `AgentUpdateStatus`. API: GET /instances/{id}/suricata_update/status
+  (rules.read, scoping) — статус + PID/состояние движка Suricata
+  (heartbeat чанка 80); available=false — агент offline или старше
+  чанка 112. UI: строка статуса в панели suricata-update вкладки
+  «Правила» (опрос 15 с: работает/ожидание, PID, итог+время последнего
+  прогона, версия индекса, PID движка). Юнит-тесты: детект процесса
+  (враппер не матчится, selfPid исключён, движок suricata не матчится),
+  indexInfo, round-trip трекинга. **Живой e2E**: статус до прогона
+  (index v1, updated 09.10); прогон update через API → last_result
+  success + last_run_at; пробник `exec -a /usr/bin/suricata-update
+  sleep 45` → Redis и API показали running=true pid=2037, после выхода —
+  false/0; suricata_pid 1231 == systemctl MainPID; compliance
+  in_sync 1/1. Окно running у реального прогона (~17-25 с) может
+  переживать heartbeat (30 с) — данные снапшотные. (proto, agent,
+  server, api, ui)
 - Чанк 111 (2026-10-11): задачи под capabilities log_rotation и packages
   (backlog заказчика; до этого capability включались на хостах, но задач
   под них в агенте не было). Proto: `LogRotationTask` (Task oneof =19:

@@ -41,6 +41,18 @@ UI (Правила / Ruleset'ы)
 источников на вкладке «Правила» (и источники для авто-ruleset'ов на
 вкладке «Ruleset'ы»).
 
+### 2.1 Статус suricata-update (heartbeat, чанк 112)
+
+`GET /instances/{id}/suricata_update/status` (rules.read) — свежий блок
+`Heartbeat.suricata_update` (Redis `agent_upd:{agent_id}`, TTL 120 с):
+`running`/`pid` (скан /proc по argv — shell-врапперы с подстрокой не
+матчатся), `last_result`/`last_run_at`/`last_error` (последний прогон,
+запущенный агентом — трекинг в `data_dir/suricata-update-status.json`),
+`index_version`/`index_updated_at` (update/cache/index.yaml), плюс PID и
+состояние движка Suricata (heartbeat чанка 80). `available=false` —
+агент offline или старше чанка 112. В UI — строка статуса в панели
+suricata-update вкладки «Правила» (опрос 15 с).
+
 ## 3. Запуск обновления (async, 202)
 
 `POST /instances/{id}/suricata_update` (rules.write), тело:

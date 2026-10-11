@@ -435,6 +435,11 @@ not_found, conflict, internal). Пагинация — keyset: параметр�
   (источники, заливка набора в S3, импорт в общий список; чанки 82/90/95);
   `GET /instances/{id}/suricata_update/sources` — список источников.
   Capability `rules`. Механика: [docs/rule-updates.md](rule-updates.md).
+  `GET /instances/{id}/suricata_update/status` (чанк 112) — статус из
+  heartbeat агента: идёт ли обновление и PID процесса, итог/время
+  последнего прогона (трекает агент в data_dir), версия/время индекса
+  источников, PID и состояние движка Suricata; `available=false` — агент
+  offline или старше чанка 112.
 - `GET /instances/{id}/config/current`, POST /config_versions/{id}/deploy —
   чтение/деплой suricata.yaml (capability `config`).
 - `POST /instances/{id}/service_action` `{action: reload|restart|start|
