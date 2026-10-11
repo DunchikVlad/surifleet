@@ -871,6 +871,17 @@
 
 ### Fixed
 
+- Чанк 113 (2026-10-11): уточнение KI-6 по требованию заказчика
+  («правила не катятся по времени, только при создании Ruleset'а»).
+  Пропуск деплоя при неизменном составе (unchanged, чанк 110) сужен до
+  триггера suricata-update: Rebuild получил параметр skipUnchanged
+  (HandleSuriupdateResult — true; интервальное/суточное расписание и
+  ручная пересборка POST /auto_rulesets/{id}/rebuild — false, деплой
+  создаётся всегда: заказчик ждёт регулярную перекатку по времени).
+  Гейт list-only (uploaded_bytes > 0) не тронут. e2e: тик планировщика
+  (10 мин) создал деплой той же версии → completed; 3 вызова /sources —
+  деплоев не прибавилось, last_built_at не сдвинулся. (server)
+
 - Чанк 110 (2026-10-11): KI-6 — лавина деплоев правил. Корень:
   `autoruleset.HandleSuriupdateResult` срабатывал на любой успешный
   SuricataUpdateResult, включая list-only вызовы GET
