@@ -171,6 +171,33 @@ expected_sha 502, traversal ../escape агентом 502) → история 5 �
 rollback профилей), same-rev перевыпуск фида, include_sources под
 агента.
 
+Чанк 114 ГОТОВ (2026-10-11, этот коммит; **живой e2E пройден** — запрос
+заказчика). Три части:
+(1) **Авто-ruleset test123 с интервалом 10 мин** (уже создан заказчиком):
+include_suriupdate+ioc+manual (все три origin по уточнению заказчика;
+ feeds не включены), include_sources 6 источников (et/open и др.),
+targeting all_clusters, schedule_interval_minutes=10. **Тик
+планировщика подтверждён**: last_built_at 10:12:12 → 10:23:11 UTC
+(due = last+10 мин → минутный тик собрал в 10:22-10:23, деплой
+bf8df58c создан; настенный каденс ≈ 11 мин, т.к. интервал считается
+от завершения сборки 53k правил — норма).
+(2) **e2E «новый IOC → правило алерта»**: IOC ip 198.51.100.78
+(TEST-NET-2) → POST /iocs/generate deploy:true → created=1, правило
+sid 8809548 `alert ip 198.51.100.78 any -> any any (msg:"SuriFleet IOC
+ip 198.51.100.78"; sid:8809548; rev:2;)` source_type=ioc enabled →
+ruleset ioc-current-af34f67c (20 правил) → деплой c1ff4244 completed →
+**матрица: ячейка sid 8809548 = loaded на test1** (правило в движке).
+Отзыв: DELETE ioc (204) → правило disabled (чанк 19) → rebuild test123
+(v5, деплой completed) → ячейка исчезла (правило вышло из набора) →
+compliance in_sync 1/1. (IOC .77 конфликт (org,type,value) — уже был в
+БД, его правило 8852881 подтвердило паттерн.)
+(3) **Сортировка в «IOC / Threat Intel»** (UI-only): SortTh/sortBy
+(паттерн чанков 53/104) — кликабельные заголовки ▲/▼: тип/значение/
+score/статус/источник/истекает/создан (дефолт created_at desc, даты
+численно, пустые в конец). npm build чисто; go не затронут.
+Следующий шаг: same-rev перевыпуск фида, include_sources под агента,
+живой e2E deferred-частей.
+
 **Решения заказчика 09.10**: исключены из scope автодетект инцидентов
 (10 типов, п. 7 ТЗ) и симулятор флота (1k/10k агентов, п. 10 ТЗ) —
 отмечены ⬛ в FEATURES и roadmap. Добавлен приоритет 1E (редактор

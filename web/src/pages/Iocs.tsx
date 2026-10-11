@@ -1,6 +1,6 @@
 import React from "react";
 import { apiDelete, apiGet, apiPost, Ioc, IocGenerateResult, Page } from "../api";
-import { Badge, ErrorBox, fmtTime } from "../components";
+import { Badge, ErrorBox, fmtTime, SortState, SortTh, sortBy } from "../components";
 import { useCan } from "../perms";
 
 const LIMIT = 50;
@@ -38,6 +38,22 @@ export default function Iocs({ active }: { active: boolean }) {
   const [genBusy, setGenBusy] = React.useState(false);
   const [genResult, setGenResult] = React.useState<IocGenerateResult | null>(null);
   const [genErr, setGenErr] = React.useState<unknown>(null);
+
+  // Сортировка таблицы (кликабельные заголовки, чанк 114): дефолт —
+  // созданы свежими первыми (порядок API).
+  const [sort, setSort] = React.useState<SortState>({ key: "created_at", dir: -1 });
+  const rows = sortBy(items, sort, (i, key) => {
+    switch (key) {
+      case "type": return i.type;
+      case "value": return i.value;
+      case "score": return i.score;
+      case "status": return i.status;
+      case "source": return i.source || undefined;
+      case "expires_at": return i.expires_at ? Date.parse(i.expires_at) : undefined;
+      case "created_at": return i.created_at ? Date.parse(i.created_at) : undefined;
+      default: return undefined;
+    }
+  });
 
   const generate = async () => {
     setGenBusy(true);
@@ -177,10 +193,19 @@ export default function Iocs({ active }: { active: boolean }) {
       {items.length > 0 && (
         <table>
           <thead>
-            <tr><th>Тип</th><th>Значение</th><th>Score</th><th>Статус</th><th>Источник</th><th>Истекает</th><th>Создан</th><th></th></tr>
+            <tr>
+              <SortTh label="Тип" k="type" sort={sort} onSort={setSort} />
+              <SortTh label="Значение" k="value" sort={sort} onSort={setSort} />
+              <SortTh label="Score" k="score" sort={sort} onSort={setSort} />
+              <SortTh label="Статус" k="status" sort={sort} onSort={setSort} />
+              <SortTh label="Источник" k="source" sort={sort} onSort={setSort} />
+              <SortTh label="Истекает" k="expires_at" sort={sort} onSort={setSort} />
+              <SortTh label="Создан" k="created_at" sort={sort} onSort={setSort} />
+              <th></th>
+            </tr>
           </thead>
           <tbody>
-            {items.map(i => {
+            {rows.map(i => {
               const ext = extLink(i);
               return (
                 <tr key={i.id}>
