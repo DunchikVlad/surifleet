@@ -1,6 +1,6 @@
 import React from "react";
 import { apiGet, apiPost, getToken, Page, Rule } from "../api";
-import { Badge, ErrorBox, SortState, SortTh, sortBy } from "../components";
+import { Badge, ErrorBox, fmtTime, SortState, SortTh, sortBy } from "../components";
 import { useCan } from "../perms";
 
 const LIMIT = 50;
@@ -159,6 +159,66 @@ function RuleEditor({ rule, onClose, onSaved }: {
 // SourceItem — источник suricata-update (чанк 82).
 interface SourceItem { name: string; enabled: boolean; summary?: string }
 
+// UpdateStatus — ответ GET /instances/{id}/suricata_update/status (чанк 112).
+interface UpdateStatus {
+  available: boolean;
+  running?: boolean;
+  pid?: number;
+  last_result?: string;
+  last_run_at?: string;
+  last_error?: string;
+  index_version?: string;
+  index_updated_at?: string;
+  suricata_state?: string;
+  suricata_pid?: number;
+}
+
+// UpdateStatusLine — живой статус suricata-update на сенсоре (чанк 112):
+// идёт ли обновление и PID процесса, итог/время последнего запуска,
+// версия индекса источников, PID движка Suricata. Опрос 15 с, пока панель
+// открыта и инстанс выбран.
+function UpdateStatusLine({ instID }: { instID: string }) {
+  const [st, setSt] = React.useState<UpdateStatus | null>(null);
+  const [err, setErr] = React.useState<unknown>(null);
+
+  React.useEffect(() => {
+    if (!instID) { setSt(null); return; }
+    let dead = false;
+    const load = () => apiGet<UpdateStatus>(`/instances/${instID}/suricata_update/status`)
+      .then(d => { if (!dead) { setSt(d); setErr(null); } })
+      .catch(e => { if (!dead) setErr(e); });
+    load();
+    const t = setInterval(load, 15000);
+    return () => { dead = true; clearInterval(t); };
+  }, [instID]);
+
+  if (!instID) return null;
+  if (err) return <p className="muted">Статус suricata-update: недоступен ({String(err)})</p>;
+  if (!st) return <p className="muted">Статус suricata-update: загрузка…</p>;
+  if (!st.available) {
+    return <p className="muted">Статус suricata-update: нет данных — агент offline или обновите агента (чанк 112).</p>;
+  }
+  const parts: string[] = [];
+  parts.push(st.running ? `обновление ИДЁТ (pid ${st.pid})` : "обновление не идёт");
+  if (st.last_result) {
+    parts.push(`последний прогон: ${st.last_result}${st.last_run_at ? " · " + fmtTime(st.last_run_at) : ""}`);
+  } else {
+    parts.push("прогонов агента ещё не было");
+  }
+  if (st.last_error) parts.push(`ошибка: ${st.last_error}`);
+  if (st.index_version) {
+    parts.push(`индекс источников: v${st.index_version}${st.index_updated_at ? " · " + fmtTime(st.index_updated_at) : ""}`);
+  }
+  if (st.suricata_pid) {
+    parts.push(`движок Suricata: ${st.suricata_state || "?"} (pid ${st.suricata_pid})`);
+  }
+  return (
+    <p className="muted">
+      Статус suricata-update: <b>{st.running ? "работает" : "ожидание"}</b> — {parts.join("; ")}
+    </p>
+  );
+}
+
 // SuricataUpdatePanel — suricata-update по кнопке (чанк 82): список
 // источников сенсора (enable/disable чекбоксами), запуск обновления;
 // итоговый набор заливается агентом на сервер и импортируется в общий
@@ -229,6 +289,7 @@ function SuricataUpdatePanel() {
           {busy ? "…" : "Источники"}
         </button>
       </p>
+      <UpdateStatusLine instID={instID} />
       {sources && (
         <p className="muted">
           {sources.map(x => (

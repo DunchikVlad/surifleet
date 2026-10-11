@@ -27,6 +27,7 @@ import (
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/surifleet/surifleet/internal/chlogs"
@@ -390,6 +391,14 @@ func (s *Server) handleMessage(ctx context.Context, log *slog.Logger, agentID uu
 				log.Error("agent_svc в Redis", "agent_id", agentID, "err", err)
 			}
 		}
+		// Статус suricata-update (чанк 112) — protojson в ключ с тем же TTL.
+		if st := hb.GetSuricataUpdate(); st != nil {
+			if raw, err := protojson.Marshal(st); err == nil {
+				if err := s.rdb.Set(ctx, agentUpdKey(agentID), raw, presenceTTL).Err(); err != nil {
+					log.Error("agent_upd в Redis", "agent_id", agentID, "err", err)
+				}
+			}
+		}
 
 	case *agentv1.AgentMessage_DiscoveryReport:
 		s.handleDiscoveryReport(ctx, log, agentID, p.DiscoveryReport)
@@ -422,6 +431,26 @@ func instanceSvcKey(instanceID uuid.UUID) string { return "instance_svc:" + inst
 
 // agentSvcKey — ключ PID процесса агента (heartbeat → Redis, TTL 120 с).
 func agentSvcKey(agentID uuid.UUID) string { return "agent_svc:" + agentID.String() }
+
+// agentUpdKey — ключ статуса suricata-update агента (heartbeat → Redis,
+// TTL 120 с; чанк 112).
+func agentUpdKey(agentID uuid.UUID) string { return "agent_upd:" + agentID.String() }
+
+// AgentUpdateStatus — статус suricata-update хоста агента из heartbeat
+// (running/pid, итог последнего прогона, версия индекса источников);
+// ok=false — данных нет (TTL протух: агент offline, или агент старше
+// чанка 112 и не шлёт блок).
+func (s *Server) AgentUpdateStatus(ctx context.Context, agentID uuid.UUID) (*agentv1.SuricataUpdateStatus, bool) {
+	raw, err := s.rdb.Get(ctx, agentUpdKey(agentID)).Bytes()
+	if err != nil {
+		return nil, false
+	}
+	st := &agentv1.SuricataUpdateStatus{}
+	if err := protojson.Unmarshal(raw, st); err != nil {
+		return nil, false
+	}
+	return st, true
+}
 
 // InstanceServiceState — последний статус systemd-сервиса инстанса из
 // heartbeat (state, pid); ok=false — данных нет (TTL протух или не было).

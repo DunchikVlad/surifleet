@@ -102,6 +102,7 @@ func (e *taskExecutor) executeSuricataUpdate(task *agentv1.Task, su *agentv1.Sur
 		cancel()
 		res.Output = tail(string(out), 30)
 		if err != nil {
+			e.saveRunStatus("failed", "suricata-update: "+err.Error())
 			e.failSuricataUpdate(taskID, res, "suricata-update: "+err.Error()+"; вывод: "+res.Output)
 			return
 		}
@@ -111,6 +112,7 @@ func (e *taskExecutor) executeSuricataUpdate(task *agentv1.Task, su *agentv1.Sur
 			data, rerr = readNewestRules(filepath.Dir(updateOutputDefault))
 		}
 		if rerr != nil {
+			e.saveRunStatus("failed", "чтение итогового набора: "+rerr.Error())
 			e.failSuricataUpdate(taskID, res, "чтение итогового набора: "+rerr.Error())
 			return
 		}
@@ -119,6 +121,7 @@ func (e *taskExecutor) executeSuricataUpdate(task *agentv1.Task, su *agentv1.Sur
 		// 4. Заливка итогового набора на сервер (импорт в общий список).
 		if su.GetUploadUrl() != "" {
 			if uerr := uploadFile(su.GetUploadUrl(), data); uerr != nil {
+				e.saveRunStatus("failed", "заливка набора на сервер: "+uerr.Error())
 				e.failSuricataUpdate(taskID, res, "заливка набора на сервер: "+uerr.Error())
 				return
 			}
@@ -155,6 +158,9 @@ func (e *taskExecutor) executeSuricataUpdate(task *agentv1.Task, su *agentv1.Sur
 	}
 
 	if len(opErrs) > 0 {
+		if needUpdate {
+			e.saveRunStatus("failed", strings.Join(opErrs, "; "))
+		}
 		e.failSuricataUpdate(taskID, res, strings.Join(opErrs, "; "))
 		return
 	}
@@ -165,8 +171,18 @@ func (e *taskExecutor) executeSuricataUpdate(task *agentv1.Task, su *agentv1.Sur
 	})
 	if needUpdate {
 		e.saveProcessed(taskID, cachedResult{Status: "succeeded"})
+		e.saveRunStatus("success", "")
 	}
 	log.Info("suricata-update завершён", "rules", res.RulesCount, "sources", len(res.Sources))
+}
+
+// saveRunStatus — трекинг последнего прогона для heartbeat/API статуса
+// (чанк 112); ошибка записи не валит задачу.
+func (e *taskExecutor) saveRunStatus(result, errText string) {
+	s := savedUpdateStatus{Result: result, FinishedAt: time.Now().UTC().Format(time.RFC3339), Error: errText}
+	if err := saveUpdateStatus(e.dataDir, s); err != nil {
+		e.log.Warn("трекинг прогона suricata-update", "err", err)
+	}
 }
 
 // failSuricataUpdate — failed с деталями SuricataUpdateResult (без журнала:

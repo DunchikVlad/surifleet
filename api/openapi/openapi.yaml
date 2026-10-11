@@ -2617,6 +2617,36 @@ paths:
                         summary: {type: string}
         default: {$ref: '#/components/responses/Error'}
 
+  /instances/{id}/suricata_update/status:
+    parameters:
+      - {$ref: '#/components/parameters/PathId'}
+    get:
+      operationId: get_suricata_update_status
+      tags: [rules]
+      summary: Статус suricata-update на хосте (heartbeat агента)
+      description: "Требуется право: rules.read. Свежий блок Heartbeat.suricata_update (Redis agent_upd, TTL 120 с): идёт ли обновление и PID процесса, итог/время последнего прогона (трекает агент), версия/время индекса источников; плюс PID и состояние движка Suricata. available=false — агент offline или старше чанка 112."
+      responses:
+        '200':
+          description: Статус (available=false — данных нет)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  instance_id: {type: string, format: uuid}
+                  agent_id: {type: string, format: uuid}
+                  available: {type: boolean}
+                  running: {type: boolean, description: "Идёт ли suricata-update прямо сейчас"}
+                  pid: {type: integer, format: int64, description: "PID процесса suricata-update (0 — не найден)"}
+                  last_result: {type: string, description: "Итог последнего прогона агента: success | failed | пусто"}
+                  last_run_at: {type: string, format: date-time}
+                  last_error: {type: string}
+                  index_version: {type: string, description: "version из update/cache/index.yaml"}
+                  index_updated_at: {type: string, format: date-time}
+                  suricata_state: {type: string}
+                  suricata_pid: {type: integer}
+        default: {$ref: '#/components/responses/Error'}
+
   /instances/{id}/config/current:
     parameters:
       - {$ref: '#/components/parameters/PathId'}

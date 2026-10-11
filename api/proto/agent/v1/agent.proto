@@ -162,6 +162,25 @@ message Heartbeat {
   int64 clock_offset_ms = 6;                // оценка смещения часов агента относительно сервера
   repeated InstanceServiceStatus instances = 7; // статус сервиса каждого инстанса
   int64 agent_pid = 8;                      // PID процесса агента (MainPID surifleet-agent; чанк 80)
+  // Состояние suricata-update на хосте (чанк 112): идёт ли обновление
+  // сейчас, итог/время последнего прогона (агент трекает свои запуски),
+  // версия/время индекса источников. Добавочное поле — старые стороны
+  // wire-совместимы.
+  SuricataUpdateStatus suricata_update = 9;
+}
+
+// SuricataUpdateStatus — состояние suricata-update на хосте (heartbeat,
+// чанк 112). running/pid — по факту процесса (скан /proc); last_* —
+// последний прогон, запущенный агентом (пишется в data_dir при задаче
+// suricata_update); index_* — update/cache/index.yaml на сенсоре.
+message SuricataUpdateStatus {
+  bool running = 1;                          // идёт ли suricata-update прямо сейчас
+  int64 pid = 2;                             // PID процесса (0 — не найден)
+  string last_result = 3;                    // итог последнего прогона агента: success | failed | "" (не было)
+  google.protobuf.Timestamp last_run_at = 4; // время завершения последнего прогона
+  string last_error = 5;                     // текст ошибки последнего провала (кратко)
+  string index_version = 6;                  // version из index.yaml (пусто — индекса нет)
+  google.protobuf.Timestamp index_updated_at = 7; // mtime index.yaml
 }
 
 // ResourceSummary — сводка ресурсов хоста.

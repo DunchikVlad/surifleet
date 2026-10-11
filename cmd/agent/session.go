@@ -212,6 +212,9 @@ func runSession(ctx context.Context, cfg *config.AgentConfig, id *identity, leve
 					ClockOffsetMs:   clockOffsetMs.Load(),
 					Instances:       svcStatuses,
 					AgentPid:        int64(os.Getpid()),
+					// Статус suricata-update (чанк 112): процесс, последний
+					// прогон, версия индекса источников.
+					SuricataUpdate: collectUpdateStatus("/proc", cfg.DataDir, os.Getpid()),
 				}}}
 				if err := send(hb); err != nil {
 					log.Warn("heartbeat не отправлен", "err", err)

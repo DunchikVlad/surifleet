@@ -218,6 +218,7 @@ func NewRouter(d Deps) http.Handler {
 				r.With(h.requirePerm(PermFleetRead)).Get("/deploy_history", h.getDeployHistory)
 				r.With(h.requirePerm(PermRulesWrite)).Post("/suricata_update", h.runSuricataUpdate)
 				r.With(h.requirePerm(PermRulesRead)).Get("/suricata_update/sources", h.listSuricataUpdateSources)
+				r.With(h.requirePerm(PermRulesRead)).Get("/suricata_update/status", h.suricataUpdateStatus)
 				r.With(h.requirePerm(PermConfigRead)).Get("/config/current", h.fetchInstanceConfig)
 				r.With(h.requirePerm(PermConfigRead)).Get("/config/history", h.getInstanceConfigHistory)
 				r.With(h.requirePerm(PermHostsWrite)).Post("/service_action", h.serviceAction)
