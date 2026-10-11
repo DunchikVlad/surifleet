@@ -127,7 +127,15 @@ origin выполнен.
 
 Чанк 113 ГОТОВ (2026-10-11, этот коммит; **живой e2E пройден**):
 конфиги suricata-update с хоста (последний пункт backlog 2026-10-11;
-по образцу fetch_config/deploy_config). Нюанс стенда: файлов
+по образцу fetch_config/deploy_config).
+**Коллизия номеров**: параллельная сессия запушила другой «чанк 113»
+(5d1a78e+14c34e9 — KI-6 сужен до триггера suricata-update: unchanged-skip
+только в HandleSuriupdateResult, расписание/ручной rebuild всегда
+деплоят; их e2E: тик планировщика → деплой completed). Пересечений по
+файлам нет; наш сервер .28 с 12:33 +0300 работает на обоих чанках сразу
+(сборка и e2E шли поверх их кода). Историю не переписываем (пушнута);
+дисциплина: дальше нумеровать чанки с 114, в PROGRESS ссылаться на
+«113 (конфиги)» и «113 (KI-6)». Нюанс стенда: файлов
 (/etc/suricata/update.yaml, enable/disable/modify.conf, update/sources/)
 на сенсоре НЕТ — suricata-update живёт на дефолтах; fetch отдаёт
 exists=false, deploy создаёт. Proto: FetchUpdateConfigTask (Task oneof
