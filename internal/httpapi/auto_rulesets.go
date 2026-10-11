@@ -20,40 +20,40 @@ import (
 
 // autoRulesetInput — POST/PATCH /auto_rulesets.
 type autoRulesetInput struct {
-	Name              string         `json:"name"`
-	Description       string         `json:"description"`
-	Enabled           *bool          `json:"enabled"`
-	IncludeSuriupdate *bool          `json:"include_suriupdate"`
-	IncludeIoc        *bool          `json:"include_ioc"`
-	IncludeManual     *bool          `json:"include_manual"`
-	IncludeFeeds      *bool          `json:"include_feeds"`
-	IncludeTags       []string       `json:"include_tags"`
-	IncludeCategories []string       `json:"include_categories"`
-	ExcludeSids       []int64        `json:"exclude_sids"`
-	IncludeSources    []string       `json:"include_sources"`
-	ScheduleEnabled   *bool          `json:"schedule_enabled"`
-	ScheduleTime      string         `json:"schedule_time"`
-	ScheduleIntervalMinutes *int     `json:"schedule_interval_minutes"` // каждые N минут; null/0 — режим «ежедневно» по schedule_time
-	Targeting         targetingInput `json:"targeting"`
-	BatchSize         int            `json:"batch_size"`
-	CanarySize        int            `json:"canary_size"`
+	Name                    string         `json:"name"`
+	Description             string         `json:"description"`
+	Enabled                 *bool          `json:"enabled"`
+	IncludeSuriupdate       *bool          `json:"include_suriupdate"`
+	IncludeIoc              *bool          `json:"include_ioc"`
+	IncludeManual           *bool          `json:"include_manual"`
+	IncludeFeeds            *bool          `json:"include_feeds"`
+	IncludeTags             []string       `json:"include_tags"`
+	IncludeCategories       []string       `json:"include_categories"`
+	ExcludeSids             []int64        `json:"exclude_sids"`
+	IncludeSources          []string       `json:"include_sources"`
+	ScheduleEnabled         *bool          `json:"schedule_enabled"`
+	ScheduleTime            string         `json:"schedule_time"`
+	ScheduleIntervalMinutes *int           `json:"schedule_interval_minutes"` // каждые N минут; null/0 — режим «ежедневно» по schedule_time
+	Targeting               targetingInput `json:"targeting"`
+	BatchSize               int            `json:"batch_size"`
+	CanarySize              int            `json:"canary_size"`
 }
 
 func (in *autoRulesetInput) toStore() store.AutoRulesetInput {
 	out := store.AutoRulesetInput{
-		Name:              strings.TrimSpace(in.Name),
-		IncludeTags:       in.IncludeTags,
-		IncludeCategories: in.IncludeCategories,
-		ExcludeSids:       in.ExcludeSids,
-		IncludeSources:    in.IncludeSources,
-		ScheduleTime:      schedTime(in.ScheduleTime),
+		Name:                    strings.TrimSpace(in.Name),
+		IncludeTags:             in.IncludeTags,
+		IncludeCategories:       in.IncludeCategories,
+		ExcludeSids:             in.ExcludeSids,
+		IncludeSources:          in.IncludeSources,
+		ScheduleTime:            schedTime(in.ScheduleTime),
 		ScheduleIntervalMinutes: schedInterval(in.ScheduleIntervalMinutes),
-		BatchSize:         in.BatchSize,
-		CanarySize:        in.CanarySize,
-		Enabled:           true,
-		IncludeSuriupdate: true,
-		IncludeIoc:        true,
-		IncludeManual:     true,
+		BatchSize:               in.BatchSize,
+		CanarySize:              in.CanarySize,
+		Enabled:                 true,
+		IncludeSuriupdate:       true,
+		IncludeIoc:              true,
+		IncludeManual:           true,
 	}
 	if in.Description != "" {
 		out.Description = &in.Description
@@ -245,7 +245,9 @@ func (h *handlers) rebuildAutoRuleset(w http.ResponseWriter, r *http.Request) {
 		writeStoreError(w, err)
 		return
 	}
-	res, err := autoruleset.Rebuild(r.Context(), errLog, h.d.Store, h.d.Blob, h.d.Orch, def)
+	// Ручная пересборка раскатывает всегда, даже если состав не изменился
+	// (skipUnchanged=false — чанк 113; пропуск только у триггера suricata-update).
+	res, err := autoruleset.Rebuild(r.Context(), errLog, h.d.Store, h.d.Blob, h.d.Orch, def, false)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, CodeValidation, err.Error(), nil)
 		return

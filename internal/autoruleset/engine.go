@@ -26,7 +26,7 @@ type RebuildResult struct {
 	Version    store.RulesetVersion
 	Deployment uuid.UUID
 	Instances  int
-	Skipped    bool   // нечего деплоить (нет правил/инстансов) — версия не создана
+	Skipped    bool // нечего деплоить (нет правил/инстансов) — версия не создана
 	// SkippedReason — почему пропущено: no_rules (пустой состав по
 	// origin/источникам/тегам) или no_targets (таргетинг не дал инстансов).
 	SkippedReason string
@@ -35,7 +35,10 @@ type RebuildResult struct {
 // Rebuild — собрать авто-ruleset заново: выборка raw-правил по origin/
 // тегам/категориям минус exclude_sids → блоб → версия ruleset →
 // резолв таргетинга → деплой (kind=rules) → старт оркестратора.
-func Rebuild(ctx context.Context, log *slog.Logger, st *store.Store, b *blob.Store, orch *orchestrator.Orchestrator, def store.AutoRuleset) (*RebuildResult, error) {
+// skipUnchanged=true (только триггер suricata-update): при неизменном
+// составе деплой не создаётся. Расписание и ручная кнопка (false) раскатывают
+// всегда — заказчик ждёт регулярную перекатку по времени (чанк 113).
+func Rebuild(ctx context.Context, log *slog.Logger, st *store.Store, b *blob.Store, orch *orchestrator.Orchestrator, def store.AutoRuleset, skipUnchanged bool) (*RebuildResult, error) {
 	log = log.With("auto_ruleset_id", def.ID, "name", def.Name)
 
 	var origins []string
@@ -78,11 +81,11 @@ func Rebuild(ctx context.Context, log *slog.Logger, st *store.Store, b *blob.Sto
 	}
 
 	manifest, _ := json.Marshal(map[string]any{
-		"count":          len(manifestRules),
-		"auto_ruleset":   def.ID.String(),
-		"exclude_sids":   def.ExcludeSids,
-		"rules":          manifestRules,
-		"built_at":       time.Now().UTC().Format(time.RFC3339),
+		"count":        len(manifestRules),
+		"auto_ruleset": def.ID.String(),
+		"exclude_sids": def.ExcludeSids,
+		"rules":        manifestRules,
+		"built_at":     time.Now().UTC().Format(time.RFC3339),
 	})
 	version, err := st.Rulesets.NextAutoVersion(ctx, def.OrganizationID)
 	if err != nil {
@@ -93,13 +96,15 @@ func Rebuild(ctx context.Context, log *slog.Logger, st *store.Store, b *blob.Sto
 		return nil, fmt.Errorf("создание версии ruleset: %w", err)
 	}
 
-	// Чанк 110 (KI-6): идемпотентность пересборки — состав не изменился
-	// (та же версия, что у прошлой сборки этого определения) → деплой не
-	// создаём: иначе каждый триггер (планировщик/кнопка/list-sources до
-	// фикса) плодил деплой той же версии и лишний reload движка на сенсоре
-	// (~60 с на 53k правил). last_built_at всё равно двигаем — иначе
-	// интервальный планировщик будет считать определение вечно просроченным.
-	if def.LastRulesetVersionID != nil && *def.LastRulesetVersionID == v.ID {
+	// Чанки 110/113 (KI-6): идемпотентность пересборки применяется ТОЛЬКО к
+	// триггеру suricata-update (skipUnchanged=true): если состав не изменился
+	// (та же версия, что у прошлой сборки определения), деплой не создаём —
+	// иначе каждый импорт/list-sources (до гейта) плодил деплой той же версии
+	// и лишний reload движка на сенсоре (~60 с на 53k правил). Расписание и
+	// ручная пересборка (false) раскатывают всегда: заказчик ждёт регулярную
+	// перекатку по времени (чанк 113). last_built_at двигаем в обоих режимах —
+	// иначе интервальный планировщик считает определение вечно просроченным.
+	if skipUnchanged && def.LastRulesetVersionID != nil && *def.LastRulesetVersionID == v.ID {
 		if terr := st.AutoRulesets.TouchBuilt(ctx, def.ID); terr != nil {
 			log.Error("фиксация last_built_at (unchanged)", "err", terr)
 		}
@@ -172,7 +177,7 @@ func RunScheduled(ctx context.Context, log *slog.Logger, st *store.Store, b *blo
 		if !due(def, now) {
 			continue
 		}
-		if _, err := Rebuild(ctx, log, st, b, orch, def); err != nil {
+		if _, err := Rebuild(ctx, log, st, b, orch, def, false); err != nil {
 			log.Error("auto: пересборка по расписанию", "auto_ruleset_id", def.ID, "err", err)
 			continue
 		}
@@ -249,7 +254,9 @@ func HandleSuriupdateResult(ctx context.Context, log *slog.Logger, st *store.Sto
 		return
 	}
 	for _, def := range defs {
-		if _, err := Rebuild(ctx, log, st, b, orch, def); err != nil {
+		// skipUnchanged=true: импорт suricata-update, не менявший состав,
+		// не должен перекатывать сенсоры (KI-6).
+		if _, err := Rebuild(ctx, log, st, b, orch, def, true); err != nil {
 			log.Error("auto: пересборка", "auto_ruleset_id", def.ID, "err", err)
 		}
 	}
