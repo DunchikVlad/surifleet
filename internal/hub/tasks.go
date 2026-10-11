@@ -177,6 +177,26 @@ func (s *Server) handleTaskResult(ctx context.Context, log *slog.Logger, agentID
 			log.Error("config history: запись", "task_id", res.GetTaskId(), "err", err)
 		}
 	}
+	if du := res.GetDeployUpdateConfig(); du != nil {
+		// История применения конфигов suricata-update (чанк 113). Актор
+		// истории неизвестен хабу (задача async от API) — пусто; аудит
+		// фиксирует автора вызова API отдельно.
+		st := "applied"
+		if res.GetStatus() != agentv1.TaskStatus_TASK_STATUS_SUCCESS {
+			st = "failed"
+		}
+		var backup *string
+		if du.GetBackup() != "" {
+			backup = strp(du.GetBackup())
+		}
+		errText := ""
+		if st == "failed" {
+			errText = res.GetError()
+		}
+		if err := s.db.Configs.RecordUpdateConfig(ctx, du.GetInstanceId(), updateConfigFileName(du.GetFile(), du.GetSourceName()), du.GetPath(), du.GetSha256(), du.GetSizeBytes(), backup, du.GetUnchanged(), st, errText, ""); err != nil {
+			log.Error("update config history: запись", "task_id", res.GetTaskId(), "err", err)
+		}
+	}
 	if w, ok := s.taskWaiters.LoadAndDelete(res.GetTaskId()); ok {
 		select {
 		case w.(chan *agentv1.TaskResult) <- res:
@@ -395,6 +415,28 @@ func derefStr(s *string) string {
 }
 
 func strp(s string) *string { return &s }
+
+// updateConfigFileName — строковое имя файла для истории (stable, для UI);
+// SOURCE_YAML дополняется именем источника из эха задачи.
+func updateConfigFileName(f agentv1.UpdateConfigFile, sourceName string) string {
+	base := "unknown"
+	switch f {
+	case agentv1.UpdateConfigFile_UPDATE_CONFIG_FILE_UPDATE_YAML:
+		base = "update_yaml"
+	case agentv1.UpdateConfigFile_UPDATE_CONFIG_FILE_ENABLE_CONF:
+		base = "enable_conf"
+	case agentv1.UpdateConfigFile_UPDATE_CONFIG_FILE_DISABLE_CONF:
+		base = "disable_conf"
+	case agentv1.UpdateConfigFile_UPDATE_CONFIG_FILE_MODIFY_CONF:
+		base = "modify_conf"
+	case agentv1.UpdateConfigFile_UPDATE_CONFIG_FILE_SOURCE_YAML:
+		base = "source_yaml"
+	}
+	if base == "source_yaml" && sourceName != "" {
+		return base + ":" + sourceName
+	}
+	return base
+}
 
 // configDeployStatus — статус записи истории применения конфигурации
 // (instance_config_history): validate_only ok → validated; ok → applied;

@@ -91,6 +91,67 @@ func (TaskStatus) EnumDescriptor() ([]byte, []int) {
 	return file_agent_v1_agent_proto_rawDescGZIP(), []int{0}
 }
 
+// UpdateConfigFile — управляемый конфиг suricata-update (канонические пути
+// в sysconfdir сенсора). Файла может не быть — suricata-update тогда живёт
+// на встроенных дефолтах: fetch отдаёт exists=false, deploy создаёт файл.
+type UpdateConfigFile int32
+
+const (
+	UpdateConfigFile_UPDATE_CONFIG_FILE_UNSPECIFIED  UpdateConfigFile = 0
+	UpdateConfigFile_UPDATE_CONFIG_FILE_UPDATE_YAML  UpdateConfigFile = 1 // /etc/suricata/update.yaml
+	UpdateConfigFile_UPDATE_CONFIG_FILE_ENABLE_CONF  UpdateConfigFile = 2 // /etc/suricata/enable.conf
+	UpdateConfigFile_UPDATE_CONFIG_FILE_DISABLE_CONF UpdateConfigFile = 3 // /etc/suricata/disable.conf
+	UpdateConfigFile_UPDATE_CONFIG_FILE_MODIFY_CONF  UpdateConfigFile = 4 // /etc/suricata/modify.conf
+	UpdateConfigFile_UPDATE_CONFIG_FILE_SOURCE_YAML  UpdateConfigFile = 5 // /etc/suricata/update/sources/<source_name>.yaml
+)
+
+// Enum value maps for UpdateConfigFile.
+var (
+	UpdateConfigFile_name = map[int32]string{
+		0: "UPDATE_CONFIG_FILE_UNSPECIFIED",
+		1: "UPDATE_CONFIG_FILE_UPDATE_YAML",
+		2: "UPDATE_CONFIG_FILE_ENABLE_CONF",
+		3: "UPDATE_CONFIG_FILE_DISABLE_CONF",
+		4: "UPDATE_CONFIG_FILE_MODIFY_CONF",
+		5: "UPDATE_CONFIG_FILE_SOURCE_YAML",
+	}
+	UpdateConfigFile_value = map[string]int32{
+		"UPDATE_CONFIG_FILE_UNSPECIFIED":  0,
+		"UPDATE_CONFIG_FILE_UPDATE_YAML":  1,
+		"UPDATE_CONFIG_FILE_ENABLE_CONF":  2,
+		"UPDATE_CONFIG_FILE_DISABLE_CONF": 3,
+		"UPDATE_CONFIG_FILE_MODIFY_CONF":  4,
+		"UPDATE_CONFIG_FILE_SOURCE_YAML":  5,
+	}
+)
+
+func (x UpdateConfigFile) Enum() *UpdateConfigFile {
+	p := new(UpdateConfigFile)
+	*p = x
+	return p
+}
+
+func (x UpdateConfigFile) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (UpdateConfigFile) Descriptor() protoreflect.EnumDescriptor {
+	return file_agent_v1_agent_proto_enumTypes[1].Descriptor()
+}
+
+func (UpdateConfigFile) Type() protoreflect.EnumType {
+	return &file_agent_v1_agent_proto_enumTypes[1]
+}
+
+func (x UpdateConfigFile) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use UpdateConfigFile.Descriptor instead.
+func (UpdateConfigFile) EnumDescriptor() ([]byte, []int) {
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{1}
+}
+
 // PackageAction — действие над пакетом на сенсоре.
 type PackageAction int32
 
@@ -131,11 +192,11 @@ func (x PackageAction) String() string {
 }
 
 func (PackageAction) Descriptor() protoreflect.EnumDescriptor {
-	return file_agent_v1_agent_proto_enumTypes[1].Descriptor()
+	return file_agent_v1_agent_proto_enumTypes[2].Descriptor()
 }
 
 func (PackageAction) Type() protoreflect.EnumType {
-	return &file_agent_v1_agent_proto_enumTypes[1]
+	return &file_agent_v1_agent_proto_enumTypes[2]
 }
 
 func (x PackageAction) Number() protoreflect.EnumNumber {
@@ -144,7 +205,7 @@ func (x PackageAction) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use PackageAction.Descriptor instead.
 func (PackageAction) EnumDescriptor() ([]byte, []int) {
-	return file_agent_v1_agent_proto_rawDescGZIP(), []int{1}
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{2}
 }
 
 // ServiceAction — действие над systemd-сервисом инстанса.
@@ -187,11 +248,11 @@ func (x ServiceAction) String() string {
 }
 
 func (ServiceAction) Descriptor() protoreflect.EnumDescriptor {
-	return file_agent_v1_agent_proto_enumTypes[2].Descriptor()
+	return file_agent_v1_agent_proto_enumTypes[3].Descriptor()
 }
 
 func (ServiceAction) Type() protoreflect.EnumType {
-	return &file_agent_v1_agent_proto_enumTypes[2]
+	return &file_agent_v1_agent_proto_enumTypes[3]
 }
 
 func (x ServiceAction) Number() protoreflect.EnumNumber {
@@ -200,7 +261,7 @@ func (x ServiceAction) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use ServiceAction.Descriptor instead.
 func (ServiceAction) EnumDescriptor() ([]byte, []int) {
-	return file_agent_v1_agent_proto_rawDescGZIP(), []int{2}
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{3}
 }
 
 // AgentMessage — конверт всех сообщений агент → сервер.
@@ -2287,6 +2348,8 @@ type TaskResult struct {
 	//	*TaskResult_SuricataUpdate
 	//	*TaskResult_LogRotation
 	//	*TaskResult_Packages
+	//	*TaskResult_FetchUpdateConfig
+	//	*TaskResult_DeployUpdateConfig
 	Details       isTaskResult_Details `protobuf_oneof:"details"`
 	StateAfter    *StateReport         `protobuf:"bytes,20,opt,name=state_after,json=stateAfter,proto3" json:"state_after,omitempty"` // снапшот actual state после изменения (если задача меняла состояние)
 	unknownFields protoimpl.UnknownFields
@@ -2441,6 +2504,24 @@ func (x *TaskResult) GetPackages() *PackageResult {
 	return nil
 }
 
+func (x *TaskResult) GetFetchUpdateConfig() *FetchUpdateConfigResult {
+	if x != nil {
+		if x, ok := x.Details.(*TaskResult_FetchUpdateConfig); ok {
+			return x.FetchUpdateConfig
+		}
+	}
+	return nil
+}
+
+func (x *TaskResult) GetDeployUpdateConfig() *DeployUpdateConfigResult {
+	if x != nil {
+		if x, ok := x.Details.(*TaskResult_DeployUpdateConfig); ok {
+			return x.DeployUpdateConfig
+		}
+	}
+	return nil
+}
+
 func (x *TaskResult) GetStateAfter() *StateReport {
 	if x != nil {
 		return x.StateAfter
@@ -2492,6 +2573,14 @@ type TaskResult_Packages struct {
 	Packages *PackageResult `protobuf:"bytes,19,opt,name=packages,proto3,oneof"` // управление пакетами (чанк 111)
 }
 
+type TaskResult_FetchUpdateConfig struct {
+	FetchUpdateConfig *FetchUpdateConfigResult `protobuf:"bytes,21,opt,name=fetch_update_config,json=fetchUpdateConfig,proto3,oneof"` // конфиг suricata-update с сенсора (чанк 113)
+}
+
+type TaskResult_DeployUpdateConfig struct {
+	DeployUpdateConfig *DeployUpdateConfigResult `protobuf:"bytes,22,opt,name=deploy_update_config,json=deployUpdateConfig,proto3,oneof"` // итог записи конфига suricata-update (чанк 113)
+}
+
 func (*TaskResult_DeployRules) isTaskResult_Details() {}
 
 func (*TaskResult_DeployConfig) isTaskResult_Details() {}
@@ -2511,6 +2600,10 @@ func (*TaskResult_SuricataUpdate) isTaskResult_Details() {}
 func (*TaskResult_LogRotation) isTaskResult_Details() {}
 
 func (*TaskResult_Packages) isTaskResult_Details() {}
+
+func (*TaskResult_FetchUpdateConfig) isTaskResult_Details() {}
+
+func (*TaskResult_DeployUpdateConfig) isTaskResult_Details() {}
 
 // DeployRulesResult — итог деплоя правил.
 type DeployRulesResult struct {
@@ -2915,6 +3008,330 @@ func (x *FetchConfigResult) GetSizeBytes() int64 {
 	return 0
 }
 
+// FetchUpdateConfigTask — прочитать конфиг suricata-update с сенсора
+// (чанк 113; редактор «как на хосте» по образцу FetchConfigTask,
+// capability config на агенте). Результат — FetchUpdateConfigResult.
+type FetchUpdateConfigTask struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	InstanceId    string                 `protobuf:"bytes,1,opt,name=instance_id,json=instanceId,proto3" json:"instance_id,omitempty"` // инстанс (scoping/семантика; пути — host-level)
+	File          UpdateConfigFile       `protobuf:"varint,2,opt,name=file,proto3,enum=agent.v1.UpdateConfigFile" json:"file,omitempty"`
+	SourceName    string                 `protobuf:"bytes,3,opt,name=source_name,json=sourceName,proto3" json:"source_name,omitempty"` // для SOURCE_YAML — имя источника (без .yaml)
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *FetchUpdateConfigTask) Reset() {
+	*x = FetchUpdateConfigTask{}
+	mi := &file_agent_v1_agent_proto_msgTypes[32]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *FetchUpdateConfigTask) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*FetchUpdateConfigTask) ProtoMessage() {}
+
+func (x *FetchUpdateConfigTask) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_v1_agent_proto_msgTypes[32]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use FetchUpdateConfigTask.ProtoReflect.Descriptor instead.
+func (*FetchUpdateConfigTask) Descriptor() ([]byte, []int) {
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{32}
+}
+
+func (x *FetchUpdateConfigTask) GetInstanceId() string {
+	if x != nil {
+		return x.InstanceId
+	}
+	return ""
+}
+
+func (x *FetchUpdateConfigTask) GetFile() UpdateConfigFile {
+	if x != nil {
+		return x.File
+	}
+	return UpdateConfigFile_UPDATE_CONFIG_FILE_UNSPECIFIED
+}
+
+func (x *FetchUpdateConfigTask) GetSourceName() string {
+	if x != nil {
+		return x.SourceName
+	}
+	return ""
+}
+
+// FetchUpdateConfigResult — содержимое конфига suricata-update.
+type FetchUpdateConfigResult struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Content       string                 `protobuf:"bytes,1,opt,name=content,proto3" json:"content,omitempty"` // пусто при exists=false
+	Sha256        string                 `protobuf:"bytes,2,opt,name=sha256,proto3" json:"sha256,omitempty"`   // хэш содержимого (пусто при exists=false)
+	SizeBytes     int64                  `protobuf:"varint,3,opt,name=size_bytes,json=sizeBytes,proto3" json:"size_bytes,omitempty"`
+	Path          string                 `protobuf:"bytes,4,opt,name=path,proto3" json:"path,omitempty"`      // канонический путь на сенсоре
+	Exists        bool                   `protobuf:"varint,5,opt,name=exists,proto3" json:"exists,omitempty"` // false — файла нет (дефолты; редактор создаст)
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *FetchUpdateConfigResult) Reset() {
+	*x = FetchUpdateConfigResult{}
+	mi := &file_agent_v1_agent_proto_msgTypes[33]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *FetchUpdateConfigResult) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*FetchUpdateConfigResult) ProtoMessage() {}
+
+func (x *FetchUpdateConfigResult) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_v1_agent_proto_msgTypes[33]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use FetchUpdateConfigResult.ProtoReflect.Descriptor instead.
+func (*FetchUpdateConfigResult) Descriptor() ([]byte, []int) {
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{33}
+}
+
+func (x *FetchUpdateConfigResult) GetContent() string {
+	if x != nil {
+		return x.Content
+	}
+	return ""
+}
+
+func (x *FetchUpdateConfigResult) GetSha256() string {
+	if x != nil {
+		return x.Sha256
+	}
+	return ""
+}
+
+func (x *FetchUpdateConfigResult) GetSizeBytes() int64 {
+	if x != nil {
+		return x.SizeBytes
+	}
+	return 0
+}
+
+func (x *FetchUpdateConfigResult) GetPath() string {
+	if x != nil {
+		return x.Path
+	}
+	return ""
+}
+
+func (x *FetchUpdateConfigResult) GetExists() bool {
+	if x != nil {
+		return x.Exists
+	}
+	return false
+}
+
+// DeployUpdateConfigTask — записать конфиг suricata-update на сенсор
+// (чанк 113): бэкап существующего (.surifleet-bak-TS, ротация backupKeep)
+// → валидация (YAML-парсинг для *.yaml; .conf — без валидации, форматов
+// sid/modify-фильтров у нас нет) → атомарная запись. Рестарт движка НЕ
+// нужен — suricata-update подхватит файл при следующем прогоне.
+// Оптимистичная конкурентность: expected_sha256 (sha последнего fetch) —
+// расходится с фактическим содержимым → честный отказ, UI перечитывает.
+type DeployUpdateConfigTask struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	InstanceId     string                 `protobuf:"bytes,1,opt,name=instance_id,json=instanceId,proto3" json:"instance_id,omitempty"`
+	File           UpdateConfigFile       `protobuf:"varint,2,opt,name=file,proto3,enum=agent.v1.UpdateConfigFile" json:"file,omitempty"`
+	SourceName     string                 `protobuf:"bytes,3,opt,name=source_name,json=sourceName,proto3" json:"source_name,omitempty"`
+	Content        string                 `protobuf:"bytes,4,opt,name=content,proto3" json:"content,omitempty"`                                     // inline (файлы малы; предел — 1 МБ)
+	ExpectedSha256 string                 `protobuf:"bytes,5,opt,name=expected_sha256,json=expectedSha256,proto3" json:"expected_sha256,omitempty"` // опционально; пусто — без проверки
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *DeployUpdateConfigTask) Reset() {
+	*x = DeployUpdateConfigTask{}
+	mi := &file_agent_v1_agent_proto_msgTypes[34]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeployUpdateConfigTask) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeployUpdateConfigTask) ProtoMessage() {}
+
+func (x *DeployUpdateConfigTask) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_v1_agent_proto_msgTypes[34]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeployUpdateConfigTask.ProtoReflect.Descriptor instead.
+func (*DeployUpdateConfigTask) Descriptor() ([]byte, []int) {
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{34}
+}
+
+func (x *DeployUpdateConfigTask) GetInstanceId() string {
+	if x != nil {
+		return x.InstanceId
+	}
+	return ""
+}
+
+func (x *DeployUpdateConfigTask) GetFile() UpdateConfigFile {
+	if x != nil {
+		return x.File
+	}
+	return UpdateConfigFile_UPDATE_CONFIG_FILE_UNSPECIFIED
+}
+
+func (x *DeployUpdateConfigTask) GetSourceName() string {
+	if x != nil {
+		return x.SourceName
+	}
+	return ""
+}
+
+func (x *DeployUpdateConfigTask) GetContent() string {
+	if x != nil {
+		return x.Content
+	}
+	return ""
+}
+
+func (x *DeployUpdateConfigTask) GetExpectedSha256() string {
+	if x != nil {
+		return x.ExpectedSha256
+	}
+	return ""
+}
+
+// DeployUpdateConfigResult — итог записи конфига suricata-update.
+type DeployUpdateConfigResult struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Path          string                 `protobuf:"bytes,1,opt,name=path,proto3" json:"path,omitempty"`
+	Backup        string                 `protobuf:"bytes,2,opt,name=backup,proto3" json:"backup,omitempty"` // имя файла бэкапа (пусто — исходника не было)
+	Sha256        string                 `protobuf:"bytes,3,opt,name=sha256,proto3" json:"sha256,omitempty"` // хэш записанного содержимого
+	SizeBytes     int64                  `protobuf:"varint,4,opt,name=size_bytes,json=sizeBytes,proto3" json:"size_bytes,omitempty"`
+	Unchanged     bool                   `protobuf:"varint,5,opt,name=unchanged,proto3" json:"unchanged,omitempty"`                      // содержимое совпало с текущим — запись не делалась
+	InstanceId    string                 `protobuf:"bytes,6,opt,name=instance_id,json=instanceId,proto3" json:"instance_id,omitempty"`   // эхо — для истории применений на сервере
+	File          UpdateConfigFile       `protobuf:"varint,7,opt,name=file,proto3,enum=agent.v1.UpdateConfigFile" json:"file,omitempty"` // эхо — для истории применений
+	SourceName    string                 `protobuf:"bytes,8,opt,name=source_name,json=sourceName,proto3" json:"source_name,omitempty"`   // эхо — для истории применений (SOURCE_YAML)
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DeployUpdateConfigResult) Reset() {
+	*x = DeployUpdateConfigResult{}
+	mi := &file_agent_v1_agent_proto_msgTypes[35]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeployUpdateConfigResult) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeployUpdateConfigResult) ProtoMessage() {}
+
+func (x *DeployUpdateConfigResult) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_v1_agent_proto_msgTypes[35]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeployUpdateConfigResult.ProtoReflect.Descriptor instead.
+func (*DeployUpdateConfigResult) Descriptor() ([]byte, []int) {
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{35}
+}
+
+func (x *DeployUpdateConfigResult) GetPath() string {
+	if x != nil {
+		return x.Path
+	}
+	return ""
+}
+
+func (x *DeployUpdateConfigResult) GetBackup() string {
+	if x != nil {
+		return x.Backup
+	}
+	return ""
+}
+
+func (x *DeployUpdateConfigResult) GetSha256() string {
+	if x != nil {
+		return x.Sha256
+	}
+	return ""
+}
+
+func (x *DeployUpdateConfigResult) GetSizeBytes() int64 {
+	if x != nil {
+		return x.SizeBytes
+	}
+	return 0
+}
+
+func (x *DeployUpdateConfigResult) GetUnchanged() bool {
+	if x != nil {
+		return x.Unchanged
+	}
+	return false
+}
+
+func (x *DeployUpdateConfigResult) GetInstanceId() string {
+	if x != nil {
+		return x.InstanceId
+	}
+	return ""
+}
+
+func (x *DeployUpdateConfigResult) GetFile() UpdateConfigFile {
+	if x != nil {
+		return x.File
+	}
+	return UpdateConfigFile_UPDATE_CONFIG_FILE_UNSPECIFIED
+}
+
+func (x *DeployUpdateConfigResult) GetSourceName() string {
+	if x != nil {
+		return x.SourceName
+	}
+	return ""
+}
+
 // Task — задача агенту. Идемпотентна по task_id: агент хранит журнал
 // обработанных task_id и не выполняет повторную доставку дважды.
 type Task struct {
@@ -2934,6 +3351,8 @@ type Task struct {
 	//	*Task_SuricataUpdate
 	//	*Task_LogRotation
 	//	*Task_Packages
+	//	*Task_FetchUpdateConfig
+	//	*Task_DeployUpdateConfig
 	Type          isTask_Type `protobuf_oneof:"type"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -2941,7 +3360,7 @@ type Task struct {
 
 func (x *Task) Reset() {
 	*x = Task{}
-	mi := &file_agent_v1_agent_proto_msgTypes[32]
+	mi := &file_agent_v1_agent_proto_msgTypes[36]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2953,7 +3372,7 @@ func (x *Task) String() string {
 func (*Task) ProtoMessage() {}
 
 func (x *Task) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_proto_msgTypes[32]
+	mi := &file_agent_v1_agent_proto_msgTypes[36]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2966,7 +3385,7 @@ func (x *Task) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Task.ProtoReflect.Descriptor instead.
 func (*Task) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_proto_rawDescGZIP(), []int{32}
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{36}
 }
 
 func (x *Task) GetTaskId() string {
@@ -3089,6 +3508,24 @@ func (x *Task) GetPackages() *PackageTask {
 	return nil
 }
 
+func (x *Task) GetFetchUpdateConfig() *FetchUpdateConfigTask {
+	if x != nil {
+		if x, ok := x.Type.(*Task_FetchUpdateConfig); ok {
+			return x.FetchUpdateConfig
+		}
+	}
+	return nil
+}
+
+func (x *Task) GetDeployUpdateConfig() *DeployUpdateConfigTask {
+	if x != nil {
+		if x, ok := x.Type.(*Task_DeployUpdateConfig); ok {
+			return x.DeployUpdateConfig
+		}
+	}
+	return nil
+}
+
 type isTask_Type interface {
 	isTask_Type()
 }
@@ -3137,6 +3574,14 @@ type Task_Packages struct {
 	Packages *PackageTask `protobuf:"bytes,20,opt,name=packages,proto3,oneof"` // пакеты suricata/suricata-update (чанк 111)
 }
 
+type Task_FetchUpdateConfig struct {
+	FetchUpdateConfig *FetchUpdateConfigTask `protobuf:"bytes,21,opt,name=fetch_update_config,json=fetchUpdateConfig,proto3,oneof"` // чтение конфига suricata-update (чанк 113)
+}
+
+type Task_DeployUpdateConfig struct {
+	DeployUpdateConfig *DeployUpdateConfigTask `protobuf:"bytes,22,opt,name=deploy_update_config,json=deployUpdateConfig,proto3,oneof"` // запись конфига suricata-update (чанк 113)
+}
+
 func (*Task_DeployRules) isTask_Type() {}
 
 func (*Task_DeployConfig) isTask_Type() {}
@@ -3158,6 +3603,10 @@ func (*Task_SuricataUpdate) isTask_Type() {}
 func (*Task_LogRotation) isTask_Type() {}
 
 func (*Task_Packages) isTask_Type() {}
+
+func (*Task_FetchUpdateConfig) isTask_Type() {}
+
+func (*Task_DeployUpdateConfig) isTask_Type() {}
 
 // SuricataUpdateTask — управление источниками и запуск suricata-update на
 // агенте (чанк 82). Источники — suricata-update (et/open и др.), конфиг —
@@ -3181,7 +3630,7 @@ type SuricataUpdateTask struct {
 
 func (x *SuricataUpdateTask) Reset() {
 	*x = SuricataUpdateTask{}
-	mi := &file_agent_v1_agent_proto_msgTypes[33]
+	mi := &file_agent_v1_agent_proto_msgTypes[37]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3193,7 +3642,7 @@ func (x *SuricataUpdateTask) String() string {
 func (*SuricataUpdateTask) ProtoMessage() {}
 
 func (x *SuricataUpdateTask) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_proto_msgTypes[33]
+	mi := &file_agent_v1_agent_proto_msgTypes[37]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3206,7 +3655,7 @@ func (x *SuricataUpdateTask) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SuricataUpdateTask.ProtoReflect.Descriptor instead.
 func (*SuricataUpdateTask) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_proto_rawDescGZIP(), []int{33}
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{37}
 }
 
 func (x *SuricataUpdateTask) GetInstanceId() string {
@@ -3291,7 +3740,7 @@ type SourceInfo struct {
 
 func (x *SourceInfo) Reset() {
 	*x = SourceInfo{}
-	mi := &file_agent_v1_agent_proto_msgTypes[34]
+	mi := &file_agent_v1_agent_proto_msgTypes[38]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3303,7 +3752,7 @@ func (x *SourceInfo) String() string {
 func (*SourceInfo) ProtoMessage() {}
 
 func (x *SourceInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_proto_msgTypes[34]
+	mi := &file_agent_v1_agent_proto_msgTypes[38]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3316,7 +3765,7 @@ func (x *SourceInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SourceInfo.ProtoReflect.Descriptor instead.
 func (*SourceInfo) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_proto_rawDescGZIP(), []int{34}
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{38}
 }
 
 func (x *SourceInfo) GetName() string {
@@ -3356,7 +3805,7 @@ type SuricataUpdateResult struct {
 
 func (x *SuricataUpdateResult) Reset() {
 	*x = SuricataUpdateResult{}
-	mi := &file_agent_v1_agent_proto_msgTypes[35]
+	mi := &file_agent_v1_agent_proto_msgTypes[39]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3368,7 +3817,7 @@ func (x *SuricataUpdateResult) String() string {
 func (*SuricataUpdateResult) ProtoMessage() {}
 
 func (x *SuricataUpdateResult) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_proto_msgTypes[35]
+	mi := &file_agent_v1_agent_proto_msgTypes[39]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3381,7 +3830,7 @@ func (x *SuricataUpdateResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SuricataUpdateResult.ProtoReflect.Descriptor instead.
 func (*SuricataUpdateResult) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_proto_rawDescGZIP(), []int{35}
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{39}
 }
 
 func (x *SuricataUpdateResult) GetOutput() string {
@@ -3452,7 +3901,7 @@ type LogRotationTask struct {
 
 func (x *LogRotationTask) Reset() {
 	*x = LogRotationTask{}
-	mi := &file_agent_v1_agent_proto_msgTypes[36]
+	mi := &file_agent_v1_agent_proto_msgTypes[40]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3464,7 +3913,7 @@ func (x *LogRotationTask) String() string {
 func (*LogRotationTask) ProtoMessage() {}
 
 func (x *LogRotationTask) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_proto_msgTypes[36]
+	mi := &file_agent_v1_agent_proto_msgTypes[40]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3477,7 +3926,7 @@ func (x *LogRotationTask) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LogRotationTask.ProtoReflect.Descriptor instead.
 func (*LogRotationTask) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_proto_rawDescGZIP(), []int{36}
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{40}
 }
 
 func (x *LogRotationTask) GetInstanceId() string {
@@ -3520,7 +3969,7 @@ type LogFileInfo struct {
 
 func (x *LogFileInfo) Reset() {
 	*x = LogFileInfo{}
-	mi := &file_agent_v1_agent_proto_msgTypes[37]
+	mi := &file_agent_v1_agent_proto_msgTypes[41]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3532,7 +3981,7 @@ func (x *LogFileInfo) String() string {
 func (*LogFileInfo) ProtoMessage() {}
 
 func (x *LogFileInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_proto_msgTypes[37]
+	mi := &file_agent_v1_agent_proto_msgTypes[41]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3545,7 +3994,7 @@ func (x *LogFileInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LogFileInfo.ProtoReflect.Descriptor instead.
 func (*LogFileInfo) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_proto_rawDescGZIP(), []int{37}
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{41}
 }
 
 func (x *LogFileInfo) GetName() string {
@@ -3583,7 +4032,7 @@ type LogRotationResult struct {
 
 func (x *LogRotationResult) Reset() {
 	*x = LogRotationResult{}
-	mi := &file_agent_v1_agent_proto_msgTypes[38]
+	mi := &file_agent_v1_agent_proto_msgTypes[42]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3595,7 +4044,7 @@ func (x *LogRotationResult) String() string {
 func (*LogRotationResult) ProtoMessage() {}
 
 func (x *LogRotationResult) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_proto_msgTypes[38]
+	mi := &file_agent_v1_agent_proto_msgTypes[42]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3608,7 +4057,7 @@ func (x *LogRotationResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LogRotationResult.ProtoReflect.Descriptor instead.
 func (*LogRotationResult) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_proto_rawDescGZIP(), []int{38}
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{42}
 }
 
 func (x *LogRotationResult) GetInstanceId() string {
@@ -3660,7 +4109,7 @@ type PackageTask struct {
 
 func (x *PackageTask) Reset() {
 	*x = PackageTask{}
-	mi := &file_agent_v1_agent_proto_msgTypes[39]
+	mi := &file_agent_v1_agent_proto_msgTypes[43]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3672,7 +4121,7 @@ func (x *PackageTask) String() string {
 func (*PackageTask) ProtoMessage() {}
 
 func (x *PackageTask) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_proto_msgTypes[39]
+	mi := &file_agent_v1_agent_proto_msgTypes[43]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3685,7 +4134,7 @@ func (x *PackageTask) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PackageTask.ProtoReflect.Descriptor instead.
 func (*PackageTask) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_proto_rawDescGZIP(), []int{39}
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{43}
 }
 
 func (x *PackageTask) GetPackage() string {
@@ -3716,7 +4165,7 @@ type PackageResult struct {
 
 func (x *PackageResult) Reset() {
 	*x = PackageResult{}
-	mi := &file_agent_v1_agent_proto_msgTypes[40]
+	mi := &file_agent_v1_agent_proto_msgTypes[44]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3728,7 +4177,7 @@ func (x *PackageResult) String() string {
 func (*PackageResult) ProtoMessage() {}
 
 func (x *PackageResult) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_proto_msgTypes[40]
+	mi := &file_agent_v1_agent_proto_msgTypes[44]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3741,7 +4190,7 @@ func (x *PackageResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PackageResult.ProtoReflect.Descriptor instead.
 func (*PackageResult) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_proto_rawDescGZIP(), []int{40}
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{44}
 }
 
 func (x *PackageResult) GetPackage() string {
@@ -3802,7 +4251,7 @@ type DeployRulesTask struct {
 
 func (x *DeployRulesTask) Reset() {
 	*x = DeployRulesTask{}
-	mi := &file_agent_v1_agent_proto_msgTypes[41]
+	mi := &file_agent_v1_agent_proto_msgTypes[45]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3814,7 +4263,7 @@ func (x *DeployRulesTask) String() string {
 func (*DeployRulesTask) ProtoMessage() {}
 
 func (x *DeployRulesTask) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_proto_msgTypes[41]
+	mi := &file_agent_v1_agent_proto_msgTypes[45]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3827,7 +4276,7 @@ func (x *DeployRulesTask) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeployRulesTask.ProtoReflect.Descriptor instead.
 func (*DeployRulesTask) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_proto_rawDescGZIP(), []int{41}
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{45}
 }
 
 func (x *DeployRulesTask) GetInstanceId() string {
@@ -3903,7 +4352,7 @@ type DeployConfigTask struct {
 
 func (x *DeployConfigTask) Reset() {
 	*x = DeployConfigTask{}
-	mi := &file_agent_v1_agent_proto_msgTypes[42]
+	mi := &file_agent_v1_agent_proto_msgTypes[46]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3915,7 +4364,7 @@ func (x *DeployConfigTask) String() string {
 func (*DeployConfigTask) ProtoMessage() {}
 
 func (x *DeployConfigTask) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_proto_msgTypes[42]
+	mi := &file_agent_v1_agent_proto_msgTypes[46]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3928,7 +4377,7 @@ func (x *DeployConfigTask) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeployConfigTask.ProtoReflect.Descriptor instead.
 func (*DeployConfigTask) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_proto_rawDescGZIP(), []int{42}
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{46}
 }
 
 func (x *DeployConfigTask) GetInstanceId() string {
@@ -4004,7 +4453,7 @@ type FetchConfigTask struct {
 
 func (x *FetchConfigTask) Reset() {
 	*x = FetchConfigTask{}
-	mi := &file_agent_v1_agent_proto_msgTypes[43]
+	mi := &file_agent_v1_agent_proto_msgTypes[47]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4016,7 +4465,7 @@ func (x *FetchConfigTask) String() string {
 func (*FetchConfigTask) ProtoMessage() {}
 
 func (x *FetchConfigTask) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_proto_msgTypes[43]
+	mi := &file_agent_v1_agent_proto_msgTypes[47]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4029,7 +4478,7 @@ func (x *FetchConfigTask) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FetchConfigTask.ProtoReflect.Descriptor instead.
 func (*FetchConfigTask) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_proto_rawDescGZIP(), []int{43}
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{47}
 }
 
 func (x *FetchConfigTask) GetInstanceId() string {
@@ -4050,7 +4499,7 @@ type ServiceActionTask struct {
 
 func (x *ServiceActionTask) Reset() {
 	*x = ServiceActionTask{}
-	mi := &file_agent_v1_agent_proto_msgTypes[44]
+	mi := &file_agent_v1_agent_proto_msgTypes[48]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4062,7 +4511,7 @@ func (x *ServiceActionTask) String() string {
 func (*ServiceActionTask) ProtoMessage() {}
 
 func (x *ServiceActionTask) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_proto_msgTypes[44]
+	mi := &file_agent_v1_agent_proto_msgTypes[48]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4075,7 +4524,7 @@ func (x *ServiceActionTask) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ServiceActionTask.ProtoReflect.Descriptor instead.
 func (*ServiceActionTask) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_proto_rawDescGZIP(), []int{44}
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{48}
 }
 
 func (x *ServiceActionTask) GetInstanceId() string {
@@ -4107,7 +4556,7 @@ type RollbackTask struct {
 
 func (x *RollbackTask) Reset() {
 	*x = RollbackTask{}
-	mi := &file_agent_v1_agent_proto_msgTypes[45]
+	mi := &file_agent_v1_agent_proto_msgTypes[49]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4119,7 +4568,7 @@ func (x *RollbackTask) String() string {
 func (*RollbackTask) ProtoMessage() {}
 
 func (x *RollbackTask) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_proto_msgTypes[45]
+	mi := &file_agent_v1_agent_proto_msgTypes[49]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4132,7 +4581,7 @@ func (x *RollbackTask) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RollbackTask.ProtoReflect.Descriptor instead.
 func (*RollbackTask) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_proto_rawDescGZIP(), []int{45}
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{49}
 }
 
 func (x *RollbackTask) GetInstanceId() string {
@@ -4197,7 +4646,7 @@ type CollectBundleTask struct {
 
 func (x *CollectBundleTask) Reset() {
 	*x = CollectBundleTask{}
-	mi := &file_agent_v1_agent_proto_msgTypes[46]
+	mi := &file_agent_v1_agent_proto_msgTypes[50]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4209,7 +4658,7 @@ func (x *CollectBundleTask) String() string {
 func (*CollectBundleTask) ProtoMessage() {}
 
 func (x *CollectBundleTask) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_proto_msgTypes[46]
+	mi := &file_agent_v1_agent_proto_msgTypes[50]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4222,7 +4671,7 @@ func (x *CollectBundleTask) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CollectBundleTask.ProtoReflect.Descriptor instead.
 func (*CollectBundleTask) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_proto_rawDescGZIP(), []int{46}
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{50}
 }
 
 func (x *CollectBundleTask) GetIncludeAgentLogs() bool {
@@ -4272,7 +4721,7 @@ type AgentUpdateTask struct {
 
 func (x *AgentUpdateTask) Reset() {
 	*x = AgentUpdateTask{}
-	mi := &file_agent_v1_agent_proto_msgTypes[47]
+	mi := &file_agent_v1_agent_proto_msgTypes[51]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4284,7 +4733,7 @@ func (x *AgentUpdateTask) String() string {
 func (*AgentUpdateTask) ProtoMessage() {}
 
 func (x *AgentUpdateTask) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_proto_msgTypes[47]
+	mi := &file_agent_v1_agent_proto_msgTypes[51]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4297,7 +4746,7 @@ func (x *AgentUpdateTask) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AgentUpdateTask.ProtoReflect.Descriptor instead.
 func (*AgentUpdateTask) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_proto_rawDescGZIP(), []int{47}
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{51}
 }
 
 func (x *AgentUpdateTask) GetVersion() string {
@@ -4331,7 +4780,7 @@ type SetCapabilitiesTask struct {
 
 func (x *SetCapabilitiesTask) Reset() {
 	*x = SetCapabilitiesTask{}
-	mi := &file_agent_v1_agent_proto_msgTypes[48]
+	mi := &file_agent_v1_agent_proto_msgTypes[52]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4343,7 +4792,7 @@ func (x *SetCapabilitiesTask) String() string {
 func (*SetCapabilitiesTask) ProtoMessage() {}
 
 func (x *SetCapabilitiesTask) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_proto_msgTypes[48]
+	mi := &file_agent_v1_agent_proto_msgTypes[52]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4356,7 +4805,7 @@ func (x *SetCapabilitiesTask) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SetCapabilitiesTask.ProtoReflect.Descriptor instead.
 func (*SetCapabilitiesTask) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_proto_rawDescGZIP(), []int{48}
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{52}
 }
 
 func (x *SetCapabilitiesTask) GetCapabilities() []string {
@@ -4377,7 +4826,7 @@ type TaskCancel struct {
 
 func (x *TaskCancel) Reset() {
 	*x = TaskCancel{}
-	mi := &file_agent_v1_agent_proto_msgTypes[49]
+	mi := &file_agent_v1_agent_proto_msgTypes[53]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4389,7 +4838,7 @@ func (x *TaskCancel) String() string {
 func (*TaskCancel) ProtoMessage() {}
 
 func (x *TaskCancel) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_proto_msgTypes[49]
+	mi := &file_agent_v1_agent_proto_msgTypes[53]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4402,7 +4851,7 @@ func (x *TaskCancel) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TaskCancel.ProtoReflect.Descriptor instead.
 func (*TaskCancel) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_proto_rawDescGZIP(), []int{49}
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{53}
 }
 
 func (x *TaskCancel) GetTaskId() string {
@@ -4429,7 +4878,7 @@ type LogLevelChange struct {
 
 func (x *LogLevelChange) Reset() {
 	*x = LogLevelChange{}
-	mi := &file_agent_v1_agent_proto_msgTypes[50]
+	mi := &file_agent_v1_agent_proto_msgTypes[54]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4441,7 +4890,7 @@ func (x *LogLevelChange) String() string {
 func (*LogLevelChange) ProtoMessage() {}
 
 func (x *LogLevelChange) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_proto_msgTypes[50]
+	mi := &file_agent_v1_agent_proto_msgTypes[54]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4454,7 +4903,7 @@ func (x *LogLevelChange) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LogLevelChange.ProtoReflect.Descriptor instead.
 func (*LogLevelChange) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_proto_rawDescGZIP(), []int{50}
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{54}
 }
 
 func (x *LogLevelChange) GetLevel() string {
@@ -4474,7 +4923,7 @@ type ConfigPush struct {
 
 func (x *ConfigPush) Reset() {
 	*x = ConfigPush{}
-	mi := &file_agent_v1_agent_proto_msgTypes[51]
+	mi := &file_agent_v1_agent_proto_msgTypes[55]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4486,7 +4935,7 @@ func (x *ConfigPush) String() string {
 func (*ConfigPush) ProtoMessage() {}
 
 func (x *ConfigPush) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_proto_msgTypes[51]
+	mi := &file_agent_v1_agent_proto_msgTypes[55]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4499,7 +4948,7 @@ func (x *ConfigPush) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ConfigPush.ProtoReflect.Descriptor instead.
 func (*ConfigPush) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_proto_rawDescGZIP(), []int{51}
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{55}
 }
 
 func (x *ConfigPush) GetConfig() *AgentConfig {
@@ -4702,7 +5151,7 @@ const file_agent_v1_agent_proto_rawDesc = "" +
 	"\aversion\x18\x02 \x01(\tR\aversion\x12*\n" +
 	"\x11built_from_source\x18\x03 \x01(\bR\x0fbuiltFromSource\x12\x1d\n" +
 	"\n" +
-	"build_info\x18\x04 \x01(\tR\tbuildInfo\"\xad\x06\n" +
+	"build_info\x18\x04 \x01(\tR\tbuildInfo\"\xda\a\n" +
 	"\n" +
 	"TaskResult\x12\x17\n" +
 	"\atask_id\x18\x01 \x01(\tR\x06taskId\x12,\n" +
@@ -4718,7 +5167,9 @@ const file_agent_v1_agent_proto_rawDesc = "" +
 	"\ffetch_config\x18\x10 \x01(\v2\x1b.agent.v1.FetchConfigResultH\x00R\vfetchConfig\x12I\n" +
 	"\x0fsuricata_update\x18\x11 \x01(\v2\x1e.agent.v1.SuricataUpdateResultH\x00R\x0esuricataUpdate\x12@\n" +
 	"\flog_rotation\x18\x12 \x01(\v2\x1b.agent.v1.LogRotationResultH\x00R\vlogRotation\x125\n" +
-	"\bpackages\x18\x13 \x01(\v2\x17.agent.v1.PackageResultH\x00R\bpackages\x126\n" +
+	"\bpackages\x18\x13 \x01(\v2\x17.agent.v1.PackageResultH\x00R\bpackages\x12S\n" +
+	"\x13fetch_update_config\x18\x15 \x01(\v2!.agent.v1.FetchUpdateConfigResultH\x00R\x11fetchUpdateConfig\x12V\n" +
+	"\x14deploy_update_config\x18\x16 \x01(\v2\".agent.v1.DeployUpdateConfigResultH\x00R\x12deployUpdateConfig\x126\n" +
 	"\vstate_after\x18\x14 \x01(\v2\x15.agent.v1.StateReportR\n" +
 	"stateAfterB\t\n" +
 	"\adetails\"|\n" +
@@ -4751,7 +5202,40 @@ const file_agent_v1_agent_proto_rawDesc = "" +
 	"\acontent\x18\x01 \x01(\tR\acontent\x12\x16\n" +
 	"\x06sha256\x18\x02 \x01(\tR\x06sha256\x12\x1d\n" +
 	"\n" +
-	"size_bytes\x18\x03 \x01(\x03R\tsizeBytes\"\xae\x06\n" +
+	"size_bytes\x18\x03 \x01(\x03R\tsizeBytes\"\x89\x01\n" +
+	"\x15FetchUpdateConfigTask\x12\x1f\n" +
+	"\vinstance_id\x18\x01 \x01(\tR\n" +
+	"instanceId\x12.\n" +
+	"\x04file\x18\x02 \x01(\x0e2\x1a.agent.v1.UpdateConfigFileR\x04file\x12\x1f\n" +
+	"\vsource_name\x18\x03 \x01(\tR\n" +
+	"sourceName\"\x96\x01\n" +
+	"\x17FetchUpdateConfigResult\x12\x18\n" +
+	"\acontent\x18\x01 \x01(\tR\acontent\x12\x16\n" +
+	"\x06sha256\x18\x02 \x01(\tR\x06sha256\x12\x1d\n" +
+	"\n" +
+	"size_bytes\x18\x03 \x01(\x03R\tsizeBytes\x12\x12\n" +
+	"\x04path\x18\x04 \x01(\tR\x04path\x12\x16\n" +
+	"\x06exists\x18\x05 \x01(\bR\x06exists\"\xcd\x01\n" +
+	"\x16DeployUpdateConfigTask\x12\x1f\n" +
+	"\vinstance_id\x18\x01 \x01(\tR\n" +
+	"instanceId\x12.\n" +
+	"\x04file\x18\x02 \x01(\x0e2\x1a.agent.v1.UpdateConfigFileR\x04file\x12\x1f\n" +
+	"\vsource_name\x18\x03 \x01(\tR\n" +
+	"sourceName\x12\x18\n" +
+	"\acontent\x18\x04 \x01(\tR\acontent\x12'\n" +
+	"\x0fexpected_sha256\x18\x05 \x01(\tR\x0eexpectedSha256\"\x8d\x02\n" +
+	"\x18DeployUpdateConfigResult\x12\x12\n" +
+	"\x04path\x18\x01 \x01(\tR\x04path\x12\x16\n" +
+	"\x06backup\x18\x02 \x01(\tR\x06backup\x12\x16\n" +
+	"\x06sha256\x18\x03 \x01(\tR\x06sha256\x12\x1d\n" +
+	"\n" +
+	"size_bytes\x18\x04 \x01(\x03R\tsizeBytes\x12\x1c\n" +
+	"\tunchanged\x18\x05 \x01(\bR\tunchanged\x12\x1f\n" +
+	"\vinstance_id\x18\x06 \x01(\tR\n" +
+	"instanceId\x12.\n" +
+	"\x04file\x18\a \x01(\x0e2\x1a.agent.v1.UpdateConfigFileR\x04file\x12\x1f\n" +
+	"\vsource_name\x18\b \x01(\tR\n" +
+	"sourceName\"\xd7\a\n" +
 	"\x04Task\x12\x17\n" +
 	"\atask_id\x18\x01 \x01(\tR\x06taskId\x126\n" +
 	"\bdeadline\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\bdeadline\x12>\n" +
@@ -4766,7 +5250,9 @@ const file_agent_v1_agent_proto_rawDesc = "" +
 	"\ffetch_config\x18\x11 \x01(\v2\x19.agent.v1.FetchConfigTaskH\x00R\vfetchConfig\x12G\n" +
 	"\x0fsuricata_update\x18\x12 \x01(\v2\x1c.agent.v1.SuricataUpdateTaskH\x00R\x0esuricataUpdate\x12>\n" +
 	"\flog_rotation\x18\x13 \x01(\v2\x19.agent.v1.LogRotationTaskH\x00R\vlogRotation\x123\n" +
-	"\bpackages\x18\x14 \x01(\v2\x15.agent.v1.PackageTaskH\x00R\bpackagesB\x06\n" +
+	"\bpackages\x18\x14 \x01(\v2\x15.agent.v1.PackageTaskH\x00R\bpackages\x12Q\n" +
+	"\x13fetch_update_config\x18\x15 \x01(\v2\x1f.agent.v1.FetchUpdateConfigTaskH\x00R\x11fetchUpdateConfig\x12T\n" +
+	"\x14deploy_update_config\x18\x16 \x01(\v2 .agent.v1.DeployUpdateConfigTaskH\x00R\x12deployUpdateConfigB\x06\n" +
 	"\x04type\"\xdd\x02\n" +
 	"\x12SuricataUpdateTask\x12\x1f\n" +
 	"\vinstance_id\x18\x01 \x01(\tR\n" +
@@ -4893,7 +5379,14 @@ const file_agent_v1_agent_proto_rawDesc = "" +
 	"\x17TASK_STATUS_UNSPECIFIED\x10\x00\x12\x17\n" +
 	"\x13TASK_STATUS_SUCCESS\x10\x01\x12\x16\n" +
 	"\x12TASK_STATUS_FAILED\x10\x02\x12\x19\n" +
-	"\x15TASK_STATUS_CANCELLED\x10\x03*\x9b\x01\n" +
+	"\x15TASK_STATUS_CANCELLED\x10\x03*\xeb\x01\n" +
+	"\x10UpdateConfigFile\x12\"\n" +
+	"\x1eUPDATE_CONFIG_FILE_UNSPECIFIED\x10\x00\x12\"\n" +
+	"\x1eUPDATE_CONFIG_FILE_UPDATE_YAML\x10\x01\x12\"\n" +
+	"\x1eUPDATE_CONFIG_FILE_ENABLE_CONF\x10\x02\x12#\n" +
+	"\x1fUPDATE_CONFIG_FILE_DISABLE_CONF\x10\x03\x12\"\n" +
+	"\x1eUPDATE_CONFIG_FILE_MODIFY_CONF\x10\x04\x12\"\n" +
+	"\x1eUPDATE_CONFIG_FILE_SOURCE_YAML\x10\x05*\x9b\x01\n" +
 	"\rPackageAction\x12\x1e\n" +
 	"\x1aPACKAGE_ACTION_UNSPECIFIED\x10\x00\x12\x18\n" +
 	"\x14PACKAGE_ACTION_CHECK\x10\x01\x12\x1a\n" +
@@ -4921,147 +5414,159 @@ func file_agent_v1_agent_proto_rawDescGZIP() []byte {
 	return file_agent_v1_agent_proto_rawDescData
 }
 
-var file_agent_v1_agent_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
-var file_agent_v1_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 54)
+var file_agent_v1_agent_proto_enumTypes = make([]protoimpl.EnumInfo, 4)
+var file_agent_v1_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 58)
 var file_agent_v1_agent_proto_goTypes = []any{
-	(TaskStatus)(0),               // 0: agent.v1.TaskStatus
-	(PackageAction)(0),            // 1: agent.v1.PackageAction
-	(ServiceAction)(0),            // 2: agent.v1.ServiceAction
-	(*AgentMessage)(nil),          // 3: agent.v1.AgentMessage
-	(*ServerMessage)(nil),         // 4: agent.v1.ServerMessage
-	(*Hello)(nil),                 // 5: agent.v1.Hello
-	(*InstanceInfo)(nil),          // 6: agent.v1.InstanceInfo
-	(*HelloAck)(nil),              // 7: agent.v1.HelloAck
-	(*InstanceBinding)(nil),       // 8: agent.v1.InstanceBinding
-	(*AgentConfig)(nil),           // 9: agent.v1.AgentConfig
-	(*SiemConfig)(nil),            // 10: agent.v1.SiemConfig
-	(*Heartbeat)(nil),             // 11: agent.v1.Heartbeat
-	(*SuricataUpdateStatus)(nil),  // 12: agent.v1.SuricataUpdateStatus
-	(*ResourceSummary)(nil),       // 13: agent.v1.ResourceSummary
-	(*InstanceServiceStatus)(nil), // 14: agent.v1.InstanceServiceStatus
-	(*StateReport)(nil),           // 15: agent.v1.StateReport
-	(*LoadedRule)(nil),            // 16: agent.v1.LoadedRule
-	(*FailedRule)(nil),            // 17: agent.v1.FailedRule
-	(*ReloadResult)(nil),          // 18: agent.v1.ReloadResult
-	(*RuleLoadReport)(nil),        // 19: agent.v1.RuleLoadReport
-	(*MetricsBatch)(nil),          // 20: agent.v1.MetricsBatch
-	(*MetricPoint)(nil),           // 21: agent.v1.MetricPoint
-	(*LogBatch)(nil),              // 22: agent.v1.LogBatch
-	(*LogEntry)(nil),              // 23: agent.v1.LogEntry
-	(*DiscoveryReport)(nil),       // 24: agent.v1.DiscoveryReport
-	(*DiscoveredInstance)(nil),    // 25: agent.v1.DiscoveredInstance
-	(*SuricataBinary)(nil),        // 26: agent.v1.SuricataBinary
-	(*TaskResult)(nil),            // 27: agent.v1.TaskResult
-	(*DeployRulesResult)(nil),     // 28: agent.v1.DeployRulesResult
-	(*DeployConfigResult)(nil),    // 29: agent.v1.DeployConfigResult
-	(*ServiceActionResult)(nil),   // 30: agent.v1.ServiceActionResult
-	(*RollbackResult)(nil),        // 31: agent.v1.RollbackResult
-	(*BundleResult)(nil),          // 32: agent.v1.BundleResult
-	(*AgentUpdateResult)(nil),     // 33: agent.v1.AgentUpdateResult
-	(*FetchConfigResult)(nil),     // 34: agent.v1.FetchConfigResult
-	(*Task)(nil),                  // 35: agent.v1.Task
-	(*SuricataUpdateTask)(nil),    // 36: agent.v1.SuricataUpdateTask
-	(*SourceInfo)(nil),            // 37: agent.v1.SourceInfo
-	(*SuricataUpdateResult)(nil),  // 38: agent.v1.SuricataUpdateResult
-	(*LogRotationTask)(nil),       // 39: agent.v1.LogRotationTask
-	(*LogFileInfo)(nil),           // 40: agent.v1.LogFileInfo
-	(*LogRotationResult)(nil),     // 41: agent.v1.LogRotationResult
-	(*PackageTask)(nil),           // 42: agent.v1.PackageTask
-	(*PackageResult)(nil),         // 43: agent.v1.PackageResult
-	(*DeployRulesTask)(nil),       // 44: agent.v1.DeployRulesTask
-	(*DeployConfigTask)(nil),      // 45: agent.v1.DeployConfigTask
-	(*FetchConfigTask)(nil),       // 46: agent.v1.FetchConfigTask
-	(*ServiceActionTask)(nil),     // 47: agent.v1.ServiceActionTask
-	(*RollbackTask)(nil),          // 48: agent.v1.RollbackTask
-	(*CollectBundleTask)(nil),     // 49: agent.v1.CollectBundleTask
-	(*AgentUpdateTask)(nil),       // 50: agent.v1.AgentUpdateTask
-	(*SetCapabilitiesTask)(nil),   // 51: agent.v1.SetCapabilitiesTask
-	(*TaskCancel)(nil),            // 52: agent.v1.TaskCancel
-	(*LogLevelChange)(nil),        // 53: agent.v1.LogLevelChange
-	(*ConfigPush)(nil),            // 54: agent.v1.ConfigPush
-	nil,                           // 55: agent.v1.MetricPoint.LabelsEntry
-	nil,                           // 56: agent.v1.LogEntry.AttrsEntry
-	(*timestamppb.Timestamp)(nil), // 57: google.protobuf.Timestamp
-	(*durationpb.Duration)(nil),   // 58: google.protobuf.Duration
+	(TaskStatus)(0),                  // 0: agent.v1.TaskStatus
+	(UpdateConfigFile)(0),            // 1: agent.v1.UpdateConfigFile
+	(PackageAction)(0),               // 2: agent.v1.PackageAction
+	(ServiceAction)(0),               // 3: agent.v1.ServiceAction
+	(*AgentMessage)(nil),             // 4: agent.v1.AgentMessage
+	(*ServerMessage)(nil),            // 5: agent.v1.ServerMessage
+	(*Hello)(nil),                    // 6: agent.v1.Hello
+	(*InstanceInfo)(nil),             // 7: agent.v1.InstanceInfo
+	(*HelloAck)(nil),                 // 8: agent.v1.HelloAck
+	(*InstanceBinding)(nil),          // 9: agent.v1.InstanceBinding
+	(*AgentConfig)(nil),              // 10: agent.v1.AgentConfig
+	(*SiemConfig)(nil),               // 11: agent.v1.SiemConfig
+	(*Heartbeat)(nil),                // 12: agent.v1.Heartbeat
+	(*SuricataUpdateStatus)(nil),     // 13: agent.v1.SuricataUpdateStatus
+	(*ResourceSummary)(nil),          // 14: agent.v1.ResourceSummary
+	(*InstanceServiceStatus)(nil),    // 15: agent.v1.InstanceServiceStatus
+	(*StateReport)(nil),              // 16: agent.v1.StateReport
+	(*LoadedRule)(nil),               // 17: agent.v1.LoadedRule
+	(*FailedRule)(nil),               // 18: agent.v1.FailedRule
+	(*ReloadResult)(nil),             // 19: agent.v1.ReloadResult
+	(*RuleLoadReport)(nil),           // 20: agent.v1.RuleLoadReport
+	(*MetricsBatch)(nil),             // 21: agent.v1.MetricsBatch
+	(*MetricPoint)(nil),              // 22: agent.v1.MetricPoint
+	(*LogBatch)(nil),                 // 23: agent.v1.LogBatch
+	(*LogEntry)(nil),                 // 24: agent.v1.LogEntry
+	(*DiscoveryReport)(nil),          // 25: agent.v1.DiscoveryReport
+	(*DiscoveredInstance)(nil),       // 26: agent.v1.DiscoveredInstance
+	(*SuricataBinary)(nil),           // 27: agent.v1.SuricataBinary
+	(*TaskResult)(nil),               // 28: agent.v1.TaskResult
+	(*DeployRulesResult)(nil),        // 29: agent.v1.DeployRulesResult
+	(*DeployConfigResult)(nil),       // 30: agent.v1.DeployConfigResult
+	(*ServiceActionResult)(nil),      // 31: agent.v1.ServiceActionResult
+	(*RollbackResult)(nil),           // 32: agent.v1.RollbackResult
+	(*BundleResult)(nil),             // 33: agent.v1.BundleResult
+	(*AgentUpdateResult)(nil),        // 34: agent.v1.AgentUpdateResult
+	(*FetchConfigResult)(nil),        // 35: agent.v1.FetchConfigResult
+	(*FetchUpdateConfigTask)(nil),    // 36: agent.v1.FetchUpdateConfigTask
+	(*FetchUpdateConfigResult)(nil),  // 37: agent.v1.FetchUpdateConfigResult
+	(*DeployUpdateConfigTask)(nil),   // 38: agent.v1.DeployUpdateConfigTask
+	(*DeployUpdateConfigResult)(nil), // 39: agent.v1.DeployUpdateConfigResult
+	(*Task)(nil),                     // 40: agent.v1.Task
+	(*SuricataUpdateTask)(nil),       // 41: agent.v1.SuricataUpdateTask
+	(*SourceInfo)(nil),               // 42: agent.v1.SourceInfo
+	(*SuricataUpdateResult)(nil),     // 43: agent.v1.SuricataUpdateResult
+	(*LogRotationTask)(nil),          // 44: agent.v1.LogRotationTask
+	(*LogFileInfo)(nil),              // 45: agent.v1.LogFileInfo
+	(*LogRotationResult)(nil),        // 46: agent.v1.LogRotationResult
+	(*PackageTask)(nil),              // 47: agent.v1.PackageTask
+	(*PackageResult)(nil),            // 48: agent.v1.PackageResult
+	(*DeployRulesTask)(nil),          // 49: agent.v1.DeployRulesTask
+	(*DeployConfigTask)(nil),         // 50: agent.v1.DeployConfigTask
+	(*FetchConfigTask)(nil),          // 51: agent.v1.FetchConfigTask
+	(*ServiceActionTask)(nil),        // 52: agent.v1.ServiceActionTask
+	(*RollbackTask)(nil),             // 53: agent.v1.RollbackTask
+	(*CollectBundleTask)(nil),        // 54: agent.v1.CollectBundleTask
+	(*AgentUpdateTask)(nil),          // 55: agent.v1.AgentUpdateTask
+	(*SetCapabilitiesTask)(nil),      // 56: agent.v1.SetCapabilitiesTask
+	(*TaskCancel)(nil),               // 57: agent.v1.TaskCancel
+	(*LogLevelChange)(nil),           // 58: agent.v1.LogLevelChange
+	(*ConfigPush)(nil),               // 59: agent.v1.ConfigPush
+	nil,                              // 60: agent.v1.MetricPoint.LabelsEntry
+	nil,                              // 61: agent.v1.LogEntry.AttrsEntry
+	(*timestamppb.Timestamp)(nil),    // 62: google.protobuf.Timestamp
+	(*durationpb.Duration)(nil),      // 63: google.protobuf.Duration
 }
 var file_agent_v1_agent_proto_depIdxs = []int32{
-	57, // 0: agent.v1.AgentMessage.sent_at:type_name -> google.protobuf.Timestamp
-	5,  // 1: agent.v1.AgentMessage.hello:type_name -> agent.v1.Hello
-	11, // 2: agent.v1.AgentMessage.heartbeat:type_name -> agent.v1.Heartbeat
-	15, // 3: agent.v1.AgentMessage.state_report:type_name -> agent.v1.StateReport
-	19, // 4: agent.v1.AgentMessage.rule_load_report:type_name -> agent.v1.RuleLoadReport
-	20, // 5: agent.v1.AgentMessage.metrics_batch:type_name -> agent.v1.MetricsBatch
-	22, // 6: agent.v1.AgentMessage.log_batch:type_name -> agent.v1.LogBatch
-	27, // 7: agent.v1.AgentMessage.task_result:type_name -> agent.v1.TaskResult
-	24, // 8: agent.v1.AgentMessage.discovery_report:type_name -> agent.v1.DiscoveryReport
-	57, // 9: agent.v1.ServerMessage.sent_at:type_name -> google.protobuf.Timestamp
-	7,  // 10: agent.v1.ServerMessage.hello_ack:type_name -> agent.v1.HelloAck
-	35, // 11: agent.v1.ServerMessage.task:type_name -> agent.v1.Task
-	52, // 12: agent.v1.ServerMessage.task_cancel:type_name -> agent.v1.TaskCancel
-	53, // 13: agent.v1.ServerMessage.log_level_change:type_name -> agent.v1.LogLevelChange
-	54, // 14: agent.v1.ServerMessage.config_push:type_name -> agent.v1.ConfigPush
-	6,  // 15: agent.v1.Hello.instances:type_name -> agent.v1.InstanceInfo
-	9,  // 16: agent.v1.HelloAck.config:type_name -> agent.v1.AgentConfig
-	8,  // 17: agent.v1.HelloAck.bound_instances:type_name -> agent.v1.InstanceBinding
-	58, // 18: agent.v1.AgentConfig.log_max_age:type_name -> google.protobuf.Duration
-	10, // 19: agent.v1.AgentConfig.siem:type_name -> agent.v1.SiemConfig
-	13, // 20: agent.v1.Heartbeat.resources:type_name -> agent.v1.ResourceSummary
-	14, // 21: agent.v1.Heartbeat.instances:type_name -> agent.v1.InstanceServiceStatus
-	12, // 22: agent.v1.Heartbeat.suricata_update:type_name -> agent.v1.SuricataUpdateStatus
-	57, // 23: agent.v1.SuricataUpdateStatus.last_run_at:type_name -> google.protobuf.Timestamp
-	57, // 24: agent.v1.SuricataUpdateStatus.index_updated_at:type_name -> google.protobuf.Timestamp
-	16, // 25: agent.v1.StateReport.loaded_rules:type_name -> agent.v1.LoadedRule
-	17, // 26: agent.v1.StateReport.failed_rules:type_name -> agent.v1.FailedRule
-	18, // 27: agent.v1.StateReport.last_reload:type_name -> agent.v1.ReloadResult
-	57, // 28: agent.v1.StateReport.reported_at:type_name -> google.protobuf.Timestamp
-	2,  // 29: agent.v1.ReloadResult.action:type_name -> agent.v1.ServiceAction
-	57, // 30: agent.v1.ReloadResult.finished_at:type_name -> google.protobuf.Timestamp
-	17, // 31: agent.v1.RuleLoadReport.failed_rules:type_name -> agent.v1.FailedRule
-	57, // 32: agent.v1.RuleLoadReport.verified_at:type_name -> google.protobuf.Timestamp
-	21, // 33: agent.v1.MetricsBatch.points:type_name -> agent.v1.MetricPoint
-	57, // 34: agent.v1.MetricPoint.ts:type_name -> google.protobuf.Timestamp
-	55, // 35: agent.v1.MetricPoint.labels:type_name -> agent.v1.MetricPoint.LabelsEntry
-	23, // 36: agent.v1.LogBatch.entries:type_name -> agent.v1.LogEntry
-	57, // 37: agent.v1.LogEntry.ts:type_name -> google.protobuf.Timestamp
-	56, // 38: agent.v1.LogEntry.attrs:type_name -> agent.v1.LogEntry.AttrsEntry
-	25, // 39: agent.v1.DiscoveryReport.instances:type_name -> agent.v1.DiscoveredInstance
-	26, // 40: agent.v1.DiscoveryReport.binary:type_name -> agent.v1.SuricataBinary
+	62, // 0: agent.v1.AgentMessage.sent_at:type_name -> google.protobuf.Timestamp
+	6,  // 1: agent.v1.AgentMessage.hello:type_name -> agent.v1.Hello
+	12, // 2: agent.v1.AgentMessage.heartbeat:type_name -> agent.v1.Heartbeat
+	16, // 3: agent.v1.AgentMessage.state_report:type_name -> agent.v1.StateReport
+	20, // 4: agent.v1.AgentMessage.rule_load_report:type_name -> agent.v1.RuleLoadReport
+	21, // 5: agent.v1.AgentMessage.metrics_batch:type_name -> agent.v1.MetricsBatch
+	23, // 6: agent.v1.AgentMessage.log_batch:type_name -> agent.v1.LogBatch
+	28, // 7: agent.v1.AgentMessage.task_result:type_name -> agent.v1.TaskResult
+	25, // 8: agent.v1.AgentMessage.discovery_report:type_name -> agent.v1.DiscoveryReport
+	62, // 9: agent.v1.ServerMessage.sent_at:type_name -> google.protobuf.Timestamp
+	8,  // 10: agent.v1.ServerMessage.hello_ack:type_name -> agent.v1.HelloAck
+	40, // 11: agent.v1.ServerMessage.task:type_name -> agent.v1.Task
+	57, // 12: agent.v1.ServerMessage.task_cancel:type_name -> agent.v1.TaskCancel
+	58, // 13: agent.v1.ServerMessage.log_level_change:type_name -> agent.v1.LogLevelChange
+	59, // 14: agent.v1.ServerMessage.config_push:type_name -> agent.v1.ConfigPush
+	7,  // 15: agent.v1.Hello.instances:type_name -> agent.v1.InstanceInfo
+	10, // 16: agent.v1.HelloAck.config:type_name -> agent.v1.AgentConfig
+	9,  // 17: agent.v1.HelloAck.bound_instances:type_name -> agent.v1.InstanceBinding
+	63, // 18: agent.v1.AgentConfig.log_max_age:type_name -> google.protobuf.Duration
+	11, // 19: agent.v1.AgentConfig.siem:type_name -> agent.v1.SiemConfig
+	14, // 20: agent.v1.Heartbeat.resources:type_name -> agent.v1.ResourceSummary
+	15, // 21: agent.v1.Heartbeat.instances:type_name -> agent.v1.InstanceServiceStatus
+	13, // 22: agent.v1.Heartbeat.suricata_update:type_name -> agent.v1.SuricataUpdateStatus
+	62, // 23: agent.v1.SuricataUpdateStatus.last_run_at:type_name -> google.protobuf.Timestamp
+	62, // 24: agent.v1.SuricataUpdateStatus.index_updated_at:type_name -> google.protobuf.Timestamp
+	17, // 25: agent.v1.StateReport.loaded_rules:type_name -> agent.v1.LoadedRule
+	18, // 26: agent.v1.StateReport.failed_rules:type_name -> agent.v1.FailedRule
+	19, // 27: agent.v1.StateReport.last_reload:type_name -> agent.v1.ReloadResult
+	62, // 28: agent.v1.StateReport.reported_at:type_name -> google.protobuf.Timestamp
+	3,  // 29: agent.v1.ReloadResult.action:type_name -> agent.v1.ServiceAction
+	62, // 30: agent.v1.ReloadResult.finished_at:type_name -> google.protobuf.Timestamp
+	18, // 31: agent.v1.RuleLoadReport.failed_rules:type_name -> agent.v1.FailedRule
+	62, // 32: agent.v1.RuleLoadReport.verified_at:type_name -> google.protobuf.Timestamp
+	22, // 33: agent.v1.MetricsBatch.points:type_name -> agent.v1.MetricPoint
+	62, // 34: agent.v1.MetricPoint.ts:type_name -> google.protobuf.Timestamp
+	60, // 35: agent.v1.MetricPoint.labels:type_name -> agent.v1.MetricPoint.LabelsEntry
+	24, // 36: agent.v1.LogBatch.entries:type_name -> agent.v1.LogEntry
+	62, // 37: agent.v1.LogEntry.ts:type_name -> google.protobuf.Timestamp
+	61, // 38: agent.v1.LogEntry.attrs:type_name -> agent.v1.LogEntry.AttrsEntry
+	26, // 39: agent.v1.DiscoveryReport.instances:type_name -> agent.v1.DiscoveredInstance
+	27, // 40: agent.v1.DiscoveryReport.binary:type_name -> agent.v1.SuricataBinary
 	0,  // 41: agent.v1.TaskResult.status:type_name -> agent.v1.TaskStatus
-	28, // 42: agent.v1.TaskResult.deploy_rules:type_name -> agent.v1.DeployRulesResult
-	29, // 43: agent.v1.TaskResult.deploy_config:type_name -> agent.v1.DeployConfigResult
-	30, // 44: agent.v1.TaskResult.service_action:type_name -> agent.v1.ServiceActionResult
-	31, // 45: agent.v1.TaskResult.rollback:type_name -> agent.v1.RollbackResult
-	32, // 46: agent.v1.TaskResult.bundle:type_name -> agent.v1.BundleResult
-	33, // 47: agent.v1.TaskResult.agent_update:type_name -> agent.v1.AgentUpdateResult
-	34, // 48: agent.v1.TaskResult.fetch_config:type_name -> agent.v1.FetchConfigResult
-	38, // 49: agent.v1.TaskResult.suricata_update:type_name -> agent.v1.SuricataUpdateResult
-	41, // 50: agent.v1.TaskResult.log_rotation:type_name -> agent.v1.LogRotationResult
-	43, // 51: agent.v1.TaskResult.packages:type_name -> agent.v1.PackageResult
-	15, // 52: agent.v1.TaskResult.state_after:type_name -> agent.v1.StateReport
-	57, // 53: agent.v1.Task.deadline:type_name -> google.protobuf.Timestamp
-	44, // 54: agent.v1.Task.deploy_rules:type_name -> agent.v1.DeployRulesTask
-	45, // 55: agent.v1.Task.deploy_config:type_name -> agent.v1.DeployConfigTask
-	47, // 56: agent.v1.Task.service_action:type_name -> agent.v1.ServiceActionTask
-	48, // 57: agent.v1.Task.rollback:type_name -> agent.v1.RollbackTask
-	49, // 58: agent.v1.Task.collect_bundle:type_name -> agent.v1.CollectBundleTask
-	50, // 59: agent.v1.Task.agent_update:type_name -> agent.v1.AgentUpdateTask
-	51, // 60: agent.v1.Task.set_capabilities:type_name -> agent.v1.SetCapabilitiesTask
-	46, // 61: agent.v1.Task.fetch_config:type_name -> agent.v1.FetchConfigTask
-	36, // 62: agent.v1.Task.suricata_update:type_name -> agent.v1.SuricataUpdateTask
-	39, // 63: agent.v1.Task.log_rotation:type_name -> agent.v1.LogRotationTask
-	42, // 64: agent.v1.Task.packages:type_name -> agent.v1.PackageTask
-	37, // 65: agent.v1.SuricataUpdateResult.sources:type_name -> agent.v1.SourceInfo
-	40, // 66: agent.v1.LogRotationResult.files:type_name -> agent.v1.LogFileInfo
-	1,  // 67: agent.v1.PackageTask.action:type_name -> agent.v1.PackageAction
-	2,  // 68: agent.v1.ServiceActionTask.action:type_name -> agent.v1.ServiceAction
-	9,  // 69: agent.v1.ConfigPush.config:type_name -> agent.v1.AgentConfig
-	3,  // 70: agent.v1.AgentChannel.Channel:input_type -> agent.v1.AgentMessage
-	4,  // 71: agent.v1.AgentChannel.Channel:output_type -> agent.v1.ServerMessage
-	71, // [71:72] is the sub-list for method output_type
-	70, // [70:71] is the sub-list for method input_type
-	70, // [70:70] is the sub-list for extension type_name
-	70, // [70:70] is the sub-list for extension extendee
-	0,  // [0:70] is the sub-list for field type_name
+	29, // 42: agent.v1.TaskResult.deploy_rules:type_name -> agent.v1.DeployRulesResult
+	30, // 43: agent.v1.TaskResult.deploy_config:type_name -> agent.v1.DeployConfigResult
+	31, // 44: agent.v1.TaskResult.service_action:type_name -> agent.v1.ServiceActionResult
+	32, // 45: agent.v1.TaskResult.rollback:type_name -> agent.v1.RollbackResult
+	33, // 46: agent.v1.TaskResult.bundle:type_name -> agent.v1.BundleResult
+	34, // 47: agent.v1.TaskResult.agent_update:type_name -> agent.v1.AgentUpdateResult
+	35, // 48: agent.v1.TaskResult.fetch_config:type_name -> agent.v1.FetchConfigResult
+	43, // 49: agent.v1.TaskResult.suricata_update:type_name -> agent.v1.SuricataUpdateResult
+	46, // 50: agent.v1.TaskResult.log_rotation:type_name -> agent.v1.LogRotationResult
+	48, // 51: agent.v1.TaskResult.packages:type_name -> agent.v1.PackageResult
+	37, // 52: agent.v1.TaskResult.fetch_update_config:type_name -> agent.v1.FetchUpdateConfigResult
+	39, // 53: agent.v1.TaskResult.deploy_update_config:type_name -> agent.v1.DeployUpdateConfigResult
+	16, // 54: agent.v1.TaskResult.state_after:type_name -> agent.v1.StateReport
+	1,  // 55: agent.v1.FetchUpdateConfigTask.file:type_name -> agent.v1.UpdateConfigFile
+	1,  // 56: agent.v1.DeployUpdateConfigTask.file:type_name -> agent.v1.UpdateConfigFile
+	1,  // 57: agent.v1.DeployUpdateConfigResult.file:type_name -> agent.v1.UpdateConfigFile
+	62, // 58: agent.v1.Task.deadline:type_name -> google.protobuf.Timestamp
+	49, // 59: agent.v1.Task.deploy_rules:type_name -> agent.v1.DeployRulesTask
+	50, // 60: agent.v1.Task.deploy_config:type_name -> agent.v1.DeployConfigTask
+	52, // 61: agent.v1.Task.service_action:type_name -> agent.v1.ServiceActionTask
+	53, // 62: agent.v1.Task.rollback:type_name -> agent.v1.RollbackTask
+	54, // 63: agent.v1.Task.collect_bundle:type_name -> agent.v1.CollectBundleTask
+	55, // 64: agent.v1.Task.agent_update:type_name -> agent.v1.AgentUpdateTask
+	56, // 65: agent.v1.Task.set_capabilities:type_name -> agent.v1.SetCapabilitiesTask
+	51, // 66: agent.v1.Task.fetch_config:type_name -> agent.v1.FetchConfigTask
+	41, // 67: agent.v1.Task.suricata_update:type_name -> agent.v1.SuricataUpdateTask
+	44, // 68: agent.v1.Task.log_rotation:type_name -> agent.v1.LogRotationTask
+	47, // 69: agent.v1.Task.packages:type_name -> agent.v1.PackageTask
+	36, // 70: agent.v1.Task.fetch_update_config:type_name -> agent.v1.FetchUpdateConfigTask
+	38, // 71: agent.v1.Task.deploy_update_config:type_name -> agent.v1.DeployUpdateConfigTask
+	42, // 72: agent.v1.SuricataUpdateResult.sources:type_name -> agent.v1.SourceInfo
+	45, // 73: agent.v1.LogRotationResult.files:type_name -> agent.v1.LogFileInfo
+	2,  // 74: agent.v1.PackageTask.action:type_name -> agent.v1.PackageAction
+	3,  // 75: agent.v1.ServiceActionTask.action:type_name -> agent.v1.ServiceAction
+	10, // 76: agent.v1.ConfigPush.config:type_name -> agent.v1.AgentConfig
+	4,  // 77: agent.v1.AgentChannel.Channel:input_type -> agent.v1.AgentMessage
+	5,  // 78: agent.v1.AgentChannel.Channel:output_type -> agent.v1.ServerMessage
+	78, // [78:79] is the sub-list for method output_type
+	77, // [77:78] is the sub-list for method input_type
+	77, // [77:77] is the sub-list for extension type_name
+	77, // [77:77] is the sub-list for extension extendee
+	0,  // [0:77] is the sub-list for field type_name
 }
 
 func init() { file_agent_v1_agent_proto_init() }
@@ -5097,8 +5602,10 @@ func file_agent_v1_agent_proto_init() {
 		(*TaskResult_SuricataUpdate)(nil),
 		(*TaskResult_LogRotation)(nil),
 		(*TaskResult_Packages)(nil),
+		(*TaskResult_FetchUpdateConfig)(nil),
+		(*TaskResult_DeployUpdateConfig)(nil),
 	}
-	file_agent_v1_agent_proto_msgTypes[32].OneofWrappers = []any{
+	file_agent_v1_agent_proto_msgTypes[36].OneofWrappers = []any{
 		(*Task_DeployRules)(nil),
 		(*Task_DeployConfig)(nil),
 		(*Task_ServiceAction)(nil),
@@ -5110,12 +5617,14 @@ func file_agent_v1_agent_proto_init() {
 		(*Task_SuricataUpdate)(nil),
 		(*Task_LogRotation)(nil),
 		(*Task_Packages)(nil),
+		(*Task_FetchUpdateConfig)(nil),
+		(*Task_DeployUpdateConfig)(nil),
 	}
-	file_agent_v1_agent_proto_msgTypes[42].OneofWrappers = []any{
+	file_agent_v1_agent_proto_msgTypes[46].OneofWrappers = []any{
 		(*DeployConfigTask_SignedUrl)(nil),
 		(*DeployConfigTask_InlineYaml)(nil),
 	}
-	file_agent_v1_agent_proto_msgTypes[45].OneofWrappers = []any{
+	file_agent_v1_agent_proto_msgTypes[49].OneofWrappers = []any{
 		(*RollbackTask_RulesetVersion)(nil),
 		(*RollbackTask_ConfigVersion)(nil),
 	}
@@ -5124,8 +5633,8 @@ func file_agent_v1_agent_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_agent_v1_agent_proto_rawDesc), len(file_agent_v1_agent_proto_rawDesc)),
-			NumEnums:      3,
-			NumMessages:   54,
+			NumEnums:      4,
+			NumMessages:   58,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

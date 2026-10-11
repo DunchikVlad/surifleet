@@ -1,6 +1,10 @@
 package hub
 
-import "testing"
+import (
+	"testing"
+
+	agentv1 "github.com/surifleet/surifleet/internal/gen/agent/v1"
+)
 
 func TestConfigDeployStatus(t *testing.T) {
 	cases := []struct {
@@ -24,5 +28,24 @@ func TestConfigDeployStatus(t *testing.T) {
 					c.succeeded, c.validateOnly, c.validationPassed, got, c.want)
 			}
 		})
+	}
+}
+
+func TestUpdateConfigFileName(t *testing.T) {
+	cases := []struct {
+		file   agentv1.UpdateConfigFile
+		source string
+		want   string
+	}{
+		{agentv1.UpdateConfigFile_UPDATE_CONFIG_FILE_UPDATE_YAML, "", "update_yaml"},
+		{agentv1.UpdateConfigFile_UPDATE_CONFIG_FILE_ENABLE_CONF, "", "enable_conf"},
+		{agentv1.UpdateConfigFile_UPDATE_CONFIG_FILE_SOURCE_YAML, "et/open", "source_yaml:et/open"},
+		{agentv1.UpdateConfigFile_UPDATE_CONFIG_FILE_SOURCE_YAML, "", "source_yaml"},
+		{agentv1.UpdateConfigFile_UPDATE_CONFIG_FILE_UNSPECIFIED, "", "unknown"},
+	}
+	for _, c := range cases {
+		if got := updateConfigFileName(c.file, c.source); got != c.want {
+			t.Fatalf("updateConfigFileName(%v, %q) = %q, want %q", c.file, c.source, got, c.want)
+		}
 	}
 }

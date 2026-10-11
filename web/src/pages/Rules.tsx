@@ -219,10 +219,167 @@ function UpdateStatusLine({ instID }: { instID: string }) {
   );
 }
 
+// UpdateConfigFetch — ответ GET /instances/{id}/update_config (чанк 113).
+interface UpdateConfigFetch {
+  file: string;
+  source_name?: string;
+  path: string;
+  exists: boolean;
+  content: string;
+  sha256?: string;
+  size_bytes?: number;
+}
+
+// UpdateConfigDeploy — ответ POST /instances/{id}/update_config.
+interface UpdateConfigDeploy {
+  path: string;
+  backup?: string;
+  sha256: string;
+  unchanged: boolean;
+}
+
+// UpdateConfigHistoryItem — запись GET .../update_config/history.
+interface UpdateConfigHistoryItem {
+  id: string;
+  file: string;
+  path: string;
+  sha256: string;
+  unchanged: boolean;
+  status: string;
+  backup?: string | null;
+  error?: string | null;
+  created_by?: string | null;
+  created_at: string;
+}
+
+const UPDATE_CONFIG_FILES = [
+  { v: "update_yaml", label: "update.yaml" },
+  { v: "enable_conf", label: "enable.conf" },
+  { v: "disable_conf", label: "disable.conf" },
+  { v: "modify_conf", label: "modify.conf" },
+  { v: "source_yaml", label: "update/sources/<name>.yaml" },
+];
+
+// UpdateConfigEditor — редактор конфигов suricata-update «как на хосте»
+// (чанк 113, backlog заказчика): fetch с сенсора → правка → deploy с
+// бэкапом; оптимистичная конкурентность через expected_sha256. Права:
+// config.read (fetch/история) / config.write (сохранение); на агенте
+// gated capability config.
+function UpdateConfigEditor({ instID }: { instID: string }) {
+  const can = useCan();
+  const [file, setFile] = React.useState("update_yaml");
+  const [srcName, setSrcName] = React.useState("");
+  const [content, setContent] = React.useState<string | null>(null);
+  const [sha, setSha] = React.useState("");
+  const [exists, setExists] = React.useState(false);
+  const [path, setPath] = React.useState("");
+  const [busy, setBusy] = React.useState(false);
+  const [msg, setMsg] = React.useState("");
+  const [err, setErr] = React.useState<unknown>(null);
+  const [hist, setHist] = React.useState<UpdateConfigHistoryItem[] | null>(null);
+
+  const qs = () => `file=${file}` + (file === "source_yaml" ? `&source_name=${encodeURIComponent(srcName.trim())}` : "");
+
+  const load = async () => {
+    if (!instID) return;
+    if (file === "source_yaml" && !srcName.trim()) { setErr({ message: "укажите имя источника" }); return; }
+    setBusy(true); setErr(null); setMsg(""); setHist(null);
+    try {
+      const d = await apiGet<UpdateConfigFetch>(`/instances/${instID}/update_config?${qs()}`);
+      setPath(d.path);
+      setExists(d.exists);
+      setContent(d.exists ? d.content : "");
+      setSha(d.exists ? d.sha256 || "" : "");
+      setMsg(d.exists ? `${d.path} — ${(d.size_bytes || 0)} байт` : `${d.path} — файла нет (дефолты suricata-update), сохранение создаст его`);
+    } catch (e) { setErr(e); setContent(null); } finally { setBusy(false); }
+  };
+
+  const save = async () => {
+    if (!instID || content === null) return;
+    if (!window.confirm(`Записать ${path || file} на сенсор? Текущее содержимое уйдёт в бэкап (.surifleet-bak-TS).`)) return;
+    setBusy(true); setErr(null); setMsg("");
+    try {
+      const d = await apiPost<UpdateConfigDeploy>(`/instances/${instID}/update_config`, {
+        file, source_name: file === "source_yaml" ? srcName.trim() : undefined,
+        content, expected_sha256: sha || undefined,
+      });
+      setMsg(d.unchanged ? "содержимое совпало — запись не потребовалась" :
+        `записано: ${d.path}${d.backup ? ` (бэкап ${d.backup})` : ""}, sha ${d.sha256.slice(0, 12)}…`);
+      setSha(d.sha256);
+      setExists(true);
+    } catch (e) { setErr(e); } finally { setBusy(false); }
+  };
+
+  const loadHistory = async () => {
+    if (!instID) return;
+    try {
+      const d = await apiGet<{ items?: UpdateConfigHistoryItem[] }>(`/instances/${instID}/update_config/history`);
+      setHist(d.items || []);
+    } catch (e) { setErr(e); }
+  };
+
+  return (
+    <div className="muted" style={{ marginTop: 8 }}>
+      <b>Конфиги suricata-update:</b>{" "}
+      <select value={file} onChange={e => { setFile(e.target.value); setContent(null); setMsg(""); }}
+        disabled={busy} style={{ marginRight: 6 }}>
+        {UPDATE_CONFIG_FILES.map(f => <option key={f.v} value={f.v}>{f.label}</option>)}
+      </select>
+      {file === "source_yaml" && (
+        <input value={srcName} onChange={e => { setSrcName(e.target.value); setContent(null); }}
+          placeholder="имя источника" disabled={busy} style={{ width: 140, marginRight: 6 }} />
+      )}
+      <button className="btn" disabled={busy || !instID} onClick={load} style={{ marginRight: 6 }}>
+        {busy ? "…" : "Загрузить с сенсора"}
+      </button>
+      {content !== null && can("config.write") && (
+        <button className="btn primary" disabled={busy} onClick={save}>Сохранить на сенсоре</button>
+      )}{" "}
+      <button className="btn" disabled={!instID} onClick={loadHistory}>История</button>
+      {msg && <div style={{ marginTop: 4 }}>{msg}</div>}
+      <ErrorBox error={err} />
+      {content !== null && (
+        <textarea value={content} onChange={e => setContent(e.target.value)} disabled={busy}
+          rows={12} spellCheck={false}
+          style={{ width: "100%", marginTop: 4, fontFamily: "monospace", fontSize: 12 }}
+          placeholder={exists ? "" : "# файла нет — дефолты suricata-update; впишите конфиг и сохраните"} />
+      )}
+      {hist !== null && (
+        <div style={{ marginTop: 4 }}>
+          {hist.length === 0 && <span>применений ещё не было</span>}
+          {hist.length > 0 && (
+            <table style={{ width: "100%", fontSize: 12 }}>
+              <thead>
+                <tr><th>время</th><th>файл</th><th>статус</th><th>sha</th><th>бэкап</th><th>кем</th></tr>
+              </thead>
+              <tbody>
+                {hist.map(x => (
+                  <tr key={x.id}>
+                    <td>{fmtTime(x.created_at)}</td>
+                    <td>{x.file}{x.unchanged ? " (без изменений)" : ""}</td>
+                    <td><Badge status={x.status === "applied" ? "ok" : "err"} /></td>
+                    <td className="muted">{x.sha256.slice(0, 12)}…</td>
+                    <td className="muted">{x.backup || "—"}</td>
+                    <td className="muted">{x.created_by || "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
+      <div style={{ marginTop: 4, fontSize: 12 }}>
+        Требуется capability config; перед записью — YAML-валидация (*.yaml), бэкап .surifleet-bak-TS (3 шт), рестарт движка не нужен — suricata-update подхватит при следующем прогоне.
+      </div>
+    </div>
+  );
+}
+
 // SuricataUpdatePanel — suricata-update по кнопке (чанк 82): список
 // источников сенсора (enable/disable чекбоксами), запуск обновления;
 // итоговый набор заливается агентом на сервер и импортируется в общий
-// список правил (поле import, default true).
+// список правил (поле import, default true). Чанк 112 — строка живого
+// статуса, чанк 113 — редактор конфигов suricata-update.
 function SuricataUpdatePanel() {
   const can = useCan();
   const [instances, setInstances] = React.useState<{ id: string; name: string; hostname?: string }[]>([]);
@@ -290,6 +447,7 @@ function SuricataUpdatePanel() {
         </button>
       </p>
       <UpdateStatusLine instID={instID} />
+      {can("config.read") && <UpdateConfigEditor instID={instID} />}
       {sources && (
         <p className="muted">
           {sources.map(x => (

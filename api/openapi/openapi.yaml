@@ -2647,6 +2647,103 @@ paths:
                   suricata_pid: {type: integer}
         default: {$ref: '#/components/responses/Error'}
 
+  /instances/{id}/update_config:
+    parameters:
+      - {$ref: '#/components/parameters/PathId'}
+    get:
+      operationId: fetch_update_config
+      tags: [rules]
+      summary: Конфиг suricata-update с сенсора (fetch для редактора)
+      description: "Требуется право: config.read. Синхронная FetchUpdateConfigTask агенту (capability config): чтение update.yaml / enable.conf / disable.conf / modify.conf / update/sources/<name>.yaml. exists=false — файла нет (suricata-update на дефолтах), редактор создаст. 409 — агент offline; 502 — ошибка агента."
+      parameters:
+        - {name: file, in: query, required: true, schema: {type: string, enum: [update_yaml, enable_conf, disable_conf, modify_conf, source_yaml]}}
+        - {name: source_name, in: query, schema: {type: string}, description: "обязателен для source_yaml (имя без .yaml)"}
+      responses:
+        '200':
+          description: Содержимое конфига
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  file: {type: string}
+                  source_name: {type: string}
+                  path: {type: string}
+                  exists: {type: boolean}
+                  content: {type: string}
+                  sha256: {type: string}
+                  size_bytes: {type: integer, format: int64}
+        default: {$ref: '#/components/responses/Error'}
+    post:
+      operationId: deploy_update_config
+      tags: [rules]
+      summary: Записать конфиг suricata-update на сенсор
+      description: "Требуется право: config.write. Синхронная DeployUpdateConfigTask агенту (capability config): YAML-валидация (*.yaml), бэкап .surifleet-bak-TS (ротация 3), атомарная запись; рестарт движка не нужен. Оптимистичная конкурентность: expected_sha256 от последнего fetch — расходится → 502 с просьбой перечитать. unchanged=true — содержимое совпало, записи не было. Аудит instances.update_config; запись в историю применений."
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [file, content]
+              properties:
+                file: {type: string, enum: [update_yaml, enable_conf, disable_conf, modify_conf, source_yaml]}
+                source_name: {type: string, description: "обязателен для source_yaml"}
+                content: {type: string}
+                expected_sha256: {type: string, description: "sha после последнего fetch (опционально)"}
+      responses:
+        '200':
+          description: Записано
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  file: {type: string}
+                  source_name: {type: string}
+                  path: {type: string}
+                  backup: {type: string, description: "имя файла бэкапа (пусто — исходника не было)"}
+                  sha256: {type: string}
+                  size_bytes: {type: integer, format: int64}
+                  unchanged: {type: boolean}
+        default: {$ref: '#/components/responses/Error'}
+
+  /instances/{id}/update_config/history:
+    parameters:
+      - {$ref: '#/components/parameters/PathId'}
+    get:
+      operationId: update_config_history
+      tags: [rules]
+      summary: История применения конфигов suricata-update по инстансу
+      description: "Требуется право: config.read. Последние ≤100 записей (update_config_history, миграция 000021): файл, sha, бэкап, unchanged, статус applied/failed, автор, время."
+      responses:
+        '200':
+          description: История
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: {type: string, format: uuid}
+                        instance_id: {type: string, format: uuid}
+                        file: {type: string}
+                        path: {type: string}
+                        sha256: {type: string}
+                        size_bytes: {type: integer, format: int64}
+                        backup: {type: string, nullable: true}
+                        unchanged: {type: boolean}
+                        status: {type: string, enum: [applied, failed]}
+                        error: {type: string, nullable: true}
+                        created_by: {type: string, nullable: true}
+                        created_at: {type: string, format: date-time}
+                  count: {type: integer}
+        default: {$ref: '#/components/responses/Error'}
+
   /instances/{id}/config/current:
     parameters:
       - {$ref: '#/components/parameters/PathId'}

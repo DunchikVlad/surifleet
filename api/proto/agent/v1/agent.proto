@@ -317,7 +317,9 @@ message TaskResult {
     SuricataUpdateResult suricata_update = 17;
     LogRotationResult log_rotation = 18;  // ротация логов Suricata (чанк 111)
     PackageResult packages = 19;          // управление пакетами (чанк 111)
-    // 20–49 зарезервировано под результаты будущих типов задач.
+    FetchUpdateConfigResult fetch_update_config = 21;    // конфиг suricata-update с сенсора (чанк 113)
+    DeployUpdateConfigResult deploy_update_config = 22;  // итог записи конфига suricata-update (чанк 113)
+    // 23–49 зарезервировано под результаты будущих типов задач.
   }
 
   StateReport state_after = 20;  // снапшот actual state после изменения (если задача меняла состояние)
@@ -377,6 +379,63 @@ message FetchConfigResult {
   int64 size_bytes = 3;
 }
 
+// UpdateConfigFile — управляемый конфиг suricata-update (канонические пути
+// в sysconfdir сенсора). Файла может не быть — suricata-update тогда живёт
+// на встроенных дефолтах: fetch отдаёт exists=false, deploy создаёт файл.
+enum UpdateConfigFile {
+  UPDATE_CONFIG_FILE_UNSPECIFIED = 0;
+  UPDATE_CONFIG_FILE_UPDATE_YAML = 1;   // /etc/suricata/update.yaml
+  UPDATE_CONFIG_FILE_ENABLE_CONF = 2;   // /etc/suricata/enable.conf
+  UPDATE_CONFIG_FILE_DISABLE_CONF = 3;  // /etc/suricata/disable.conf
+  UPDATE_CONFIG_FILE_MODIFY_CONF = 4;   // /etc/suricata/modify.conf
+  UPDATE_CONFIG_FILE_SOURCE_YAML = 5;   // /etc/suricata/update/sources/<source_name>.yaml
+}
+
+// FetchUpdateConfigTask — прочитать конфиг suricata-update с сенсора
+// (чанк 113; редактор «как на хосте» по образцу FetchConfigTask,
+// capability config на агенте). Результат — FetchUpdateConfigResult.
+message FetchUpdateConfigTask {
+  string instance_id = 1;       // инстанс (scoping/семантика; пути — host-level)
+  UpdateConfigFile file = 2;
+  string source_name = 3;       // для SOURCE_YAML — имя источника (без .yaml)
+}
+
+// FetchUpdateConfigResult — содержимое конфига suricata-update.
+message FetchUpdateConfigResult {
+  string content = 1;    // пусто при exists=false
+  string sha256 = 2;     // хэш содержимого (пусто при exists=false)
+  int64 size_bytes = 3;
+  string path = 4;       // канонический путь на сенсоре
+  bool exists = 5;       // false — файла нет (дефолты; редактор создаст)
+}
+
+// DeployUpdateConfigTask — записать конфиг suricata-update на сенсор
+// (чанк 113): бэкап существующего (.surifleet-bak-TS, ротация backupKeep)
+// → валидация (YAML-парсинг для *.yaml; .conf — без валидации, форматов
+// sid/modify-фильтров у нас нет) → атомарная запись. Рестарт движка НЕ
+// нужен — suricata-update подхватит файл при следующем прогоне.
+// Оптимистичная конкурентность: expected_sha256 (sha последнего fetch) —
+// расходится с фактическим содержимым → честный отказ, UI перечитывает.
+message DeployUpdateConfigTask {
+  string instance_id = 1;
+  UpdateConfigFile file = 2;
+  string source_name = 3;
+  string content = 4;          // inline (файлы малы; предел — 1 МБ)
+  string expected_sha256 = 5;  // опционально; пусто — без проверки
+}
+
+// DeployUpdateConfigResult — итог записи конфига suricata-update.
+message DeployUpdateConfigResult {
+  string path = 1;
+  string backup = 2;   // имя файла бэкапа (пусто — исходника не было)
+  string sha256 = 3;   // хэш записанного содержимого
+  int64 size_bytes = 4;
+  bool unchanged = 5;  // содержимое совпало с текущим — запись не делалась
+  string instance_id = 6;  // эхо — для истории применений на сервере
+  UpdateConfigFile file = 7;  // эхо — для истории применений
+  string source_name = 8;   // эхо — для истории применений (SOURCE_YAML)
+}
+
 // ---------------------------------------------------------------------------
 // Сервер → агент: задачи и управление
 // ---------------------------------------------------------------------------
@@ -399,7 +458,9 @@ message Task {
     SuricataUpdateTask suricata_update = 18;  // suricata-update: источники/обновление (чанк 82)
     LogRotationTask log_rotation = 19;  // ротация логов Suricata (чанк 111)
     PackageTask packages = 20;          // пакеты suricata/suricata-update (чанк 111)
-    // 21–49 зарезервировано под будущие типы задач.
+    FetchUpdateConfigTask fetch_update_config = 21;    // чтение конфига suricata-update (чанк 113)
+    DeployUpdateConfigTask deploy_update_config = 22;  // запись конфига suricata-update (чанк 113)
+    // 23–49 зарезервировано под будущие типы задач.
   }
 }
 

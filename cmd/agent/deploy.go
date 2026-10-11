@@ -131,6 +131,14 @@ func (e *taskExecutor) handle(task *agentv1.Task) {
 		go e.executePackages(task, pt)
 		return
 	}
+	if fu := task.GetFetchUpdateConfig(); fu != nil {
+		go e.executeFetchUpdateConfig(task, fu)
+		return
+	}
+	if du := task.GetDeployUpdateConfig(); du != nil {
+		go e.executeDeployUpdateConfig(task, du)
+		return
+	}
 	if sc := task.GetSetCapabilities(); sc != nil {
 		e.applyCapabilities(task, sc)
 		return
@@ -164,6 +172,10 @@ func taskTypeName(task *agentv1.Task) string {
 		return "log_rotation"
 	case *agentv1.Task_Packages:
 		return "packages"
+	case *agentv1.Task_FetchUpdateConfig:
+		return "fetch_update_config"
+	case *agentv1.Task_DeployUpdateConfig:
+		return "deploy_update_config"
 	default:
 		return "unknown"
 	}
