@@ -30,6 +30,41 @@
 
 ### Added
 
+- Чанк 113 (2026-10-11): конфиги suricata-update с хоста (последний
+  пункт backlog; по образцу fetch_config/deploy_config). Proto:
+  `FetchUpdateConfigTask` (Task oneof =21) + `FetchUpdateConfigResult`
+  (TaskResult oneof =21; внимание: 20 в TaskResult занят state_after —
+  поймано protoc при регенерации), `DeployUpdateConfigTask` (Task oneof
+  =22) + `DeployUpdateConfigResult` (TaskResult oneof =22), enum
+  UpdateConfigFile (update_yaml/enable_conf/disable_conf/modify_conf/
+  source_yaml) — реген, обе стороны перекатаны совместно. Агент
+  `cmd/agent/update_config.go`: канонические пути (/etc/suricata/
+  update.yaml, enable/disable/modify.conf, update/sources/<name>.yaml —
+  имя источника валидируется от traversal), fetch — exists=false при
+  дефолтах suricata-update (на стенде файлов не было вообще), deploy —
+  журнал идемпотентности, expected_sha256 (оптимистичная конкурентность:
+  расходится → честный отказ «перечитайте»), unchanged при совпадении
+  содержимого, YAML-валидация (*.yaml), бэкап .surifleet-bak-TS
+  (ротация backupKeep), атомарная запись; рестарт движка не нужен —
+  подхват при следующем прогоне. Сервер: миграция 000021
+  update_config_history (file/path/sha/backup/unchanged/status/error/
+  created_by, индекс по инстансу) + зеркало; hub пишет историю из
+  DeployUpdateConfigResult (applied/failed, source_yaml дополняется
+  именем из эха); API: GET /instances/{id}/update_config?file=&source_name=
+  (config.read, синхронно 60 с), POST /instances/{id}/update_config
+  (config.write, аудит instances.update_config), GET .../update_config/
+  history (≤100). UI: редактор в панели suricata-update вкладки «Правила»
+  (выбор файла, source_name, загрузка → textarea, сохранение с confirm,
+  история применений таблицей). Юнит-тесты: пути + валидация имени,
+  YAML-валидация/бэкап/атомарная запись, маппинг file, имя файла истории.
+  **Живой e2E**: fetch exists=false (дефолты) → deploy создал файл (без
+  бэкапа) → fetch sha совпал → повторный deploy unchanged → правка с
+  бэкапом .surifleet-bak-20261011T093331Z → source_yaml создал
+  update/sources/local-e2e.yaml → негативы (мусорный file 400, stale
+  expected_sha 502, traversal ../escape отвергнут агентом 502) → история
+  5 записей applied/unchanged/failed → compliance in_sync 1/1; тестовые
+  артефакты на сенсоре удалены (стенд в исходном состоянии). (proto,
+  agent, server, db, api, ui)
 - Чанк 112 (2026-10-11): статус suricata-update в UI (backlog заказчика).
   Proto: `Heartbeat.suricata_update = 9` (добавочное — wire-совместимо)
   + сообщение `SuricataUpdateStatus` (running/pid процесса, итог/время
@@ -835,6 +870,13 @@
   (admin@surifleet.local / admin12345). (server, ui, db, docs)
 
 ### BREAKING
+
+- Чанк 113 (2026-10-11): proto — FetchUpdateConfigTask (Task oneof =21),
+  DeployUpdateConfigTask (Task oneof =22), результаты (TaskResult oneof
+  =21/22). Добавочные ветки oneof — старые стороны wire-совместимы, но
+  задачи до переката агента вернут честный отказ; перекатывать совместно.
+  Миграция 000021 (db): таблица update_config_history — применится при
+  старте сервера.
 
 - Чанк 111 (2026-10-11): proto — LogRotationTask (Task oneof =19) и
   PackageTask (Task oneof =20), результаты LogRotationResult (oneof =18) и

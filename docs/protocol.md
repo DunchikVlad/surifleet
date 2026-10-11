@@ -60,7 +60,7 @@
 | Сообщение | Ключевые поля |
 |---|---|
 | `HelloAck` | `session_id`, `server_version`, интервалы (heartbeat 30 / state_report 300 / metrics 60 с), `log_level`, `config` (AgentConfig: capabilities, siem — чанк 89) |
-| `Task` | `task_id` (UUID), `deadline`, `type` — oneof из 11 типов задач (ниже) |
+| `Task` | `task_id` (UUID), `deadline`, `type` — oneof из 13 типов задач (ниже) |
 | `TaskCancel` | `task_id`, `reason` |
 | `LogLevelChange` | `level` (debug/info/warn/error) — на лету, без рестарта |
 | `ConfigPush` | `config` (AgentConfig; нулевые поля — «не менять»; `siem` — чанк 89: пересылка EVE-алертов addr/protocol/format, пустой addr — выкл) |
@@ -80,6 +80,8 @@
 | `SuricataUpdateTask` | `instance_id`, enable/disable источников, `list_sources`, `no_update`, `reload`, `upload_url`/`upload_key`, `sources_url`/`sources_key` | Журнал обработанных task_id (чанк 82) |
 | `LogRotationTask` (чанк 111) | `instance_id`, `report_only`, `min_size_kb`, `keep` | Порог размера: повтор после усечения — no-op; журнал не пишется |
 | `PackageTask` (чанк 111) | `package` (suricata/suricata-update), `action` (check/install/remove/update) | apt идемпотентен по семантике; журнал не пишется |
+| `FetchUpdateConfigTask` (чанк 113) | `instance_id`, `file` (update_yaml/enable_conf/disable_conf/modify_conf/source_yaml), `source_name` | Читающая задача (журнал не пишется); exists=false — дефолты suricata-update |
+| `DeployUpdateConfigTask` (чанк 113) | `instance_id`, `file`, `source_name`, `content`, `expected_sha256` | Журнал task_id; unchanged по содержимому; expected_sha256 — оптимистичная конкурентность |
 
 ## 6. Идемпотентность и надёжность
 

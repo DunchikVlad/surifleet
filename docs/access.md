@@ -440,6 +440,15 @@ not_found, conflict, internal). Пагинация — keyset: параметр�
   последнего прогона (трекает агент в data_dir), версия/время индекса
   источников, PID и состояние движка Suricata; `available=false` — агент
   offline или старше чанка 112.
+- Конфиги suricata-update с хоста (чанк 113, capability `config`):
+  `GET /instances/{id}/update_config?file=&source_name=` — fetch
+  (update.yaml / enable.conf / disable.conf / modify.conf /
+  update/sources/<name>.yaml; `exists=false` — дефолты suricata-update,
+  редактор создаст); `POST /instances/{id}/update_config`
+  `{file, content, expected_sha256?}` — запись с YAML-валидацией (*.yaml)
+  и бэкапом `.surifleet-bak-TS` (ротация 3; рестарт движка не нужен);
+  `GET .../update_config/history` — история применений (миграция 000021).
+  Права: config.read/config.write; UI-редактор в панели suricata-update.
 - `GET /instances/{id}/config/current`, POST /config_versions/{id}/deploy —
   чтение/деплой suricata.yaml (capability `config`).
 - `POST /instances/{id}/service_action` `{action: reload|restart|start|

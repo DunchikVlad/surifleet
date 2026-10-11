@@ -93,6 +93,13 @@ suricata-update вкладки «Правила» (опрос 15 с).
    через unix-сокет (`/var/run/suricata/suricata-command.socket`).
    На стенде live-swap 53k правил занимает ~60 с — это норма.
 
+Конфиги suricata-update (`update.yaml`, `enable/disable/modify.conf`,
+`update/sources/*.yaml`) редактируются отдельно — чанк 113:
+`GET/POST /instances/{id}/update_config(+ /history)` (capability `config`,
+бэкап `.surifleet-bak-TS`, рестарт движка не нужен — подхват при
+следующем прогоне; на стенде файлов не было — suricata-update на
+дефолтах, fetch отдаёт `exists=false`).
+
 Результат — `SuricataUpdateResult` (sources, rules_count, uploaded_bytes,
 output — хвост вывода) → в hub.
 

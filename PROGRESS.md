@@ -125,6 +125,44 @@ suricata-update (HandleSuriupdateResult); RunScheduled и ручной rebuild
 деплоев не прибавилось (102 → 102), last_built_at не сдвинулся. Push
 origin выполнен.
 
+Чанк 113 ГОТОВ (2026-10-11, этот коммит; **живой e2E пройден**):
+конфиги suricata-update с хоста (последний пункт backlog 2026-10-11;
+по образцу fetch_config/deploy_config). Нюанс стенда: файлов
+(/etc/suricata/update.yaml, enable/disable/modify.conf, update/sources/)
+на сенсоре НЕТ — suricata-update живёт на дефолтах; fetch отдаёт
+exists=false, deploy создаёт. Proto: FetchUpdateConfigTask (Task oneof
+=21) + FetchUpdateConfigResult (TaskResult oneof =21; 20 в TaskResult
+занят state_after — конфликт пойман protoc при регенерации),
+DeployUpdateConfigTask (Task oneof =22) + DeployUpdateConfigResult
+(oneof =22; эхо instance_id/file/source_name для истории), enum
+UpdateConfigFile. Агент `cmd/agent/update_config.go`: канонические пути,
+валидация source_name от traversal, журнал идемпотентности (по образцу
+deploy_config), expected_sha256 (оптимистичная конкурентность:
+расходится → «перечитайте»), unchanged при совпадении содержимого,
+YAML-валидация (*.yaml; .conf — форматов нет), бэкап .surifleet-bak-TS
+(ротация backupKeep), атомарная запись; рестарт движка не нужен.
+Сервер: миграция 000021 update_config_history (+зеркало;
+migrations_sync_test ок) — запись из hub по DeployUpdateConfigResult
+(applied/failed; source_yaml — с именем из эха); API: GET
+/instances/{id}/update_config (config.read, sync 60 с),
+POST /instances/{id}/update_config (config.write, аудит
+instances.update_config), GET .../update_config/history (≤100).
+UI: редактор в панели suricata-update «Правила» (селект файла +
+source_name, загрузка → textarea, сохранение с confirm, история
+таблицей). Юнит-тесты: пути/traversal, YAML-валидация/бэкап/запись,
+маппинг file, имя файла истории. **Живой e2E (.28+.67 перекатаны,
+миграция → 21)**: fetch exists=false → deploy создал (без бэкапа) →
+fetch sha совпал → повтор unchanged → правка с бэкапом
+update.yaml.surifleet-bak-20261011T093331Z → source_yaml создал
+update/sources/local-e2e.yaml → негативы (мусор 400, stale
+expected_sha 502, traversal ../escape агентом 502) → история 5 записей
+(applied/unchanged/failed) → compliance in_sync 1/1. Тестовые файлы с
+сенсора удалены (стенд в исходном состоянии). **Backlog 2026-10-11
+закрыт полностью** (111 log_rotation/packages, 112 статус+PID,
+113 конфиги). Дальше по планам: живой e2E deferred-частей (дашборды,
+rollback профилей), same-rev перевыпуск фида, include_sources под
+агента.
+
 **Решения заказчика 09.10**: исключены из scope автодетект инцидентов
 (10 типов, п. 7 ТЗ) и симулятор флота (1k/10k агентов, п. 10 ТЗ) —
 отмечены ⬛ в FEATURES и roadmap. Добавлен приоритет 1E (редактор
