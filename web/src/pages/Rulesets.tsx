@@ -123,6 +123,9 @@ function AutoRulesetsPanel() {
   const [exclude, setExclude] = React.useState("");
   const [sources, setSources] = React.useState<string[]>([]);
   const [allSources, setAllSources] = React.useState<string[]>([]);
+  // Инстанс-источник каталога suricata-update (чанк 116): каталог
+  // источников свой у каждого сенсора — раньше брался с первого инстанса.
+  const [srcInstID, setSrcInstID] = React.useState("");
   const [schedEn, setSchedEn] = React.useState(false);
   const [schedMode, setSchedMode] = React.useState<"daily" | "minutes" | "hours">("daily");
   const [schedTime, setSchedTime] = React.useState("03:00");
@@ -163,6 +166,14 @@ function AutoRulesetsPanel() {
       .then(d => setItems(d.items || []))
       .catch(() => {});
 
+  // Каталог источников выбранного инстанса (чанк 116).
+  const loadSources = React.useCallback((id: string) => {
+    if (!id) { setAllSources([]); return; }
+    apiGet<{ items?: { name: string }[] }>(`/instances/${id}/suricata_update/sources`)
+      .then(x => setAllSources((x.items || []).map(y => y.name)))
+      .catch(() => setAllSources([]));
+  }, []);
+
   React.useEffect(() => {
     load();
     apiGet<{ items?: { id: string; name: string; hostname?: string }[] }>("/instances?limit=100")
@@ -170,9 +181,8 @@ function AutoRulesetsPanel() {
         setInstances(d.items || []);
         const first = (d.items || [])[0];
         if (first) {
-          apiGet<{ items?: { name: string }[] }>(`/instances/${first.id}/suricata_update/sources`)
-            .then(x => setAllSources((x.items || []).map(y => y.name)))
-            .catch(() => {});
+          setSrcInstID(first.id);
+          loadSources(first.id);
         }
       })
       .catch(() => {});
@@ -345,18 +355,39 @@ function AutoRulesetsPanel() {
               ))}
             </p>
           )}
-          {allSources.length > 0 && (
+          {incSU && instances.length > 0 && (
+            <p className="muted">
+              Каталог источников с инстанса:{" "}
+              <select value={srcInstID} onChange={e => { setSrcInstID(e.target.value); loadSources(e.target.value); }}>
+                {instances.map(i => (
+                  <option key={i.id} value={i.id}>{i.hostname ? i.hostname + " · " : ""}{i.name}</option>
+                ))}
+              </select>{" "}
+              <span title="Каталог suricata-update свой у каждого сенсора — выбор инстанса определяет список чекбоксов">
+                (список — с выбранного сенсора)
+              </span>
+            </p>
+          )}
+          {incSU && (() => {
+            // Выбранные имена вне каталога выбранного инстанса показываем
+            // отдельно, чтобы не терялись из набора.
+            const extra = sources.filter(s => !allSources.includes(s));
+            const list = [...allSources, ...extra];
+            if (list.length === 0) return null;
+            return (
             <p className="muted">
               Источники suricata-update (пусто = все):{" "}
-              {allSources.map(nm => (
-                <label key={nm} style={{ marginRight: "1em" }}>
+              {list.map(nm => (
+                <label key={nm} style={{ marginRight: "1em" }}
+                  title={allSources.includes(nm) ? nm : "нет в каталоге выбранного инстанса — фильтр сохранится, но правил этого источника на нём нет"}>
                   <input type="checkbox" checked={sources.includes(nm)}
                     onChange={() => setSources(prev => prev.includes(nm) ? prev.filter(x => x !== nm) : [...prev, nm])} />{" "}
-                  {nm}
+                  {nm}{allSources.includes(nm) ? "" : " ⚠"}
                 </label>
               ))}
             </p>
-          )}
+            );
+          })()}
           <p className="muted">
             Расписание пересборки:{" "}
             <label>
