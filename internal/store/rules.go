@@ -158,8 +158,13 @@ func (r *RulesRepo) UpsertImport(ctx context.Context, orgID uuid.UUID, it Import
 	return rule, UpsertUpdated, translate(tx.Commit(ctx))
 }
 
-// insertRevision — новая строка rule_revisions; дубль (rule_id, revision)
-// молча пропускается (та же rev из файла при изменённом raw).
+// insertRevision — новая строка rule_revisions. Same-rev перевыпуск фида
+// (чанк 115): фид перевыпустил правило с тем же rev, но другим raw —
+// конфликт (rule_id, revision) разрешаем номером max(revision)+1, иначе
+// хэш последней ревизии остаётся старым и правило «обновляется» вечно
+// (кверк чанка 102: пара правил ET Open на каждом прогоне). Сюда попадаем
+// только при изменившемся raw (предфильтр по хэшу), дубль того же raw
+// недостижим.
 func insertRevision(ctx context.Context, tx pgx.Tx, ruleID uuid.UUID, it ImportItem) error {
 	parsed := it.Parsed
 	if parsed == nil {
@@ -167,8 +172,13 @@ func insertRevision(ctx context.Context, tx pgx.Tx, ruleID uuid.UUID, it ImportI
 	}
 	_, err := tx.Exec(ctx,
 		`INSERT INTO rule_revisions (rule_id, sid, revision, raw, hash, parsed)
-		 VALUES ($1, $2, $3, $4, $5, $6)
-		 ON CONFLICT (rule_id, revision) DO NOTHING`,
+		 VALUES ($1, $2,
+		         CASE WHEN EXISTS (SELECT 1 FROM rule_revisions rr
+		                            WHERE rr.rule_id = $1 AND rr.revision = $3)
+		              THEN (SELECT COALESCE(MAX(rr.revision), 0) + 1
+		                    FROM rule_revisions rr WHERE rr.rule_id = $1)
+		              ELSE $3 END,
+		         $4, $5, $6)`,
 		ruleID, it.SID, it.Rev, it.Raw, it.Hash(), parsed)
 	return translate(err)
 }
@@ -182,8 +192,10 @@ func insertRevision(ctx context.Context, tx pgx.Tx, ruleID uuid.UUID, it ImportI
 // из item (InitialStatus/Origin/SourceName), существующие обновляются
 // только в данных фида (msg/category) — тюнинг аналитика
 // (status/priority/threshold/tags) не трогаем; новая ревизия — только при
-// изменении raw (sha256 последней ревизии), дубль (rule_id, revision)
-// пропускается. Возвращает (imported, updated, unchanged).
+// изменении raw (sha256 последней ревизии); same-rev перевыпуск фида
+// (чанк 115) — конфликт (rule_id, revision) разрешается номером
+// max(revision)+1, иначе правило «обновлялось» бы на каждом прогоне.
+// Возвращает (imported, updated, unchanged).
 func (r *RulesRepo) BatchUpsertSuriupdate(ctx context.Context, orgID uuid.UUID, items []ImportItem) (int, int, int, error) {
 	if len(items) == 0 {
 		return 0, 0, 0, nil
@@ -330,7 +342,13 @@ func (r *RulesRepo) BatchUpsertSuriupdate(ctx context.Context, orgID uuid.UUID, 
 		}
 		if _, err := tx.Exec(ctx,
 			`INSERT INTO rule_revisions (rule_id, sid, revision, raw, hash, parsed)
-			 SELECT c.rule_id, c.sid, c.rev, c.raw, c.hash, c.parsed::jsonb
+			 SELECT c.rule_id, c.sid,
+			        CASE WHEN EXISTS (SELECT 1 FROM rule_revisions rr
+			                           WHERE rr.rule_id = c.rule_id AND rr.revision = c.rev)
+			             THEN (SELECT COALESCE(MAX(rr.revision), 0) + 1
+			                   FROM rule_revisions rr WHERE rr.rule_id = c.rule_id)
+			             ELSE c.rev END,
+			        c.raw, c.hash, c.parsed::jsonb
 			 FROM unnest($1::bigint[], $2::int[], $3::text[], $4::text[], $5::text[], $6::uuid[])
 			   AS c(sid, rev, raw, hash, parsed, rule_id)
 			 ON CONFLICT (rule_id, revision) DO NOTHING`,
