@@ -153,17 +153,25 @@ func (c *Client) InsertAgentLogs(ctx context.Context, rows []AgentLogRow) error 
 	return c.exec(ctx, q, buf.Bytes())
 }
 
-// AgentLogs возвращает последние limit записей агента (ts DESC).
-func (c *Client) AgentLogs(ctx context.Context, agentID string, limit int) ([]AgentLogRow, error) {
+// LogFilter — фильтры выборки логов (чанк 117, п. 5.4 ТЗ «поиск и фильтры
+// по хосту, уровню, периоду, операции»; хост — селектор агента в UI).
+type LogFilter struct {
+	Level string    // debug | info | warn | error (пусто — все)
+	Q     string    // подстрока в message (регистронезависимо)
+	From  time.Time // zero — без нижней границы
+	To    time.Time // zero — без верхней границы
+}
+
+// AgentLogs возвращает последние limit записей агента (ts DESC) с
+// фильтрами. Пустой фильтр — прежнее поведение (чанк 13c).
+func (c *Client) AgentLogs(ctx context.Context, agentID string, limit int, f LogFilter) ([]AgentLogRow, error) {
 	if limit <= 0 {
 		limit = 200
 	}
 	if limit > 1000 {
 		limit = 1000
 	}
-	q := fmt.Sprintf(`SELECT agent_id, instance_id, ts, level, message
-FROM %s.agent_logs WHERE agent_id = %s ORDER BY ts DESC LIMIT %d FORMAT JSONEachRow`,
-		c.db, quoteString(agentID), limit)
+	q := agentLogsQuery(c.db, agentID, limit, f)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.base+"/?query="+url.QueryEscape(q), nil)
 	if err != nil {
 		return nil, err
@@ -187,6 +195,27 @@ FROM %s.agent_logs WHERE agent_id = %s ORDER BY ts DESC LIMIT %d FORMAT JSONEach
 		rows = append(rows, r)
 	}
 	return rows, nil
+}
+
+// agentLogsQuery — сборка SELECT (вынесена для юнит-тестов). Все строковые
+// значения — через quoteString (защита от инъекций в CH-запрос).
+func agentLogsQuery(db, agentID string, limit int, f LogFilter) string {
+	where := "agent_id = " + quoteString(agentID)
+	if f.Level != "" {
+		where += " AND level = " + quoteString(f.Level)
+	}
+	if f.Q != "" {
+		where += " AND positionCaseInsensitive(message, " + quoteString(f.Q) + ") > 0"
+	}
+	if !f.From.IsZero() {
+		where += " AND ts >= " + quoteString(f.From.UTC().Format(tsLayout))
+	}
+	if !f.To.IsZero() {
+		where += " AND ts <= " + quoteString(f.To.UTC().Format(tsLayout))
+	}
+	return fmt.Sprintf(`SELECT agent_id, instance_id, ts, level, message
+FROM %s.agent_logs WHERE %s ORDER BY ts DESC LIMIT %d FORMAT JSONEachRow`,
+		db, where, limit)
 }
 
 // FormatTS переводит время в формат DateTime64(3) UTC для вставки.

@@ -10,6 +10,14 @@ export default function Logs({ active }: { active: boolean }) {
   const [err, setErr] = React.useState<unknown>(null);
   const [auto, setAuto] = React.useState(true);
   const [updated, setUpdated] = React.useState("");
+  // Фильтры (чанк 117, п. 5.4 ТЗ «поиск и фильтры по хосту, уровню,
+  // периоду, операции»): хост — селектор агента, уровень/подстрока/период
+  // — параметры API.
+  const [level, setLevel] = React.useState("");
+  const [q, setQ] = React.useState("");
+  const [qApplied, setQApplied] = React.useState("");
+  const [from, setFrom] = React.useState(""); // datetime-local
+  const [to, setTo] = React.useState("");
 
   React.useEffect(() => {
     if (!active) return;
@@ -27,15 +35,22 @@ export default function Logs({ active }: { active: boolean }) {
   const load = React.useCallback(async () => {
     if (!agentId) return;
     try {
-      const d = await apiGet<Page<LogEntry>>(`/agents/${agentId}/logs?limit=${limit}`);
+      let path = `/agents/${agentId}/logs?limit=${limit}`;
+      if (level) path += `&level=${level}`;
+      if (qApplied.trim()) path += `&q=${encodeURIComponent(qApplied.trim())}`;
+      if (from) path += `&from=${encodeURIComponent(new Date(from).toISOString())}`;
+      if (to) path += `&to=${encodeURIComponent(new Date(to).toISOString())}`;
+      const d = await apiGet<Page<LogEntry>>(path);
       setItems(d.items || []);
       setErr(null);
       setUpdated(new Date().toLocaleTimeString("ru-RU"));
     } catch (e) { setErr(e); }
-  }, [agentId, limit]);
+  }, [agentId, limit, level, qApplied, from, to]);
 
   React.useEffect(() => { load(); }, [load]);
   useInterval(load, 10000, active && auto);
+
+  const resetFilters = () => { setLevel(""); setQ(""); setQApplied(""); setFrom(""); setTo(""); };
 
   return (
     <>
@@ -58,6 +73,26 @@ export default function Logs({ active }: { active: boolean }) {
           авто (10 с)
         </label>
         <span className="muted">{updated && "обновлено " + updated}</span>
+      </div>
+      <div className="toolbar">
+        <select value={level} onChange={e => setLevel(e.target.value)} title="уровень">
+          <option value="">все уровни</option>
+          {["debug", "info", "warn", "error"].map(l => <option key={l} value={l}>{l}</option>)}
+        </select>
+        <input
+          placeholder="поиск по тексту…"
+          value={q}
+          onChange={e => setQ(e.target.value)}
+          onKeyDown={e => { if (e.key === "Enter") setQApplied(q); }}
+          style={{ minWidth: "16em" }}
+        />
+        <button className="btn" onClick={() => setQApplied(q)}>Найти</button>
+        <input type="datetime-local" title="период: с" value={from}
+          onChange={e => setFrom(e.target.value)} />
+        <span className="muted">—</span>
+        <input type="datetime-local" title="период: по" value={to}
+          onChange={e => setTo(e.target.value)} />
+        <button className="btn" onClick={resetFilters}>Сбросить</button>
       </div>
       <ErrorBox error={err} />
       {items && !items.length && !err && (

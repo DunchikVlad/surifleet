@@ -2227,15 +2227,13 @@ paths:
       operationId: get_agent_logs
       tags: [agents]
       summary: Операционные логи агента (из ClickHouse)
-      description: "Требуется право: agents.logs. Фильтры по уровню, периоду, операции; полнотекстовый поиск q."
+      description: "Требуется право: agents.read. Фильтры: уровень (level), период (from/to, RFC3339), регистронезависимая подстрока в сообщении (q — покрывает и операции: deploy/reload/…); ts DESC, limit ≤ 1000."
       parameters:
         - {$ref: '#/components/parameters/Limit'}
-        - {$ref: '#/components/parameters/Cursor'}
         - {name: level, in: query, schema: {type: string, enum: [debug, info, warn, error]}}
         - {name: from, in: query, schema: {type: string, format: date-time}}
         - {name: to, in: query, schema: {type: string, format: date-time}}
-        - {name: operation, in: query, description: "Тип операции (deploy, reload, rollback, ...)", schema: {type: string}}
-        - {name: q, in: query, description: Поиск по тексту, schema: {type: string}}
+        - {name: q, in: query, description: "Подстрока в message (регистронезависимо, ≤ 200 символов)", schema: {type: string}}
       responses:
         '200':
           description: OK

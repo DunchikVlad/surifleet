@@ -34,8 +34,11 @@ type agentLogEntry struct {
 	Message    string `json:"message"`
 }
 
-// getAgentLogs — GET /api/v1/agents/{id}/logs[?limit=200]:
-// последние записи лога агента из ClickHouse (ts DESC, limit ≤ 1000).
+// getAgentLogs — GET /api/v1/agents/{id}/logs[?limit=200&level=&q=&from=&to=]
+// (фильтры — чанк 117, п. 5.4 ТЗ): последние записи лога агента из
+// ClickHouse (ts DESC, limit ≤ 1000). level — debug|info|warn|error;
+// q — подстрока в message (регистронезависимо); from/to — RFC3339,
+// границы периода (from ≤ to).
 func (h *handlers) getAgentLogs(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathUUID(w, chi.URLParam(r, "id"), "id")
 	if !ok {
@@ -52,12 +55,53 @@ func (h *handlers) getAgentLogs(w http.ResponseWriter, r *http.Request) {
 		}
 		limit = n
 	}
+	var filter chlogs.LogFilter
+	fe := fieldErrors{}
+	if s := r.URL.Query().Get("level"); s != "" {
+		switch s {
+		case "debug", "info", "warn", "error":
+			filter.Level = s
+		default:
+			fe.add("level", "debug | info | warn | error")
+		}
+	}
+	if s := r.URL.Query().Get("q"); s != "" {
+		if len(s) > 200 {
+			fe.add("q", "не длиннее 200 символов")
+		} else {
+			filter.Q = s
+		}
+	}
+	for _, p := range []struct {
+		name string
+		dst  *time.Time
+	}{
+		{"from", &filter.From},
+		{"to", &filter.To},
+	} {
+		if s := r.URL.Query().Get(p.name); s != "" {
+			t, err := time.Parse(time.RFC3339, s)
+			if err != nil {
+				fe.add(p.name, "RFC3339, например 2026-10-11T12:00:00Z")
+				continue
+			}
+			*p.dst = t
+		}
+	}
+	if len(fe) > 0 {
+		writeValidation(w, fe)
+		return
+	}
+	if !filter.From.IsZero() && !filter.To.IsZero() && filter.From.After(filter.To) {
+		writeValidation(w, fieldErrors{"from": "не позже to"})
+		return
+	}
 	if h.d.CHLogs == nil {
 		writeError(w, http.StatusServiceUnavailable, CodeInternal,
 			"ClickHouse не настроен (server.clickhouse_dsn)", nil)
 		return
 	}
-	rows, err := h.d.CHLogs.AgentLogs(r.Context(), id.String(), limit)
+	rows, err := h.d.CHLogs.AgentLogs(r.Context(), id.String(), limit, filter)
 	if err != nil {
 		errLog.Error("agent logs: запрос ClickHouse", "agent_id", id, "err", err)
 		writeError(w, http.StatusBadGateway, CodeInternal, "ошибка запроса к ClickHouse", nil)
