@@ -82,13 +82,15 @@ type MatrixCellFilter struct {
 const matrixCellFilterSQL = `rules.sid IN (
   WITH d AS (SELECT (e->>'sid')::bigint sid, ds.instance_id
              FROM desired_state ds, jsonb_array_elements(ds.computed_rules) e
-             WHERE ds.instance_id = ANY($8::uuid[])),
+             WHERE ds.instance_id = ANY($8::uuid[]) AND jsonb_typeof(ds.computed_rules) = 'array'),
        l AS (SELECT (e->>'sid')::bigint sid, a.instance_id
              FROM actual_state a, jsonb_array_elements(a.loaded_rules) e
-             WHERE a.instance_id = ANY($8::uuid[]) AND a.reported_at IS NOT NULL),
+             WHERE a.instance_id = ANY($8::uuid[]) AND a.reported_at IS NOT NULL
+               AND jsonb_typeof(a.loaded_rules) = 'array'),
        f AS (SELECT (e->>'sid')::bigint sid, a.instance_id
              FROM actual_state a, jsonb_array_elements(a.failed_rules) e
-             WHERE a.instance_id = ANY($8::uuid[]) AND a.reported_at IS NOT NULL)
+             WHERE a.instance_id = ANY($8::uuid[]) AND a.reported_at IS NOT NULL
+               AND jsonb_typeof(a.failed_rules) = 'array')
   SELECT sid FROM (
     SELECT 'failed' AS st, sid FROM f
     UNION ALL
