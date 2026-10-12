@@ -146,26 +146,28 @@ compliance (с токеном): `curl -H "Authorization: Bearer $TOKEN" http://1
 - `api/proto/agent/v1/` — протокол агент↔сервер; `api/openapi/` — REST-спека.
 - `docs/` — architecture.md, data-model.md, protocol.md, api.md, access.md.
 
-## 7. Текущее состояние (2026-10-02)
+## 7. Текущее состояние (2026-10-12)
 
-- Всё работает: стенд поднят, compliance in_sync 1/1, UI на
-  `http://192.168.31.28:8080/app/` (React, с формой входа; `/` — редирект, ванильный выпилен). Стенд в `auth_mode: token`: вход
-  admin@surifleet.local / admin12345 (break-glass, bootstrap при старте).
-- Сервер и агент под systemd (surifleet-server.service / -agent.service) —
-  переживают ребут ВМ, перекат через systemctl restart (см. §5).
-- 28 чанков + инциденты закоммичены; история — `git log` и PROGRESS.md.
-- Чанк 28: auth/RBAC — локальные пользователи (bcrypt), opaque-токен
-  сессии (TTL 12h, refresh-ротация, logout, revoke_sessions), роли
-  admin/operator/analyst/viewer + кастомные, middleware requirePerm на
-  всех маршрутах, аудит (auth.*, authz.denied, users.*, roles.*) +
-  GET /audit_log, React-логин. Попутно: фикс дубль-стрима в hub
-  (старая сессия не гасит статус новой), systemd-юниты (причина тихих
-  смертей — systemd scope-килл при закрытии ssh-сессии + ребут ВМ),
-  Redis AOF corruption после ребута (redis-check-aof --fix).
-- **Следующие шаги** (актуальные — в PROGRESS.md, дублирую):
-  1. OIDC-SSO (п. 9), API-токены со scopes (п. 8), scoping ролей по
-     кластерам, аудит diff + цепочка хэшей.
-  2. UI: вкладка пользователей/ролей и аудита.
+- Стенд жив: сервер .28 и агент .67 под systemd, docker-стек сам,
+  compliance in_sync 1/1, UI на `http://192.168.31.28:8080/app/`
+  (вход admin@surifleet.local / admin12345, auth_mode: token).
+  На сенсоре Suricata 8.0.3, 53k+ правил, все 6 capability включены.
+- Закрыто 119 чанков (включая коллизию номеров: два «113» — чанк 113
+  (конфиги suricata-update) и параллельный 113 (KI-6 сужение); дисциплина:
+  нумеровать с 114, в PROGRESS ссылаться с уточнением). Backlog заказчика
+  11.10 закрыт полностью (111 log_rotation/packages, 112 статус
+  suricata-update, 113 конфиги suricata-update).
+- Актуальные следующие шаги (детали — PROGRESS.md):
+  1. Живой e2E отложенных частей: дашборды UI глазами, rollback
+     профилей (diff/откат), волновой деплой конфигов из UI.
+  2. Статусы агента Degraded/Error (последний пробел требования Б).
+  3. Авторотация сертификатов; rate limiting; метрики Suricata глубже.
+- Окружение сборки (Windows): go через `./goenv.sh`; если «GOPATH entry
+  is relative» — задать GOTMPDIR/GOCACHE/GOPATH в Windows-формате
+  (`C:\Users\Professional\Documents\suricata\.tools\{tmp,gocache,gopath}`).
+  Фронт: `cd web && npm run build`. SSH/SFTP — `.tools/ssh.py`/`scp.py`
+  (фоновые ssh-команды: читать до EOF — длинные sleep внутри одного
+  вызова убивают таймаут чтения ~120 с).
 
 ## 8. Известные аномалии (не блокеры)
 

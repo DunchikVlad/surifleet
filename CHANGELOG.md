@@ -7,20 +7,22 @@
 
 ### Запланировано (backlog, нестандартный раздел — задачи в работу)
 
-Заказчик (2026-10-11) просит следующие чанки:
+Заказчик (2026-10-11) просил следующие чанки — **все закрыты**
+(111 log_rotation/packages, 112 статус suricata-update+PID,
+113 конфиги suricata-update; пометка оставлена для истории):
 
-- **Capabilities log_rotation и packages** — включены на стенде, но
+- **~~Capabilities log_rotation и packages~~ ✅ чанк 111** — включены на стенде, но
   задач под них в агенте нет. Реализовать: proto-типы задач
   (LogRotationTask/PackageTask), исполнители в агенте (ротация логов
   Suricata; управление пакетами suricata/suricata-update на сенсоре),
   API-эндпоинты (гейт по соответствующей capability) и кнопки в UI.
-- **Статус suricata-update и PID**: в UI видеть состояние
+- **~~Статус suricata-update и PID~~ ✅ чанк 112**: в UI видеть состояние
   suricata-update на хосте (идёт ли обновление сейчас, результат и
   время последнего запуска, версия индекса источников) и PID процесса
   (включая PID движка Suricata). Агент: сбор в discovery/heartbeat или
   отдельной sync-задачей; сервер: API + отображение на странице
   инстанса и/или вкладке «Правила».
-- **Конфиги suricata-update с хоста**: чтение и редактирование с UI —
+- **~~Конфиги suricata-update с хоста~~ ✅ чанк 113**: чтение и редактирование с UI —
   `/etc/suricata/update.yaml` и сопутствующие (update/sources/*.yaml,
   enable.conf/disable.conf/modify.conf). По образцу fetch_config для
   suricata.yaml ( capability config): fetch → правка в UI → deploy с

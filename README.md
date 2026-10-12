@@ -20,7 +20,7 @@
 | Шина задач | NATS JetStream (деплой-задачи, события, fan-out) |
 | Метрики/телеметрия | ClickHouse (метрики флота, логи агентов) |
 | Блобы ruleset'ов | S3-совместимое хранилище (MinIO), content-addressed по хэшу |
-| Frontend | React + TypeScript + Tailwind + shadcn/ui, локализация ru/en |
+| Frontend | React 18 + TypeScript (Vite, strict; без UI-китов, стили собственные), раздаётся сервером с `/app/` (go:embed) |
 | SSO | OIDC (основной), SAML 2.0, LDAP/AD (опционально) |
 
 ## Структура репозитория
@@ -28,24 +28,28 @@
 ```
 api/openapi/    OpenAPI-спецификация REST API
 api/proto/      gRPC-контракт агент↔сервер (.proto)
-cmd/server/     серверный бинарь (API + концентратор стримов)
+cmd/server/     серверный бинарь (REST API + hub gRPC-стримов + embed UI)
 cmd/agent/      агент (единый статический бинарь)
-cmd/fleetsim/   симулятор флота для нагрузочных тестов
-db/migrations/  миграции PostgreSQL (golang-migrate)
-deploy/         docker-compose, Helm
-docs/           архитектура, модель данных, протокол — версионируются с кодом
+db/migrations/  миграции PostgreSQL (golang-migrate) + зеркало internal/store/migrations
+deploy/         docker-compose стека, примеры конфигов, systemd-обёртки
+docs/           архитектура, модель данных, протокол, стенд — версионируются с кодом
 internal/       общий код сервера и агента
-web/            React-фронтенд
+web/            React-фронтенд (Vite)
 ```
+
+> Симулятор флота `cmd/fleetsim` исключён из scope решением заказчика
+> (09.10), Helm — по запросу (дистрибутив по умолчанию — docker-compose).
 
 ## Живые документы
 
 - [PROGRESS.md](PROGRESS.md) — текущая фаза, что сделано, следующий шаг.
 - [FEATURES.md](FEATURES.md) — реестр функционала: пункт ТЗ → статус → где реализовано.
 - [CHANGELOG.md](CHANGELOG.md) — журнал изменений по чанкам (Keep a Changelog).
+- [docs/handover-kimi-code.md](docs/handover-kimi-code.md) — инструкция по продолжению работы (правило возобновления, дисциплина чанков, процедуры переката).
 - [docs/access.md](docs/access.md) — как подключиться к стенду: API, порты, сценарии использования.
 - [docs/known-issues.md](docs/known-issues.md) — реестр известных проблем на исправление.
 - [docs/rule-updates.md](docs/rule-updates.md) — как работает обновление правил на агентах (suricata-update end-to-end).
+- [docs/protocol.md](docs/protocol.md) — протокол агент↔сервер (сообщения, задачи, идемпотентность).
 
 ## Требования к разработке
 
