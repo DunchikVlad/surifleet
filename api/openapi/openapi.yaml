@@ -2048,7 +2048,7 @@ paths:
         - {name: category, in: query, schema: {type: string}}
         - {name: sid, in: query, schema: {type: integer, format: int64}}
         - {name: cluster_id, in: query, schema: {type: string, format: uuid}}
-        - {name: cell_status, in: query, description: Только ячейки со статусом, schema: {type: string, enum: [loaded, failed, missing, extra]}}
+        - {name: cell_status, in: query, description: "Только ячейки со статусом; ось правил подтягивает правила с такой ячейкой хотя бы на одном инстансе страницы (чанк 119; ранее фильтр резал ячейки текущей страницы)", schema: {type: string, enum: [loaded, failed, missing, extra]}}
         - {name: rule_cursor, in: query, description: Keyset-курсор по оси правил, schema: {type: string}}
         - {name: instance_cursor, in: query, description: Keyset-курсор по оси инстансов, schema: {type: string}}
         - {name: limit, in: query, schema: {type: integer, default: 100, minimum: 1, maximum: 1000}}

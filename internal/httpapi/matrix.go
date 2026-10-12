@@ -123,13 +123,21 @@ func (h *handlers) getRulesMatrix(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := r.Context()
-	rulesPage, nextRule, err := h.d.Store.Rules.MatrixRulesPage(ctx, orgID,
-		ruleStatus, q.Get("category"), sidFilter, ruleAfter, limit)
+	// Сначала страница инстансов: фильтр cell_status (чанк 119) подтягивает
+	// в ось правил только те sid, у которых есть ячейка нужного статуса на
+	// инстансах ТЕКУЩЕЙ страницы (семантика "∃ инстанс со статусом").
+	instances, nextInst, err := h.d.Store.Instances.MatrixInstancesPage(ctx, clusterID, scope, instCursor, limit)
 	if err != nil {
 		writeStoreError(w, err)
 		return
 	}
-	instances, nextInst, err := h.d.Store.Instances.MatrixInstancesPage(ctx, clusterID, scope, instCursor, limit)
+	instIDs := make([]uuid.UUID, 0, len(instances))
+	for _, inst := range instances {
+		instIDs = append(instIDs, inst.InstanceID)
+	}
+	rulesPage, nextRule, err := h.d.Store.Rules.MatrixRulesPage(ctx, orgID,
+		ruleStatus, q.Get("category"), sidFilter, ruleAfter, limit,
+		store.MatrixCellFilter{Status: cellStatus, InstanceIDs: instIDs})
 	if err != nil {
 		writeStoreError(w, err)
 		return

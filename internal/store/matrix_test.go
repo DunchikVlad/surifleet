@@ -1,6 +1,7 @@
 package store
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -29,5 +30,34 @@ func TestSidCursorRoundTrip(t *testing.T) {
 	}
 	if _, err := DecodeSidCursor(EncodeCursor(uuid.MustParse("468c9c71-6ed3-4a3e-be56-5f1f3af93874"))); err == nil {
 		t.Error("uuid-курсор другой оси не должен парситься как sid")
+	}
+}
+
+// TestMatrixRulesPageSQLCellFilter — чанк 119: состав запроса оси правил
+// с cell_status-фильтром (подтягивание подходящих правил в ось).
+func TestMatrixRulesPageSQLCellFilter(t *testing.T) {
+	// Фильтр подключён через $7/$8 и отключаем при NULL.
+	for _, want := range []string{
+		"($7::text IS NULL OR rules.sid IN (",
+		"jsonb_array_elements(ds.computed_rules)",
+		"jsonb_array_elements(a.loaded_rules)",
+		"jsonb_array_elements(a.failed_rules)",
+		"a.reported_at IS NOT NULL",
+		"ANY($8::uuid[])",
+		"'failed' AS st",
+		"'loaded'",
+		"'missing'",
+		"'extra'",
+		"st = $7::text",
+		"AND sid > $5",
+		"ORDER BY sid LIMIT $6",
+	} {
+		if !strings.Contains(matrixRulesPageSQL, want) {
+			t.Fatalf("matrixRulesPageSQL не содержит %q", want)
+		}
+	}
+	// Семантика приоритета failed: loaded/missing/extra исключают f.
+	if strings.Count(matrixCellFilterSQL, "NOT EXISTS (SELECT 1 FROM f") != 3 {
+		t.Fatalf("ожидается 3 исключения failed-набора (loaded/missing/extra)")
 	}
 }

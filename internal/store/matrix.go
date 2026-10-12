@@ -63,9 +63,64 @@ func DecodeSidCursor(s string) (int64, error) {
 	return sid, nil
 }
 
+// MatrixCellFilter — фильтр cell_status (чанк 119): ось правил
+// подтягивает правила, у которых ЕСТЬ ячейка заданного статуса хотя бы на
+// одном инстансе ТЕКУЩЕЙ страницы оси инстансов (раньше фильтр резал
+// ячейки только внутри уже выбранной страницы правил — MVP-ограничение
+// чанка 13d). InstanceIDs — страница инстансов (пусто → ячеек нет →
+// правил нет).
+type MatrixCellFilter struct {
+	Status      string   // loaded | failed | missing | extra (пусто — без фильтра)
+	InstanceIDs []uuid.UUID
+}
+
+// matrixCellFilterSQL — IN-подзапрос сидов с ячейкой статуса $7 среди
+// инстансов $8. Семантика ячеек — ровно cellStatusOf (failed приоритетнее
+// прочих; loaded = desired∩loaded¬failed; missing = desired¬loaded¬failed;
+// extra = loaded¬desired¬failed), пер-инстанс, затем объединение по ∃.
+// Вынесен константой для читаемости и юнит-контроля состава запроса.
+const matrixCellFilterSQL = `rules.sid IN (
+  WITH d AS (SELECT (e->>'sid')::bigint sid, ds.instance_id
+             FROM desired_state ds, jsonb_array_elements(ds.computed_rules) e
+             WHERE ds.instance_id = ANY($8::uuid[])),
+       l AS (SELECT (e->>'sid')::bigint sid, a.instance_id
+             FROM actual_state a, jsonb_array_elements(a.loaded_rules) e
+             WHERE a.instance_id = ANY($8::uuid[]) AND a.reported_at IS NOT NULL),
+       f AS (SELECT (e->>'sid')::bigint sid, a.instance_id
+             FROM actual_state a, jsonb_array_elements(a.failed_rules) e
+             WHERE a.instance_id = ANY($8::uuid[]) AND a.reported_at IS NOT NULL)
+  SELECT sid FROM (
+    SELECT 'failed' AS st, sid FROM f
+    UNION ALL
+    SELECT 'loaded', d.sid FROM d JOIN l ON l.instance_id = d.instance_id AND l.sid = d.sid
+     WHERE NOT EXISTS (SELECT 1 FROM f fa WHERE fa.instance_id = d.instance_id AND fa.sid = d.sid)
+    UNION ALL
+    SELECT 'missing', d.sid FROM d
+     WHERE NOT EXISTS (SELECT 1 FROM l la WHERE la.instance_id = d.instance_id AND la.sid = d.sid)
+       AND NOT EXISTS (SELECT 1 FROM f fa WHERE fa.instance_id = d.instance_id AND fa.sid = d.sid)
+    UNION ALL
+    SELECT 'extra', l.sid FROM l
+     WHERE NOT EXISTS (SELECT 1 FROM d da WHERE da.instance_id = l.instance_id AND da.sid = l.sid)
+       AND NOT EXISTS (SELECT 1 FROM f fa WHERE fa.instance_id = l.instance_id AND fa.sid = l.sid)
+  ) cells WHERE st = $7::text
+)`
+
+// matrixRulesPageSQL — выборка оси правил (чанк 119: +фильтр cell_status
+// через matrixCellFilterSQL; при $7 IS NULL подзапрос не вычисляется).
+const matrixRulesPageSQL = `SELECT id, sid, msg, status FROM rules
+ WHERE organization_id = $1
+   AND ($2::text IS NULL AND status != 'deleted' OR status = $2)
+   AND ($3::text IS NULL OR category = $3)
+   AND ($4::bigint IS NULL OR sid = $4)
+   AND ($7::text IS NULL OR ` + matrixCellFilterSQL + `)
+   AND sid > $5
+ ORDER BY sid LIMIT $6`
+
 // MatrixRulesPage — страница оси правил: keyset по sid, фильтры
 // status/category/sid (как в списке правил; без явного status deleted скрыты).
-func (r *RulesRepo) MatrixRulesPage(ctx context.Context, orgID uuid.UUID, status, category string, sid, afterSid int64, limit int) ([]MatrixRule, *string, error) {
+// cell — фильтр cell_status (пустой Status — без фильтра, прежнее
+// поведение).
+func (r *RulesRepo) MatrixRulesPage(ctx context.Context, orgID uuid.UUID, status, category string, sid, afterSid int64, limit int, cell MatrixCellFilter) ([]MatrixRule, *string, error) {
 	var statusArg, categoryArg *string
 	if status != "" {
 		statusArg = &status
@@ -77,15 +132,16 @@ func (r *RulesRepo) MatrixRulesPage(ctx context.Context, orgID uuid.UUID, status
 	if sid != 0 {
 		sidArg = &sid
 	}
-	rows, err := r.pool.Query(ctx,
-		`SELECT id, sid, msg, status FROM rules
-		 WHERE organization_id = $1
-		   AND ($2::text IS NULL AND status != 'deleted' OR status = $2)
-		   AND ($3::text IS NULL OR category = $3)
-		   AND ($4::bigint IS NULL OR sid = $4)
-		   AND sid > $5
-		 ORDER BY sid LIMIT $6`,
-		orgID, statusArg, categoryArg, sidArg, afterSid, limit+1)
+	var cellStatusArg *string
+	if cell.Status != "" {
+		cellStatusArg = &cell.Status
+	}
+	cellInsts := cell.InstanceIDs
+	if len(cellInsts) == 0 {
+		cellInsts = nil // ANY(NULL) — пустое множество: ячеек нет
+	}
+	rows, err := r.pool.Query(ctx, matrixRulesPageSQL,
+		orgID, statusArg, categoryArg, sidArg, afterSid, limit+1, cellStatusArg, cellInsts)
 	if err != nil {
 		return nil, nil, translate(err)
 	}
