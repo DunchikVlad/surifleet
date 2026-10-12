@@ -1,6 +1,9 @@
 # Модель данных SuriFleet
 
-Версия: 0.1 (чанк 2). Реализация: `db/migrations/000001_init.up.sql` (PostgreSQL 15+).
+Версия: 0.1 (чанк 2) + дополнения (чанк 121). Реализация: `db/migrations/`
+(000001…000021, живой источник правды — миграции и их зеркало в
+`internal/store/migrations/`; этот документ описывает каркас 000001 и
+свод дополнений, а не каждую колонку).
 
 Модель флота: **Организация → Кластер → Хост → Инстанс Suricata (1..N)**; на хосте
 ровно один **агент**. Атом деплоя и статусов соответствия — **инстанс**, атом
@@ -375,6 +378,31 @@ capability включаются явно (после бэкапа). Отсутс
 - **Цепочка хэшей**: `hash = sha256(нормализованные поля записи || prev_hash)`;
   вычисляется приложением при вставке (опция `audit.hash_chain`), верификация —
   выборкой по `created_at` с пересчётом.
+
+### Дополнения после 000001 (свод, актуально на 2026-10-12)
+
+Таблицы миграций 000002–000021 (детали — в SQL-файлах миграций):
+
+| Таблица | Миграция | Назначение |
+|---|---|---|
+| `join_tokens` | 000002 | Токены первичной регистрации агентов (SHA-256 в БД, расход атомарно) |
+| `feed_runs` | 000005 | История запусков синка фидов (счётчики, ошибки) |
+| `oidc_states` | 000009 | Одноразовые state/nonce OIDC-flow (consume DELETE…RETURNING) |
+| `config_versions` | 000010 | Версии suricata.yaml (контент — content-addressed блоб S3; cfg-vN автоинкремент per-org; UNIQUE (org,version), (org,sha256)) |
+| `instance_config_history` | 000011 | История применения конфигов по инстансу (validated/applied/validation_failed/deploy_failed) |
+| `config_profiles` | 000012 | Профили конфигураций (scope cluster/host/instance, parent_id — наследование цепочки) |
+| `config_profile_versions` | 000014 | Снимки content_yaml профилей на каждую версию (rollback = новая версия с содержимым целевой) |
+| `notification_channels` | 000015 | Каналы уведомлений webhook/Telegram (config jsonb, bot_token writeOnly) |
+| `notification_deliveries` | 000016 | Дедупликация доставок (PK (channel_id, fingerprint), окно 10 мин) |
+| `siem_configs` | 000017 | SIEM-конфиг host|cluster scope (частичные уникальные индексы) |
+| `auto_rulesets` | 000018–000020 | Авто-обновляемые ruleset'ы: состав по origin (suriupdate/ioc/manual/feeds) + include_sources/теги/категории/exclude_sids, таргетинг, расписание (ежедневно HH:MM или интервал N минут) |
+| `update_config_history` | 000021 | История применения конфигов suricata-update по инстансу |
+
+Ключевые расширения колонок: `rules.origin` (manual|feed|ioc|suriupdate,
+000018) и `rules.source_name` (имя источника suricata-update, 000019);
+`deployments.kind` (rules|config) + `config_version_id` (000013);
+`feeds.last_error` (000005). Таблица `incidents` остаётся в схеме неиспользуемой
+— автодетект инцидентов исключён решением заказчика 09.10 (⬛).
 
 ## 3. Стратегия партиционирования
 
