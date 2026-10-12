@@ -48,6 +48,22 @@
 
 ### Fixed
 
+- Чанк 119 (2026-10-12): матрица «правила × инстансы» — фильтр
+  `cell_status` теперь подтягивает подходящие правила в ось правил
+  (снято MVP-ограничение чанка 13d «фильтр резал ячейки только текущей
+  страницы»). Ось правил фильтруется IN-подзапросом: EXISTS ячейки
+  статуса на инстансах текущей страницы оси инстансов; семантика ячеек
+  идентична cellStatusOf (failed приоритетнее; loaded = desired∩loaded∖failed,
+  missing = desired∖loaded∖failed, extra = loaded∖desired∖failed) через
+  джойны jsonb_array_elements computed/loaded/failed_rules. Хендлер:
+  страница инстансов теперь выбирается первой. Защита jsonb_typeof =
+  'array' в CTE (скалярные наборы у части строк — SQLSTATE 22023,
+  поймано живым e2E; Go-сторона такое терпит через json.Unmarshal).
+  Юнит-контроль состава SQL (TestMatrixRulesPageSQLCellFilter). **Живой
+  e2E (перекат .28)**: loaded&limit=50 → все 50 правил имеют loaded-
+  ячейку; keyset-страница 2 без дублей (min sid растёт); missing → 0/0
+  (стенд in_sync); без фильтра — регрессии нет; compliance in_sync 1/1.
+  OpenAPI: описание cell_status обновлено. (server, api)
 - Чанк 118 (2026-10-11): CEF-поле rt (deviceReceiptTime) в пересылке
   EVE-алертов в SIEM — раньше в rt уходила сырая строка timestamp EVE,
   наблюдены непредсказуемые значения (чанк 45: rt=2731). `cefRT`
